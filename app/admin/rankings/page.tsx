@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { Metadata } from "next";
+import type { Metadata } from "next";
 import RankingsClient from "./RankingsClient";
 
 export const metadata: Metadata = {
@@ -10,12 +10,36 @@ export const metadata: Metadata = {
   description: "Clasificaciones y ranking del torneo",
 };
 
+// Tipos ligeros usados en los filtros/cálculos
+type TournamentLinkLite = { tournamentId: string };
+type GroupPlayerLite = {
+  points: number;
+  group: { round: { id: string; number: number; tournamentId: string } };
+};
+type PlayerForStats = {
+  id: string;
+  name: string;
+  tournaments: TournamentLinkLite[];
+  groupPlayers: GroupPlayerLite[];
+};
+
+type StatsRow = {
+  playerId: string;
+  playerName: string;
+  position: number;
+  totalPoints: number;
+  roundsPlayed: number;
+  averagePoints: number;
+  ironmanPosition: number;
+  movement: "up" | "down" | "stable" | "new";
+};
+
 export default async function AdminRankingsPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/auth/login");
   if (!session.user?.isAdmin) redirect("/dashboard");
 
-  // Obtener torneo activo
+  // Obtener torneo activo + rondas
   const tournament = await prisma.tournament.findFirst({
     where: { isActive: true },
     include: {
@@ -36,105 +60,108 @@ export default async function AdminRankingsPage() {
     );
   }
 
-  // Obtener la ronda más reciente con datos
+  // Ronda más reciente (si no hay, usamos 1 por compatibilidad)
   const latestRound = tournament.rounds[0];
-  
-  // Obtener rankings de la tabla Ranking
+
+  // Rankings almacenados (si existen)
   const rankings = await prisma.ranking.findMany({
-    where: { 
+    where: {
       tournamentId: tournament.id,
       roundNumber: latestRound?.number || 1,
     },
-    orderBy: [
-      { position: "asc" },
-    ],
+    orderBy: [{ position: "asc" }],
   });
 
-  // Si no hay rankings en la tabla, calculamos manualmente
-  let playersWithStats = [];
-  
+  let playersWithStats: StatsRow[] = [];
+
   if (rankings.length === 0) {
-    // Calcular estadísticas manualmente
-    const players = await prisma.player.findMany({
+    // ---- Calcular estadísticas manualmente ----
+    const playersDb = (await prisma.player.findMany({
       include: {
         tournaments: {
           where: { tournamentId: tournament.id },
+          select: { tournamentId: true },
         },
         groupPlayers: {
-          include: {
-            group: {
-              include: {
-                round: true,
-              }
-            }
-          }
+          select: {
+            points: true,
+            group: { select: { round: { select: { id: true, number: true, tournamentId: true } } } },
+          },
         },
       },
-    });
+      orderBy: { name: "asc" },
+    })) as unknown as PlayerForStats[];
 
-    const tournamentPlayers = players.filter(player => 
-      player.tournaments.some(tp => tp.tournamentId === tournament.id)
+    // Filtrar inscritos en este torneo (tipamos el array, no el parámetro del callback)
+    const tournamentPlayers = (playersDb as PlayerForStats[]).filter((p) =>
+      p.tournaments.some((tp) => tp.tournamentId === tournament.id)
     );
 
     playersWithStats = await Promise.all(
-      tournamentPlayers.map(async (player, index) => {
-        // Contar partidos jugados y puntos
+      (tournamentPlayers as PlayerForStats[]).map(async (p, index) => {
+        // Partidos confirmados en los que participa (4 consultas; se puede optimizar más adelante)
         const matchesAsTeam1Player1 = await prisma.match.count({
-          where: { team1Player1Id: player.id, isConfirmed: true }
+          where: { team1Player1Id: p.id, isConfirmed: true },
         });
         const matchesAsTeam1Player2 = await prisma.match.count({
-          where: { team1Player2Id: player.id, isConfirmed: true }
+          where: { team1Player2Id: p.id, isConfirmed: true },
         });
         const matchesAsTeam2Player1 = await prisma.match.count({
-          where: { team2Player1Id: player.id, isConfirmed: true }
+          where: { team2Player1Id: p.id, isConfirmed: true },
         });
         const matchesAsTeam2Player2 = await prisma.match.count({
-          where: { team2Player2Id: player.id, isConfirmed: true }
+          where: { team2Player2Id: p.id, isConfirmed: true },
         });
 
-        const totalMatches = matchesAsTeam1Player1 + matchesAsTeam1Player2 + matchesAsTeam2Player1 + matchesAsTeam2Player2;
-        
-        // Calcular puntos aproximados (esto dependería de tu lógica específica)
-        const totalPoints = player.groupPlayers.reduce((acc, gp) => acc + gp.points, 0);
+        const totalMatches =
+          matchesAsTeam1Player1 +
+          matchesAsTeam1Player2 +
+          matchesAsTeam2Player1 +
+          matchesAsTeam2Player2;
+
+        // Puntos acumulados desde GroupPlayer
+        const totalPoints = p.groupPlayers.reduce((acc, gp) => acc + (gp.points ?? 0), 0);
+        const roundsPlayed = p.groupPlayers.length;
         const averagePoints = totalMatches > 0 ? totalPoints / totalMatches : 0;
 
         return {
-          playerId: player.id,
-          playerName: player.name,
-          position: index + 1,
+          playerId: p.id,
+          playerName: p.name,
+          position: index + 1, // se recalcula tras ordenar
           totalPoints,
-          roundsPlayed: player.groupPlayers.length,
+          roundsPlayed,
           averagePoints,
           ironmanPosition: index + 1,
-          movement: "stable" as const,
-        };
+          movement: "stable",
+        } as StatsRow;
       })
     );
 
-    // Ordenar por puntos totales
+    // Ordenar por puntos totales y reasignar posición
     playersWithStats.sort((a, b) => b.totalPoints - a.totalPoints);
-    playersWithStats = playersWithStats.map((player, index) => ({
-      ...player,
-      position: index + 1,
+    playersWithStats = playersWithStats.map((row, idx) => ({
+      ...row,
+      position: idx + 1,
     }));
   } else {
-    // Usar datos de la tabla Ranking
+    // ---- Usar rankings persistidos ----
     playersWithStats = await Promise.all(
-      rankings.map(async (ranking) => {
+      rankings.map(async (r) => {
         const player = await prisma.player.findUnique({
-          where: { id: ranking.playerId },
+          where: { id: r.playerId },
+          select: { name: true },
         });
-        
+
         return {
-          playerId: ranking.playerId,
+          playerId: r.playerId,
           playerName: player?.name || "Jugador desconocido",
-          position: ranking.position,
-          totalPoints: ranking.totalPoints,
-          roundsPlayed: ranking.roundsPlayed,
-          averagePoints: ranking.averagePoints,
-          ironmanPosition: ranking.ironmanPosition,
-          movement: ranking.movement as "up" | "down" | "stable" | "new",
-        };
+          position: r.position,
+          totalPoints: r.totalPoints,
+          roundsPlayed: r.roundsPlayed,
+          averagePoints: r.averagePoints,
+          ironmanPosition: r.ironmanPosition,
+          movement: (r.movement as "up" | "down" | "stable" | "new") ?? "stable",
+        } as StatsRow;
       })
     );
   }
@@ -146,10 +173,5 @@ export default async function AdminRankingsPage() {
     totalRounds: tournament.totalRounds,
   };
 
-  return (
-    <RankingsClient 
-      rankings={playersWithStats}
-      tournament={serializedTournament}
-    />
-  );
+  return <RankingsClient rankings={playersWithStats} tournament={serializedTournament} />;
 }

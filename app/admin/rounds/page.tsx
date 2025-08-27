@@ -3,11 +3,12 @@ import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Metadata } from "next";
+import type { Metadata } from "next";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { differenceInDays, differenceInHours, isAfter, isBefore } from "date-fns";
 import RoundsClient from "./RoundsClient";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Rondas | Escalapp",
@@ -19,7 +20,7 @@ export default async function AdminRoundsPage() {
   if (!session) redirect("/auth/login");
   if (!session.user?.isAdmin) redirect("/dashboard");
 
-  // Torneo activo + sus rondas (ordenadas)
+  // Torneo activo
   const tournament = await prisma.tournament.findFirst({
     where: { isActive: true },
     orderBy: { startDate: "asc" },
@@ -46,28 +47,20 @@ export default async function AdminRoundsPage() {
     where: { tournamentId: tournament.id },
     orderBy: { number: "asc" },
     include: {
-      groups: true, // relación: Round -> Group[]
+      groups: true,
     },
   });
 
-  // Enriquecemos con contadores
+  // Enriquecemos con contadores y estado
   const enhanced = await Promise.all(
     rounds.map(async (r) => {
       const pending = await prisma.match.count({
-        where: {
-          isConfirmed: false,
-          group: { roundId: r.id },
-        },
+        where: { isConfirmed: false, group: { roundId: r.id } },
       });
-
       const confirmed = await prisma.match.count({
-        where: {
-          isConfirmed: true,
-          group: { roundId: r.id },
-        },
+        where: { isConfirmed: true, group: { roundId: r.id } },
       });
 
-      // días y estado
       const now = new Date();
       const status = r.isClosed
         ? "closed"
@@ -93,7 +86,7 @@ export default async function AdminRoundsPage() {
     })
   );
 
-  // Serializar los datos para el cliente
+  // Serialización para el cliente
   const serializedTournament = {
     id: tournament.id,
     title: tournament.title,
@@ -101,7 +94,7 @@ export default async function AdminRoundsPage() {
     endDate: tournament.endDate.toISOString(),
   };
 
-  const serializedRounds = enhanced.map(r => ({
+  const serializedRounds = enhanced.map((r) => ({
     id: r.id,
     number: r.number,
     startDate: r.startDate.toISOString(),
@@ -110,16 +103,83 @@ export default async function AdminRoundsPage() {
     groupsCount: r.groups.length,
     pending: r.pending,
     confirmed: r.confirmed,
-    status: r.status,
+    status: r.status as "closed" | "upcoming" | "overdue" | "active",
     daysToStart: r.daysToStart,
     daysToEnd: r.daysToEnd,
     hoursToEnd: r.hoursToEnd,
   }));
 
+  // Cabecera de navegación + chips de ronda
   return (
-    <RoundsClient 
-      tournament={serializedTournament} 
-      rounds={serializedRounds} 
-    />
+    <main className="min-h-screen bg-gray-50">
+      <div className="container mx-auto px-4 py-6">
+        {/* Toolbar de navegación */}
+        <div className="mb-6 flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold text-gray-900">
+              Rondas del Torneo
+            </h1>
+            <p className="text-gray-600">
+              {tournament.title} ·{" "}
+              {format(tournament.startDate, "PPP", { locale: es })} —{" "}
+              {format(tournament.endDate, "PPP", { locale: es })}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/admin"
+              className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50"
+            >
+              ← Panel
+            </Link>
+            <Link
+              href="/admin/tournaments"
+              className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50"
+            >
+              Torneos
+            </Link>
+            <Link
+              href="/admin/players"
+              className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50"
+            >
+              Jugadores
+            </Link>
+            <Link
+              href="/admin/rankings"
+              className="inline-flex items-center px-3 py-2 rounded-lg border border-gray-300 bg-white text-sm font-medium hover:bg-gray-50"
+            >
+              Rankings
+            </Link>
+            <Link
+              href={`/admin/tournaments/${tournament.id}`}
+              className="inline-flex items-center px-3 py-2 rounded-lg border border-blue-600 text-blue-600 bg-white text-sm font-semibold hover:bg-blue-50"
+            >
+              Detalle del Torneo
+            </Link>
+          </div>
+        </div>
+
+        {/* Saltos rápidos por ronda */}
+        <div className="mb-6 overflow-x-auto">
+          <div className="flex gap-2 min-w-max">
+            {serializedRounds.map((r) => (
+              <a
+                key={r.id}
+                href={`#ronda-${r.number}`}
+                className="inline-flex items-center px-3 py-2 rounded-full text-sm bg-white border border-gray-200 hover:bg-gray-50 shadow-sm"
+              >
+                Ronda {r.number}
+              </a>
+            ))}
+          </div>
+        </div>
+
+        {/* Contenido del cliente */}
+        {/* Nota: si tu RoundsClient no pinta anclas, no pasa nada; los enlaces seguirán arriba. 
+            Si quieres, puedes hacer que RoundsClient añada id={`ronda-${round.number}`} en cada bloque. */}
+        <RoundsClient tournament={serializedTournament} rounds={serializedRounds} />
+      </div>
+    </main>
   );
 }
