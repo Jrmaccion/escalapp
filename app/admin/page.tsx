@@ -2,14 +2,24 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { Metadata } from "next";
-import AdminDashboardClient from "./AdminDashboardClient";
+import type { Metadata } from "next";
 import Link from "next/link";
+import AdminDashboardClient from "./AdminDashboardClient";
+import type { Prisma } from "@prisma/client";
 
 export const metadata: Metadata = {
   title: "Dashboard Admin | Escalapp",
   description: "Panel de administración del torneo",
 };
+
+// Tipos para evitar implicit-any
+type GroupWithMatches = Prisma.GroupGetPayload<{
+  include: { matches: true };
+}>;
+
+type RoundWithRelations = Prisma.RoundGetPayload<{
+  include: { groups: { include: { matches: true } } };
+}>;
 
 export default async function AdminDashboardPage() {
   const session = await getServerSession(authOptions);
@@ -121,7 +131,7 @@ export default async function AdminDashboardPage() {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               strokeWidth={2}
-                              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+                              d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2m0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
                             />
                           </svg>
                         </div>
@@ -199,60 +209,68 @@ export default async function AdminDashboardPage() {
     );
   }
 
-  // Calcular estadísticas (evitamos "implicit any")
+  // ---- Cálculo de estadísticas tipado ----
+  const totalMatches = (tournament.rounds as RoundWithRelations[]).reduce((acc, round) => {
+    const m = (round.groups as GroupWithMatches[]).reduce(
+      (gAcc, g) => gAcc + (g.matches?.length ?? 0),
+      0
+    );
+    return acc + m;
+  }, 0);
+
+  const confirmedMatches = (tournament.rounds as RoundWithRelations[]).reduce((acc, round) => {
+    const c = (round.groups as GroupWithMatches[]).reduce(
+      (gAcc, g) => gAcc + g.matches.filter((m) => !!m.isConfirmed).length,
+      0
+    );
+    return acc + c;
+  }, 0);
+
+  const pendingMatches = totalMatches - confirmedMatches;
+
   const stats = {
     totalPlayers: tournament.players.length,
     totalRounds: tournament.rounds.length,
-    activeRounds: tournament.rounds.filter((r: { isClosed: boolean }) => !r.isClosed).length,
-    totalMatches: tournament.rounds.reduce(
-      (acc: number, round: { groups: { matches: unknown[] }[] }) =>
-        acc + round.groups.reduce((groupAcc: number, group: { matches: unknown[] }) => groupAcc + (group.matches?.length ?? 0), 0),
-      0
-    ),
-    pendingMatches: tournament.rounds.reduce(
-      (acc: number, round: { groups: { matches: { isConfirmed?: boolean }[] }[] }) =>
-        acc +
-        round.groups.reduce(
-          (groupAcc: number, group: { matches: { isConfirmed?: boolean }[] }) =>
-            groupAcc + group.matches.filter((m) => !m?.isConfirmed).length,
-          0
-        ),
-      0
-    ),
-    confirmedMatches: tournament.rounds.reduce(
-      (acc: number, round: { groups: { matches: { isConfirmed?: boolean }[] }[] }) =>
-        acc +
-        round.groups.reduce(
-          (groupAcc: number, group: { matches: { isConfirmed?: boolean }[] }) =>
-            groupAcc + group.matches.filter((m) => !!m?.isConfirmed).length,
-          0
-        ),
-      0
-    ),
+    activeRounds: (tournament.rounds as RoundWithRelations[]).filter((r) => !r.isClosed).length,
+    totalMatches,
+    confirmedMatches,
+    pendingMatches,
   };
 
+  // ---- Serialización como string (sin null) ----
   const serializedTournament = {
     id: tournament.id,
     title: tournament.title,
     startDate: tournament.startDate.toISOString(),
-    endDate: tournament.endDate.toISOString(),
+    endDate: tournament.endDate ? tournament.endDate.toISOString() : "", // <- nunca null
     totalRounds: tournament.totalRounds,
     roundDurationDays: tournament.roundDurationDays,
   };
 
-  const serializedRounds = tournament.rounds.map((round) => ({
-    id: round.id,
-    number: round.number,
-    startDate: round.startDate.toISOString(),
-    endDate: round.endDate.toISOString(),
-    isClosed: round.isClosed,
-    groupsCount: round.groups.length,
-    matchesCount: round.groups.reduce((acc, group) => acc + (group.matches?.length ?? 0), 0),
-    pendingMatches: round.groups.reduce(
-      (acc, group) => acc + group.matches.filter((m) => !m.isConfirmed).length,
-      0
-    ),
-  }));
+  const serializedRounds = (tournament.rounds as RoundWithRelations[]).map(
+    (round: RoundWithRelations) => ({
+      id: round.id,
+      number: round.number,
+      startDate: round.startDate.toISOString(),
+      endDate: round.endDate ? round.endDate.toISOString() : "", // <- nunca null
+      isClosed: round.isClosed,
+      groupsCount: round.groups.length,
+      matchesCount: (round.groups as GroupWithMatches[]).reduce(
+        (acc, g) => acc + (g.matches?.length ?? 0),
+        0
+      ),
+      pendingMatches: (round.groups as GroupWithMatches[]).reduce(
+        (acc, g) => acc + g.matches.filter((m) => !m.isConfirmed).length,
+        0
+      ),
+    })
+  );
 
-  return <AdminDashboardClient tournament={serializedTournament} rounds={serializedRounds} stats={stats} />;
+  return (
+    <AdminDashboardClient
+      tournament={serializedTournament}
+      rounds={serializedRounds}
+      stats={stats}
+    />
+  );
 }
