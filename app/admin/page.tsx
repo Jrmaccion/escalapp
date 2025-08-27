@@ -5,28 +5,18 @@ import { prisma } from "@/lib/prisma";
 import type { Metadata } from "next";
 import Link from "next/link";
 import AdminDashboardClient from "./AdminDashboardClient";
-import type { Prisma } from "@prisma/client";
 
 export const metadata: Metadata = {
   title: "Dashboard Admin | Escalapp",
   description: "Panel de administración del torneo",
 };
 
-// Tipos para evitar implicit-any
-type GroupWithMatches = Prisma.GroupGetPayload<{
-  include: { matches: true };
-}>;
-
-type RoundWithRelations = Prisma.RoundGetPayload<{
-  include: { groups: { include: { matches: true } } };
-}>;
-
 export default async function AdminDashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/auth/login");
   if (!session.user?.isAdmin) redirect("/dashboard");
 
-  // Obtener torneo activo
+  // Obtener torneo activo con relaciones necesarias
   const tournament = await prisma.tournament.findFirst({
     where: { isActive: true },
     include: {
@@ -44,6 +34,7 @@ export default async function AdminDashboardPage() {
     },
   });
 
+  // Estado sin torneo
   if (!tournament) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -209,62 +200,66 @@ export default async function AdminDashboardPage() {
     );
   }
 
-  // ---- Cálculo de estadísticas tipado ----
-  const totalMatches = (tournament.rounds as RoundWithRelations[]).reduce((acc, round) => {
-    const m = (round.groups as GroupWithMatches[]).reduce(
-      (gAcc, g) => gAcc + (g.matches?.length ?? 0),
-      0
-    );
-    return acc + m;
-  }, 0);
+  // ---- Cálculo de estadísticas (tipos inline, sin Prisma helpers) ----
+  type MatchLite = { isConfirmed?: boolean | null };
+  type GroupLite = { matches: MatchLite[] };
+  type RoundLite = {
+    id: string;
+    number: number;
+    startDate: Date;
+    endDate: Date | null;
+    isClosed: boolean;
+    groups: GroupLite[];
+  };
 
-  const confirmedMatches = (tournament.rounds as RoundWithRelations[]).reduce((acc, round) => {
-    const c = (round.groups as GroupWithMatches[]).reduce(
-      (gAcc, g) => gAcc + g.matches.filter((m) => !!m.isConfirmed).length,
-      0
-    );
-    return acc + c;
-  }, 0);
+  const roundsArr = tournament.rounds as unknown as RoundLite[];
+
+  const totalMatches = roundsArr.reduce(
+    (acc, round) => acc + round.groups.reduce((gAcc, g) => gAcc + (g.matches?.length ?? 0), 0),
+    0
+  );
+
+  const confirmedMatches = roundsArr.reduce(
+    (acc, round) =>
+      acc +
+      round.groups.reduce((gAcc, g) => gAcc + g.matches.filter((m) => !!m?.isConfirmed).length, 0),
+    0
+  );
 
   const pendingMatches = totalMatches - confirmedMatches;
 
   const stats = {
     totalPlayers: tournament.players.length,
-    totalRounds: tournament.rounds.length,
-    activeRounds: (tournament.rounds as RoundWithRelations[]).filter((r) => !r.isClosed).length,
+    totalRounds: roundsArr.length,
+    activeRounds: roundsArr.filter((r) => !r.isClosed).length,
     totalMatches,
     confirmedMatches,
     pendingMatches,
   };
 
-  // ---- Serialización como string (sin null) ----
+  // ---- Serialización (endDate string vacía si falta) ----
   const serializedTournament = {
     id: tournament.id,
     title: tournament.title,
     startDate: tournament.startDate.toISOString(),
-    endDate: tournament.endDate ? tournament.endDate.toISOString() : "", // <- nunca null
+    endDate: tournament.endDate ? tournament.endDate.toISOString() : "",
     totalRounds: tournament.totalRounds,
     roundDurationDays: tournament.roundDurationDays,
   };
 
-  const serializedRounds = (tournament.rounds as RoundWithRelations[]).map(
-    (round: RoundWithRelations) => ({
-      id: round.id,
-      number: round.number,
-      startDate: round.startDate.toISOString(),
-      endDate: round.endDate ? round.endDate.toISOString() : "", // <- nunca null
-      isClosed: round.isClosed,
-      groupsCount: round.groups.length,
-      matchesCount: (round.groups as GroupWithMatches[]).reduce(
-        (acc, g) => acc + (g.matches?.length ?? 0),
-        0
-      ),
-      pendingMatches: (round.groups as GroupWithMatches[]).reduce(
-        (acc, g) => acc + g.matches.filter((m) => !m.isConfirmed).length,
-        0
-      ),
-    })
-  );
+  const serializedRounds = roundsArr.map((round) => ({
+    id: round.id,
+    number: round.number,
+    startDate: round.startDate.toISOString(),
+    endDate: round.endDate ? round.endDate.toISOString() : "",
+    isClosed: round.isClosed,
+    groupsCount: round.groups.length,
+    matchesCount: round.groups.reduce((acc, g) => acc + (g.matches?.length ?? 0), 0),
+    pendingMatches: round.groups.reduce(
+      (acc, g) => acc + g.matches.filter((m) => !m.isConfirmed).length,
+      0
+    ),
+  }));
 
   return (
     <AdminDashboardClient
