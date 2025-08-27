@@ -4,6 +4,7 @@ import { ArrowLeft, Calendar, Users, Trophy, CheckCircle, Clock, Play, X } from 
 import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { useState, useTransition } from "react";
 
 type SerializedRound = {
   id: string;
@@ -63,6 +64,50 @@ type RoundDetailClientProps = {
 };
 
 export default function RoundDetailClient({ round, groups, stats }: RoundDetailClientProps) {
+  const [isPending, startTransition] = useTransition();
+
+  const closeRound = () => {
+    const confirmed = confirm("¿Cerrar esta ronda y aplicar movimientos?");
+    if (!confirmed) return;
+    
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/rounds/${round.id}/close`, { method: "POST" });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const errorText = await res.text();
+          console.error("Error cerrando ronda:", errorText);
+          alert(`No se pudo cerrar la ronda: ${errorText}`);
+        }
+      } catch (error) {
+        console.error("Error de conexión:", error);
+        alert("Error de conexión");
+      }
+    });
+  };
+
+  const generateNextRound = () => {
+    const confirmed = confirm("¿Generar la siguiente ronda a partir de esta?");
+    if (!confirmed) return;
+    
+    startTransition(async () => {
+      try {
+        const res = await fetch(`/api/rounds/${round.id}/generate-next`, { method: "POST" });
+        if (res.ok) {
+          window.location.reload();
+        } else {
+          const errorText = await res.text();
+          console.error("Error generando ronda:", errorText);
+          alert(`No se pudo generar la siguiente ronda: ${errorText}`);
+        }
+      } catch (error) {
+        console.error("Error de conexión:", error);
+        alert("Error de conexión");
+      }
+    });
+  };
+
   const getPlayerName = (playerId: string): string => {
     for (const group of groups) {
       const player = group.players.find(p => p.id === playerId);
@@ -265,10 +310,22 @@ export default function RoundDetailClient({ round, groups, stats }: RoundDetailC
           {!round.isClosed && (
             <button 
               className="inline-flex items-center px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition-colors"
-              onClick={() => alert('Función de cerrar ronda por implementar')}
+              onClick={closeRound}
+              disabled={isPending}
             >
               <X className="w-4 h-4 mr-2" />
-              Cerrar Ronda
+              {isPending ? 'Cerrando...' : 'Cerrar Ronda'}
+            </button>
+          )}
+
+          {round.isClosed && (
+            <button 
+              className="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition-colors"
+              onClick={generateNextRound}
+              disabled={isPending}
+            >
+              <Play className="w-4 h-4 mr-2" />
+              {isPending ? 'Generando...' : 'Generar Siguiente'}
             </button>
           )}
         </div>
