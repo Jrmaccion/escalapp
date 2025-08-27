@@ -112,20 +112,122 @@ export class TournamentEngine {
         }
       })
 
+      // Crear jugadores en el grupo
+      const playersInGroup = []
       for (let j = 0; j < newGroupsDistribution[i].length; j++) {
-        await prisma.groupPlayer.create({
+        const groupPlayer = await prisma.groupPlayer.create({
           data: {
             groupId: group.id,
             playerId: newGroupsDistribution[i][j].playerId,
             position: j + 1,
             points: 0,
-            streak: this.calculateNewStreak(newGroupsDistribution[i][j])
+            streak: this.calculateNewStreak(newGroupsDistribution[i][j], roundNumber)
           }
         })
+        playersInGroup.push({
+          id: newGroupsDistribution[i][j].playerId,
+          position: j + 1
+        })
       }
+
+      // NUEVA FUNCIONALIDAD: Generar matches automáticamente
+      await this.generateGroupMatches(group.id, playersInGroup)
     }
 
     return newRound
+  }
+
+  /**
+   * NUEVA FUNCIÓN: Genera automáticamente los 3 sets con rotación de parejas
+   * Set 1: #1 + #4 vs #2 + #3
+   * Set 2: #1 + #3 vs #2 + #4
+   * Set 3: #1 + #2 vs #3 + #4
+   */
+  private static async generateGroupMatches(groupId: string, players: { id: string, position: number }[]) {
+    if (players.length !== 4) {
+      console.warn(`Grupo ${groupId} no tiene exactamente 4 jugadores. Matches no generados.`)
+      return
+    }
+
+    // Ordenar por posición para asegurar orden correcto
+    const sortedPlayers = players.sort((a, b) => a.position - b.position)
+
+    const matchConfigurations = [
+      {
+        setNumber: 1,
+        team1: [sortedPlayers[0], sortedPlayers[3]], // #1 + #4
+        team2: [sortedPlayers[1], sortedPlayers[2]]  // #2 + #3
+      },
+      {
+        setNumber: 2,
+        team1: [sortedPlayers[0], sortedPlayers[2]], // #1 + #3
+        team2: [sortedPlayers[1], sortedPlayers[3]]  // #2 + #4
+      },
+      {
+        setNumber: 3,
+        team1: [sortedPlayers[0], sortedPlayers[1]], // #1 + #2
+        team2: [sortedPlayers[2], sortedPlayers[3]]  // #3 + #4
+      }
+    ]
+
+    for (const config of matchConfigurations) {
+      await prisma.match.create({
+        data: {
+          groupId,
+          setNumber: config.setNumber,
+          team1Player1Id: config.team1[0].id,
+          team1Player2Id: config.team1[1].id,
+          team2Player1Id: config.team2[0].id,
+          team2Player2Id: config.team2[1].id,
+          team1Games: null,
+          team2Games: null,
+          tiebreakScore: null,
+          isConfirmed: false,
+          reportedById: null,
+          confirmedById: null
+        }
+      })
+    }
+
+    console.log(`Generados 3 matches para grupo ${groupId}`)
+  }
+
+  /**
+   * NUEVA FUNCIÓN: Para crear manualmente grupos con matches (útil para admin)
+   */
+  static async createGroupWithMatches(roundId: string, groupNumber: number, level: number, playerIds: string[]) {
+    if (playerIds.length !== 4) {
+      throw new Error('Un grupo debe tener exactamente 4 jugadores')
+    }
+
+    const group = await prisma.group.create({
+      data: {
+        roundId,
+        number: groupNumber,
+        level
+      }
+    })
+
+    const playersInGroup = []
+    for (let i = 0; i < playerIds.length; i++) {
+      const groupPlayer = await prisma.groupPlayer.create({
+        data: {
+          groupId: group.id,
+          playerId: playerIds[i],
+          position: i + 1,
+          points: 0,
+          streak: 0
+        }
+      })
+      playersInGroup.push({
+        id: playerIds[i],
+        position: i + 1
+      })
+    }
+
+    await this.generateGroupMatches(group.id, playersInGroup)
+
+    return group
   }
 
   private static redistributePlayers(groups: any[], movements: any[]) {
@@ -150,7 +252,9 @@ export class TournamentEngine {
     return newDistribution
   }
 
-  private static calculateNewStreak(player: any) {
+  private static calculateNewStreak(player: any, roundNumber: number) {
+    // TODO: Implementar lógica de racha real
+    // Por ahora mantener racha básica
     return 1
   }
 
