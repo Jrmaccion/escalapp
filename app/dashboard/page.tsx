@@ -1,4 +1,4 @@
-import { getServerSession } from "next-auth";
+﻿import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -28,17 +28,17 @@ export default async function DashboardPage() {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold">Grupo 2</p>
-              <p className="text-sm text-gray-600">Posición provisional</p>
+              <p className="text-sm text-gray-600">PosiciÃ³n provisional</p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
               <Users className="w-6 h-6 text-blue-600 mb-2" />
-              <CardTitle>Próximos Partidos</CardTitle>
+              <CardTitle>PrÃ³ximos Partidos</CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-lg">Aún no programados</p>
+              <p className="text-lg">AÃºn no programados</p>
               <a className="underline text-sm text-blue-600" href="/tournament">
                 Ver calendario
               </a>
@@ -60,7 +60,7 @@ export default async function DashboardPage() {
         <div className="mt-10">
           <Card>
             <CardHeader>
-              <CardTitle>Accesos rápidos</CardTitle>
+              <CardTitle>Accesos rÃ¡pidos</CardTitle>
             </CardHeader>
             <CardContent>
               <ul className="grid gap-2 text-sm">
@@ -73,3 +73,4 @@ export default async function DashboardPage() {
                 )}
                 <li>
                   <a className="underline" href="/auth/login?callbackUrl=%2Fdashboard">
+

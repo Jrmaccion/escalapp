@@ -1,61 +1,73 @@
+// app/dashboard/page.tsx
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Settings, CheckSquare, Calendar } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Trophy, ListChecks, Users, Calendar } from "lucide-react";
 
-export const metadata = {
-  title: "Panel Admin | Escalapp",
-  description: "Gestión de torneos y jugadores",
-};
+export const metadata = { title: "Dashboard | Escalapp" };
 
-export default async function AdminDashboardPage() {
+export default async function DashboardPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/auth/login");
-  if (!session.user?.isAdmin) redirect("/dashboard");
 
   return (
     <div className="min-h-screen bg-gray-50 py-12">
-      <div className="container mx-auto px-4 max-w-6xl">
-        <h1 className="text-3xl font-bold mb-8">Panel de Administración</h1>
+      <div className="container mx-auto px-4 max-w-5xl">
+        <h1 className="text-3xl font-bold mb-8">
+          Hola, {session.user?.name ?? session.user?.email}
+        </h1>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          <Card>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Card className="hover:shadow-lg transition">
             <CardHeader>
-              <Settings className="w-6 h-6 text-purple-600 mb-2" />
-              <CardTitle>Torneos Activos</CardTitle>
+              <div className="flex items-center gap-2">
+                <Trophy className="w-5 h-5 text-yellow-600" />
+                <CardTitle>Mi ranking</CardTitle>
+              </div>
             </CardHeader>
             <CardContent>
-              <p className="text-2xl font-bold">1</p>
-              <p className="text-sm text-gray-600">Escalera Primavera 2025</p>
+              <p className="text-gray-600 mb-4">Consulta tu posición y evolución.</p>
+              <Badge variant="secondary">Próximamente</Badge>
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CheckSquare className="w-6 h-6 text-green-600 mb-2" />
-              <CardTitle>Resultados Pendientes</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-lg">3 por validar</p>
-              <a className="underline text-sm text-blue-600" href="/admin/results">
-                Revisar resultados
-              </a>
-            </CardContent>
-          </Card>
+          <Link href="/admin/results" className="block">
+            <Card className="hover:shadow-lg transition">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <ListChecks className="w-5 h-5 text-blue-600" />
+                  <CardTitle>Resultados</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-600">Introduce o revisa resultados.</p>
+              </CardContent>
+            </Card>
+          </Link>
 
-          <Card>
-            <CardHeader>
-              <Calendar className="w-6 h-6 text-orange-600 mb-2" />
-              <CardTitle>Próximas Rondas</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <p className="text-lg">Ronda 4 en 5 días</p>
-              <a className="underline text-sm text-blue-600" href="/admin/rounds">
-                Ver rondas
-              </a>
-            </CardContent>
-          </Card>
+          <Link href="/admin/rounds" className="block">
+            <Card className="hover:shadow-lg transition">
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-green-600" />
+                  <CardTitle>Rondas</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="text-gray-600">Fechas y estado de cada ronda.</p>
+              </CardContent>
+            </Card>
+          </Link>
+        </div>
+
+        <div className="mt-10">
+          <Link href="/admin/tournaments" className="inline-flex items-center gap-2 text-blue-600 hover:underline">
+            <Users className="w-4 h-4" />
+            Ver torneos
+          </Link>
         </div>
       </div>
     </div>
