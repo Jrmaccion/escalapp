@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+  isAdmin   Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  player Player?
+
+  @@map("users")
+}
+
+model Tournament {
+  id                String   @id @default(cuid())
+  title             String
+  startDate         DateTime
+  endDate           DateTime
+  totalRounds       Int
+  roundDurationDays Int
+  isActive          Boolean  @default(true)
+  isPublic          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  rounds  Round[]
+  players TournamentPlayer[]
+
+  @@map("tournaments")
+}
+
+model Player {
+  id     String @id @default(cuid())
+  userId String @unique
+  name   String
+
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournaments  TournamentPlayer[]
+  groupPlayers GroupPlayer[]
+  matchResults MatchResult[]
+
+  @@map("players")
+}
+
+model TournamentPlayer {
+  id            String @id @default(cuid())
+  tournamentId  String
+  playerId      String
+  joinedRound   Int    @default(1)
+  comodinesUsed Int    @default(0)
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  player     Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, playerId])
+  @@map("tournament_players")
+}
+
+model Round {
+  id           String   @id @default(cuid())
+  tournamentId String
+  number       Int
+  startDate    DateTime
+  endDate      DateTime
+  isClosed     Boolean  @default(false)
+  createdAt    DateTime @default(now())
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  groups     Group[]
+
+  @@unique([tournamentId, number])
+  @@map("rounds")
+}
+
+model Group {
+  id      String @id @default(cuid())
+  roundId String
+  number  Int
+  level   Int
+
+  round   Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  players GroupPlayer[]
+  matches Match[]
+
+  @@unique([roundId, number])
+  @@map("groups")
+}
+
+model GroupPlayer {
+  id          String  @id @default(cuid())
+  groupId     String
+  playerId    String
+  position    Int
+  points      Float   @default(0)
+  streak      Int     @default(0)
+  usedComodin Boolean @default(false)
+
+  group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, playerId])
+  @@unique([groupId, position])
+  @@map("group_players")
+}
+
+model Match {
+  id             String  @id @default(cuid())
+  groupId        String
+  setNumber      Int
+  team1Player1Id String
+  team1Player2Id String
+  team2Player1Id String
+  team2Player2Id String
+  team1Games     Int?
+  team2Games     Int?
+  tiebreakScore  String?
+  isConfirmed    Boolean @default(false)
+  reportedById   String?
+  confirmedById  String?
+  photoUrl       String? @db.Text
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, setNumber])
+  @@map("matches")
+}
+
+model MatchResult {
+  id       String  @id @default(cuid())
+  matchId  String
+  playerId String
+  games    Int
+  sets     Int
+  points   Float
+  isWinner Boolean
+
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([matchId, playerId])
+  @@map("match_results")
+}
+
+model Ranking {
+  id              String @id @default(cuid())
+  tournamentId    String
+  playerId        String
+  roundNumber     Int
+  totalPoints     Float
+  roundsPlayed    Int
+  averagePoints   Float
+  position        Int
+  ironmanPosition Int
+  movement        String
+
+  @@unique([tournamentId, playerId, roundNumber])
+  @@map("rankings")
+}
+

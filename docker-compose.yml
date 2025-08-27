@@ -1,0 +1,30 @@
+version: '3.8'
+services:
+  escalapp:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:./data/escalapp.db
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - ADMIN_KEY=${ADMIN_KEY}
+      - NODE_ENV=production
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/public/uploads
+    restart: unless-stopped
+    depends_on:
+      - nginx
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./uploads:/var/www/uploads
+    depends_on:
+      - escalapp
+    restart: unless-stopped
