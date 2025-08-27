@@ -34,6 +34,17 @@ type StatsRow = {
   movement: "up" | "down" | "stable" | "new";
 };
 
+// Tipo para filas de la tabla Ranking (lo mínimo que usamos)
+type RankingRow = {
+  playerId: string;
+  position: number;
+  totalPoints: number;
+  roundsPlayed: number;
+  averagePoints: number;
+  ironmanPosition: number;
+  movement: "up" | "down" | "stable" | "new" | null;
+};
+
 export default async function AdminRankingsPage() {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/auth/login");
@@ -64,13 +75,13 @@ export default async function AdminRankingsPage() {
   const latestRound = tournament.rounds[0];
 
   // Rankings almacenados (si existen)
-  const rankings = await prisma.ranking.findMany({
+  const rankings = (await prisma.ranking.findMany({
     where: {
       tournamentId: tournament.id,
       roundNumber: latestRound?.number || 1,
     },
     orderBy: [{ position: "asc" }],
-  });
+  })) as unknown as RankingRow[];
 
   let playersWithStats: StatsRow[] = [];
 
@@ -160,7 +171,7 @@ export default async function AdminRankingsPage() {
           roundsPlayed: r.roundsPlayed,
           averagePoints: r.averagePoints,
           ironmanPosition: r.ironmanPosition,
-          movement: (r.movement as "up" | "down" | "stable" | "new") ?? "stable",
+          movement: (r.movement ?? "stable") as "up" | "down" | "stable" | "new",
         } as StatsRow;
       })
     );
