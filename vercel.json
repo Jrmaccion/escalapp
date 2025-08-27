@@ -1,0 +1,16 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "next.config.mjs",
+      "use": "@vercel/next"
+    }
+  ],
+  "env": {
+    "DATABASE_URL": "file:./prisma/dev.db",
+    "NEXTAUTH_SECRET": "cambia-esto-en-produccion",
+    "NEXTAUTH_URL": "https://escalapp.vercel.app",
+    "ADMIN_KEY": "admin123",
+    "NODE_ENV": "production"
+  }
+}
