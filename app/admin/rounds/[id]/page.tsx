@@ -44,12 +44,23 @@ export default async function RoundDetailPage({
     notFound();
   }
 
-  // Calcular estadísticas de la ronda
-  const totalMatches = round.groups.reduce((acc, group) => acc + group.matches.length, 0);
-  const confirmedMatches = round.groups.reduce((acc, group) => 
-    acc + group.matches.filter(m => m.isConfirmed).length, 0
-  );
-  const pendingMatches = totalMatches - confirmedMatches;
+// ---- Calcular estadísticas de la ronda (tipado para evitar implicit-any) ----
+type MatchLite = { isConfirmed?: boolean | null };
+type GroupLite = { matches: MatchLite[] };
+
+const groupsArr = round.groups as unknown as GroupLite[];
+
+const totalMatches = (groupsArr as GroupLite[]).reduce<number>(
+  (acc, g) => acc + (g.matches?.length ?? 0),
+  0
+);
+
+const confirmedMatches = (groupsArr as GroupLite[]).reduce<number>(
+  (acc, g) => acc + g.matches.filter((m) => !!m?.isConfirmed).length,
+  0
+);
+
+const pendingMatches = totalMatches - confirmedMatches;
 
   // Serializar datos
   const serializedRound = {
