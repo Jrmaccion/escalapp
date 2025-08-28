@@ -43,25 +43,26 @@ export default async function RoundDetailPage({
     notFound();
   }
 
-  // ---- Calcular estadísticas de la ronda (tipado para evitar implicit-any) ----
+  // ---- Calcular estadísticas (sin reduce implícito) ----
   type MatchLite = { isConfirmed?: boolean | null };
   type GroupLite = { matches: MatchLite[] };
 
-  const groupsArr: GroupLite[] = round.groups as unknown as GroupLite[];
+  const groupsArr = round.groups as unknown as GroupLite[];
 
-  const totalMatches = groupsArr.reduce((acc: number, g) => {
-    const len = g.matches?.length ?? 0;
-    return acc + len;
-  }, 0);
+  let totalMatches = 0;
+  let confirmedMatches = 0;
 
-  const confirmedMatches = groupsArr.reduce((acc: number, g) => {
-    const confirmed = g.matches.filter((m) => !!m?.isConfirmed).length;
-    return acc + confirmed;
-  }, 0);
+  for (const g of groupsArr) {
+    const matches = (g.matches ?? []) as MatchLite[];
+    totalMatches += matches.length;
+    for (const m of matches) {
+      if (m && !!m.isConfirmed) confirmedMatches++;
+    }
+  }
 
   const pendingMatches = totalMatches - confirmedMatches;
 
-  // Serializar datos
+  // ---- Serialización ----
   const serializedRound = {
     id: round.id,
     number: round.number,
@@ -84,7 +85,8 @@ export default async function RoundDetailPage({
       position: gp.position,
       points: gp.points,
       streak: gp.streak,
-      usedComodin: gp.usedComodin ?? false,
+      // Si existe en tu esquema, se respeta; si no, false sin romper tipos:
+      usedComodin: (gp as any)?.usedComodin ?? false,
     })),
     matches: group.matches.map((match) => ({
       id: match.id,
@@ -97,7 +99,7 @@ export default async function RoundDetailPage({
       team2Games: match.team2Games,
       tiebreakScore: match.tiebreakScore,
       isConfirmed: match.isConfirmed,
-      photoUrl: (match as any).photoUrl, // deja tal cual si existe en tu modelo
+      photoUrl: (match as any).photoUrl ?? null,
     })),
   }));
 
