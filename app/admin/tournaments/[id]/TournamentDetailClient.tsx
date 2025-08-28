@@ -19,6 +19,7 @@ import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useState, useTransition } from "react";
+import TournamentPlayersManager from "./TournamentPlayersManager";
 
 type SerializedTournament = {
   id: string;
@@ -69,13 +70,15 @@ type TournamentDetailClientProps = {
   rounds: SerializedRound[];
   players: SerializedPlayer[];
   stats: Stats;
+  onDataRefresh?: () => void;
 };
 
 export default function TournamentDetailClient({ 
   tournament, 
   rounds, 
   players, 
-  stats 
+  stats,
+  onDataRefresh
 }: TournamentDetailClientProps) {
   const [isPending, startTransition] = useTransition();
   const [activeTab, setActiveTab] = useState<'overview' | 'rounds' | 'players'>('overview');
@@ -125,6 +128,14 @@ export default function TournamentDetailClient({
         alert("Error de conexión");
       }
     });
+  };
+
+  const handlePlayersUpdated = () => {
+    if (onDataRefresh) {
+      onDataRefresh();
+    } else {
+      window.location.reload();
+    }
   };
 
   return (
@@ -413,36 +424,13 @@ export default function TournamentDetailClient({
             )}
 
             {activeTab === 'players' && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-gray-500 border-b">
-                      <th className="py-2">Jugador</th>
-                      <th className="py-2">Email</th>
-                      <th className="py-2">Se unió</th>
-                      <th className="py-2">Comodines</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {players.map((player) => (
-                      <tr key={player.id} className="border-b">
-                        <td className="py-3 font-medium">{player.name}</td>
-                        <td className="py-3 text-gray-600">{player.email}</td>
-                        <td className="py-3">Ronda {player.joinedRound}</td>
-                        <td className="py-3">
-                          {player.comodinesUsed > 0 ? (
-                            <span className="bg-yellow-100 text-yellow-800 px-2 py-1 rounded text-xs">
-                              {player.comodinesUsed}
-                            </span>
-                          ) : (
-                            <span className="text-gray-400">0</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <TournamentPlayersManager
+                tournamentId={tournament.id}
+                tournamentTitle={tournament.title}
+                totalRounds={tournament.totalRounds}
+                currentPlayers={players}
+                onPlayersUpdated={handlePlayersUpdated}
+              />
             )}
           </div>
         </div>

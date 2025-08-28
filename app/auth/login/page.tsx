@@ -2,7 +2,6 @@
 
 import { signIn } from "next-auth/react";
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 const errorMap: Record<string, string> = {
   Configuration: "Error de configuración de autenticación.",
@@ -12,8 +11,6 @@ const errorMap: Record<string, string> = {
 };
 
 export default function LoginPage() {
-  const router = useRouter();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [asAdmin, setAsAdmin] = useState(false);
@@ -37,10 +34,11 @@ export default function LoginPage() {
     setSubmitting(true);
 
     const res = await signIn("credentials", {
-      redirect: false,
+      redirect: false, // mantenemos control para pintar errores inline
       email,
       password,
       adminKey: asAdmin ? adminKey : "",
+      callbackUrl: asAdmin ? "/admin" : "/dashboard",
     });
 
     setSubmitting(false);
@@ -51,9 +49,8 @@ export default function LoginPage() {
       return;
     }
 
-    // Redirección según modo de acceso
-    router.replace(asAdmin ? "/admin" : "/dashboard");
-    router.refresh();
+    // 🚀 fuerzo navegación completa (evita el bucle en Vercel)
+    window.location.href = (res?.url as string) || (asAdmin ? "/admin" : "/dashboard");
   };
 
   return (

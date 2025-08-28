@@ -5,6 +5,9 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
+  // Configuración correcta para producción
+  secret: process.env.NEXTAUTH_SECRET,
+  
   providers: [
     CredentialsProvider({
       name: "credentials",
@@ -14,23 +17,20 @@ export const authOptions: NextAuthOptions = {
         adminKey: { label: "Clave Admin (opcional)", type: "password" },
       },
       async authorize(credentials) {
+        // ... tu código existente permanece igual
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email y contraseña son requeridos");
         }
 
         const isAdminLogin = credentials.adminKey === process.env.ADMIN_KEY;
 
-        // Intentar encontrar el usuario
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
           include: { player: true },
         });
 
-        // --- BOOTSTRAP DEL PRIMER ADMIN ---
         if (!user) {
           const usersCount = await prisma.user.count();
-
-          // Si no hay usuarios y trae la adminKey correcta: crear admin con el email/contraseña que ha introducido
           if (usersCount === 0 && isAdminLogin) {
             const hashed = await bcrypt.hash(credentials.password, 10);
             const newAdmin = await prisma.user.create({
@@ -41,7 +41,6 @@ export const authOptions: NextAuthOptions = {
                 isAdmin: true,
               },
             });
-
             return {
               id: newAdmin.id,
               name: newAdmin.name,
@@ -50,22 +49,12 @@ export const authOptions: NextAuthOptions = {
               playerId: null,
             };
           }
-
-          // Si hay usuarios o no pasó adminKey válida, usuario no encontrado
           throw new Error("Usuario no encontrado");
         }
-        // --- /BOOTSTRAP ---
 
-        // Validar contraseña
-        const isValidPassword = await bcrypt.compare(
-          credentials.password,
-          user.password
-        );
-        if (!isValidPassword) {
-          throw new Error("Contraseña incorrecta");
-        }
+        const ok = await bcrypt.compare(credentials.password, user.password);
+        if (!ok) throw new Error("Contraseña incorrecta");
 
-        // Si intenta entrar en modo admin pero su cuenta no es admin
         if (isAdminLogin && !user.isAdmin) {
           throw new Error("No tienes permisos de administrador");
         }
