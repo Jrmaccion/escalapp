@@ -43,7 +43,7 @@ export default async function RoundDetailPage({
     notFound();
   }
 
-  // ---- Calcular estadísticas (sin reduce implícito) ----
+  // ---- Calcular estadísticas SIN reduce (evita implicit-any) ----
   type MatchLite = { isConfirmed?: boolean | null };
   type GroupLite = { matches: MatchLite[] };
 
@@ -62,7 +62,7 @@ export default async function RoundDetailPage({
 
   const pendingMatches = totalMatches - confirmedMatches;
 
-  // ---- Serialización ----
+  // ---- Serializar datos para el cliente ----
   const serializedRound = {
     id: round.id,
     number: round.number,
@@ -85,7 +85,7 @@ export default async function RoundDetailPage({
       position: gp.position,
       points: gp.points,
       streak: gp.streak,
-      // Si existe en tu esquema, se respeta; si no, false sin romper tipos:
+      // Si no existe en tu schema, quedará en false sin romper tipos:
       usedComodin: (gp as any)?.usedComodin ?? false,
     })),
     matches: group.matches.map((match) => ({
@@ -113,6 +113,10 @@ export default async function RoundDetailPage({
   };
 
   return (
-    <RoundDetailClient round={serializedRound} groups={serializedGroups} stats={stats} />
+    <RoundDetailClient
+      round={serializedRound}
+      groups={serializedGroups}
+      stats={stats}
+    />
   );
 }
