@@ -1,23 +1,46 @@
-# dependencies
+# --- deps ---
 /node_modules
 
-# build output
+# --- Next build output ---
 /.next
+/.next/cache
 /out
 
-# env files
+# --- Environment files (no subir secretos) ---
 .env
 .env.local
+.env.development
+.env.production
 .env.*.local
+# Asegura que los ejemplos SÍ se suben
+!.env.example
+!env.example
+!.env.sample
+!env.sample
 
-# logs
+# --- Prisma ---
+# Mantén migrations en el repo (NO ignores prisma/migrations)
+# Ignora la vieja DB local de SQLite si aún existe
+prisma/dev.db
+
+# --- Vercel ---
+.vercel
+
+# --- Logs ---
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# OS / Editor
+# --- Editor / OS ---
 .DS_Store
 Thumbs.db
 .idea
 .vscode/*
 !.vscode/settings.json
+
+# --- Miscelánea útil ---
+.eslintcache
+coverage
+*.tsbuildinfo
+

@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -165,4 +165,3 @@ model Ranking {
   @@unique([tournamentId, playerId, roundNumber])
   @@map("rankings")
 }
-
