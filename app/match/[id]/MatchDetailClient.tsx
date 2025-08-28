@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { 
   ArrowLeft, 
   Calendar, 
@@ -13,7 +12,6 @@ import {
   Clock, 
   CheckCircle, 
   AlertTriangle,
-  Camera,
   Trophy,
   Target,
   Info,
@@ -101,12 +99,10 @@ export default function MatchDetailClient({ match, currentPlayerId, isAdmin }: M
   const validateForm = () => {
     const newErrors: Record<string, string> = {};
 
-    // Validar que al menos un equipo llegue a 4
     if (Math.max(formData.team1Games, formData.team2Games) < 4) {
       newErrors.games = "Al menos un equipo debe llegar a 4 juegos";
     }
 
-    // Validar diferencia de 2 juegos o tie-break
     const diff = Math.abs(formData.team1Games - formData.team2Games);
     const maxGames = Math.max(formData.team1Games, formData.team2Games);
 
@@ -119,11 +115,6 @@ export default function MatchDetailClient({ match, currentPlayerId, isAdmin }: M
         const tiebreakRegex = /^\d+-\d+$/;
         if (!tiebreakRegex.test(formData.tiebreakScore)) {
           newErrors.tiebreak = "Formato inválido. Use: 7-5";
-        } else {
-          const [score1, score2] = formData.tiebreakScore.split('-').map(Number);
-          if (Math.max(score1, score2) < 7 || Math.abs(score1 - score2) < 2) {
-            newErrors.tiebreak = "Tie-break debe llegar a 7 con diferencia de 2";
-          }
         }
       }
     } else if (maxGames === 4 && diff < 2) {
@@ -137,7 +128,6 @@ export default function MatchDetailClient({ match, currentPlayerId, isAdmin }: M
     const games = Math.max(0, Math.min(5, parseInt(value) || 0));
     const newFormData = { ...formData, [`${team}Games`]: games };
     
-    // Auto-detectar necesidad de tie-break
     if (newFormData.team1Games === 4 && newFormData.team2Games === 4) {
       setShowTiebreak(true);
     } else {
@@ -166,9 +156,7 @@ export default function MatchDetailClient({ match, currentPlayerId, isAdmin }: M
       try {
         const response = await fetch(`/api/matches/${match.id}`, {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify(finalFormData),
         });
 
@@ -189,10 +177,7 @@ export default function MatchDetailClient({ match, currentPlayerId, isAdmin }: M
 
     startTransition(async () => {
       try {
-        const response = await fetch(`/api/matches/${match.id}`, {
-          method: "DELETE",
-        });
-
+        const response = await fetch(`/api/matches/${match.id}`, { method: "DELETE" });
         if (response.ok) {
           router.push("/dashboard");
         } else {
@@ -564,3 +549,9 @@ export default function MatchDetailClient({ match, currentPlayerId, isAdmin }: M
                 <p>• +2 por racha consecutiva</p>
               </CardContent>
             </Card>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
