@@ -1,9 +1,8 @@
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { redirect } from "next/navigation";
+import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { Metadata } from "next";
-import { notFound } from "next/navigation";
+import type { Metadata } from "next";
 import RoundDetailClient from "./RoundDetailClient";
 
 export const metadata: Metadata = {
@@ -11,10 +10,10 @@ export const metadata: Metadata = {
   description: "Información detallada de la ronda",
 };
 
-export default async function RoundDetailPage({ 
-  params 
-}: { 
-  params: { id: string } 
+export default async function RoundDetailPage({
+  params,
+}: {
+  params: { id: string };
 }) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/auth/login");
@@ -30,64 +29,64 @@ export default async function RoundDetailPage({
           players: {
             include: {
               player: true,
-            }
+            },
           },
           matches: {
             orderBy: { setNumber: "asc" },
-          }
-        }
-      }
-    }
+          },
+        },
+      },
+    },
   });
 
   if (!round) {
     notFound();
   }
 
-// ---- Calcular estadísticas de la ronda (tipado para evitar implicit-any) ----
-type MatchLite = { isConfirmed?: boolean | null };
-type GroupLite = { matches: MatchLite[] };
+  // ---- Calcular estadísticas de la ronda (tipado para evitar implicit-any) ----
+  type MatchLite = { isConfirmed?: boolean | null };
+  type GroupLite = { matches: MatchLite[] };
 
-const groupsArr = round.groups as unknown as GroupLite[];
+  const groupsArr: GroupLite[] = round.groups as unknown as GroupLite[];
 
-const totalMatches = (groupsArr as GroupLite[]).reduce<number>(
-  (acc, g) => acc + (g.matches?.length ?? 0),
-  0
-);
+  const totalMatches = groupsArr.reduce((acc: number, g) => {
+    const len = g.matches?.length ?? 0;
+    return acc + len;
+  }, 0);
 
-const confirmedMatches = (groupsArr as GroupLite[]).reduce<number>(
-  (acc, g) => acc + g.matches.filter((m) => !!m?.isConfirmed).length,
-  0
-);
+  const confirmedMatches = groupsArr.reduce((acc: number, g) => {
+    const confirmed = g.matches.filter((m) => !!m?.isConfirmed).length;
+    return acc + confirmed;
+  }, 0);
 
-const pendingMatches = totalMatches - confirmedMatches;
+  const pendingMatches = totalMatches - confirmedMatches;
 
   // Serializar datos
   const serializedRound = {
     id: round.id,
     number: round.number,
     startDate: round.startDate.toISOString(),
-    endDate: round.endDate.toISOString(),
+    endDate: round.endDate ? round.endDate.toISOString() : "",
     isClosed: round.isClosed,
     tournament: {
       id: round.tournament.id,
       title: round.tournament.title,
-    }
+    },
   };
 
-  const serializedGroups = round.groups.map(group => ({
+  const serializedGroups = round.groups.map((group) => ({
     id: group.id,
     number: group.number,
     level: group.level,
-    players: group.players.map(gp => ({
+    players: group.players.map((gp) => ({
       id: gp.id,
       name: gp.player.name,
       position: gp.position,
       points: gp.points,
       streak: gp.streak,
-      usedComodin: gp.usedComodin,
+      usedComodin: gp.usedComodin ?? false,
     })),
-    matches: group.matches.map(match => ({
+    matches: group.matches.map((match) => ({
       id: match.id,
       setNumber: match.setNumber,
       team1Player1Id: match.team1Player1Id,
@@ -98,8 +97,8 @@ const pendingMatches = totalMatches - confirmedMatches;
       team2Games: match.team2Games,
       tiebreakScore: match.tiebreakScore,
       isConfirmed: match.isConfirmed,
-      photoUrl: match.photoUrl,
-    }))
+      photoUrl: (match as any).photoUrl, // deja tal cual si existe en tu modelo
+    })),
   }));
 
   const stats = {
@@ -107,14 +106,11 @@ const pendingMatches = totalMatches - confirmedMatches;
     totalMatches,
     confirmedMatches,
     pendingMatches,
-    completionPercentage: totalMatches > 0 ? Math.round((confirmedMatches / totalMatches) * 100) : 0,
+    completionPercentage:
+      totalMatches > 0 ? Math.round((confirmedMatches / totalMatches) * 100) : 0,
   };
 
   return (
-    <RoundDetailClient 
-      round={serializedRound}
-      groups={serializedGroups}
-      stats={stats}
-    />
+    <RoundDetailClient round={serializedRound} groups={serializedGroups} stats={stats} />
   );
 }

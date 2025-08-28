@@ -127,7 +127,7 @@ model Match {
   isConfirmed    Boolean @default(false)
   reportedById   String?
   confirmedById  String?
-  photoUrl       String? @db.Text
+  photoUrl       String?
 
   group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
