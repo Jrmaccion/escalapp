@@ -15,81 +15,75 @@ model User {
   isAdmin   Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  player Player?
+  player    Player?
 
   @@map("users")
 }
 
 model Tournament {
-  id                String   @id @default(cuid())
+  id                String             @id @default(cuid())
   title             String
   startDate         DateTime
   endDate           DateTime
   totalRounds       Int
   roundDurationDays Int
-  isActive          Boolean  @default(true)
-  isPublic          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-
-  rounds  Round[]
-  players TournamentPlayer[]
+  isActive          Boolean            @default(true)
+  isPublic          Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  rounds            Round[]
+  players           TournamentPlayer[]
 
   @@map("tournaments")
 }
 
 model Player {
-  id     String @id @default(cuid())
-  userId String @unique
-  name   String
-
-  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tournaments  TournamentPlayer[]
+  id           String             @id @default(cuid())
+  userId       String             @unique
+  name         String
   groupPlayers GroupPlayer[]
   matchResults MatchResult[]
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tournaments  TournamentPlayer[]
 
   @@map("players")
 }
 
 model TournamentPlayer {
-  id            String @id @default(cuid())
+  id            String     @id @default(cuid())
   tournamentId  String
   playerId      String
-  joinedRound   Int    @default(1)
-  comodinesUsed Int    @default(0)
-
-  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  player     Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  joinedRound   Int        @default(1)
+  comodinesUsed Int        @default(0)
+  player        Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
 
   @@unique([tournamentId, playerId])
   @@map("tournament_players")
 }
 
 model Round {
-  id           String   @id @default(cuid())
+  id           String     @id @default(cuid())
   tournamentId String
   number       Int
   startDate    DateTime
   endDate      DateTime
-  isClosed     Boolean  @default(false)
-  createdAt    DateTime @default(now())
-
-  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
-  groups     Group[]
+  isClosed     Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+  groups       Group[]
+  tournament   Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
 
   @@unique([tournamentId, number])
   @@map("rounds")
 }
 
 model Group {
-  id      String @id @default(cuid())
+  id      String        @id @default(cuid())
   roundId String
   number  Int
   level   Int
-
-  round   Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
   players GroupPlayer[]
+  round   Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
   matches Match[]
 
   @@unique([roundId, number])
@@ -104,9 +98,8 @@ model GroupPlayer {
   points      Float   @default(0)
   streak      Int     @default(0)
   usedComodin Boolean @default(false)
-
-  group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  group       Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  player      Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, playerId])
   @@unique([groupId, position])
@@ -128,8 +121,7 @@ model Match {
   reportedById   String?
   confirmedById  String?
   photoUrl       String?
-
-  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  group          Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, setNumber])
   @@map("matches")
@@ -143,8 +135,7 @@ model MatchResult {
   sets     Int
   points   Float
   isWinner Boolean
-
-  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  player   Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@unique([matchId, playerId])
   @@map("match_results")
