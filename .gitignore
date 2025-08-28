@@ -9,9 +9,8 @@
 # --- Environment files (no subir secretos) ---
 .env
 .env.local
-.env.development
-.env.production
 .env.*.local
+!.env.example
 # Asegura que los ejemplos SÍ se suben
 !.env.example
 !env.example
