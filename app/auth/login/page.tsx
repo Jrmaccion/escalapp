@@ -53,6 +53,7 @@ export default function LoginPage() {
 
     // Redirección según modo de acceso
     router.replace(asAdmin ? "/admin" : "/dashboard");
+    router.refresh();
   };
 
   return (
