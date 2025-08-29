@@ -5,7 +5,6 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
-  // Configuración correcta para producción
   secret: process.env.NEXTAUTH_SECRET,
   
   providers: [
@@ -17,7 +16,6 @@ export const authOptions: NextAuthOptions = {
         adminKey: { label: "Clave Admin (opcional)", type: "password" },
       },
       async authorize(credentials) {
-        // ... tu código existente permanece igual
         if (!credentials?.email || !credentials?.password) {
           throw new Error("Email y contraseña son requeridos");
         }
@@ -94,4 +92,10 @@ export const authOptions: NextAuthOptions = {
     signIn: "/auth/login",
     error: "/auth/error",
   },
+
+  // Solo para debugging en desarrollo
+  debug: process.env.NODE_ENV === "development",
+  
+  // Configuración adicional para Vercel
+  useSecureCookies: process.env.NODE_ENV === "production",
 };
