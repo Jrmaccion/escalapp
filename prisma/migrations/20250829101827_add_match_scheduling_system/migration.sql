@@ -1,0 +1,14 @@
+-- CreateEnum
+CREATE TYPE "MatchStatus" AS ENUM ('PENDING', 'DATE_PROPOSED', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED');
+
+-- AlterTable
+ALTER TABLE "matches" ADD COLUMN     "acceptedBy" TEXT[],
+ADD COLUMN     "acceptedDate" TIMESTAMP(3),
+ADD COLUMN     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ADD COLUMN     "proposedById" TEXT,
+ADD COLUMN     "proposedDate" TIMESTAMP(3),
+ADD COLUMN     "status" "MatchStatus" NOT NULL DEFAULT 'PENDING',
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
+
+-- AddForeignKey
+ALTER TABLE "matches" ADD CONSTRAINT "matches_proposedById_fkey" FOREIGN KEY ("proposedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;

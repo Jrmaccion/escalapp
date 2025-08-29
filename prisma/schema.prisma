@@ -7,15 +7,26 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Definir ENUM primero
+enum MatchStatus {
+  PENDING      // Esperando fecha
+  DATE_PROPOSED // Fecha propuesta, esperando confirmación  
+  SCHEDULED    // Fecha confirmada
+  IN_PROGRESS  // En juego
+  COMPLETED    // Terminado
+  CANCELLED    // Cancelado
+}
+
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  password  String
-  isAdmin   Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  player    Player?
+  id              String   @id @default(cuid())
+  name            String
+  email           String   @unique
+  password        String
+  isAdmin         Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  player          Player?
+  proposedMatches Match[]  @relation("MatchProposer")
 
   @@map("users")
 }
@@ -83,8 +94,8 @@ model Group {
   number  Int
   level   Int
   players GroupPlayer[]
-  round   Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
   matches Match[]
+  round   Round         @relation(fields: [roundId], references: [id], onDelete: Cascade)
 
   @@unique([roundId, number])
   @@map("groups")
@@ -107,21 +118,36 @@ model GroupPlayer {
 }
 
 model Match {
-  id             String  @id @default(cuid())
+  id             String      @id @default(cuid())
   groupId        String
   setNumber      Int
   team1Player1Id String
   team1Player2Id String
   team2Player1Id String
   team2Player2Id String
+  
+  // Campos existentes de resultados
   team1Games     Int?
   team2Games     Int?
   tiebreakScore  String?
-  isConfirmed    Boolean @default(false)
+  isConfirmed    Boolean     @default(false)
   reportedById   String?
   confirmedById  String?
   photoUrl       String?
-  group          Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  
+  // NUEVOS CAMPOS para gestión de fechas
+  proposedDate   DateTime?   // Fecha propuesta por jugadores
+  proposedById   String?     // Quién propuso la fecha
+  acceptedDate   DateTime?   // Fecha confirmada por todos
+  acceptedBy     String[]    // Array de IDs que han aceptado la fecha
+  status         MatchStatus @default(PENDING) // Estado actual
+  
+  // Relaciones
+  group          Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  proposer       User?       @relation("MatchProposer", fields: [proposedById], references: [id])
+  
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @default(now()) @updatedAt
 
   @@unique([groupId, setNumber])
   @@map("matches")

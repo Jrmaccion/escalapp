@@ -28,36 +28,31 @@ type SerializedRound = {
   daysToStart: number;
   daysToEnd: number;
   hoursToEnd: number;
+  totalPlayersInRound?: number;
+  groupsWithEnoughPlayers?: number;
+  canGenerateMatches?: boolean;
 };
 
 type RoundsClientProps = {
   tournament: SerializedTournament;
   rounds: SerializedRound[];
+  isAdmin?: boolean; // Añadida esta prop
 };
 
-export default function RoundsClient({ tournament, rounds }: RoundsClientProps) {
+export default function RoundsClient({ tournament, rounds, isAdmin = false }: RoundsClientProps) {
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
-      <div className="container mx-auto px-4 max-w-6xl">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold">Rondas</h1>
-          <p className="text-gray-600">
-            {tournament.title} • {format(new Date(tournament.startDate), "d MMM yyyy", { locale: es })} –{" "}
-            {format(new Date(tournament.endDate), "d MMM yyyy", { locale: es })}
-          </p>
-        </header>
-
-        <div className="grid gap-6 md:grid-cols-2">
-          {rounds.map((round) => (
-            <RoundCard key={round.id} round={round} />
-          ))}
-        </div>
+    <div className="space-y-6">
+      {/* Header simplificado ya que ahora se maneja en la página padre */}
+      <div className="grid gap-6 md:grid-cols-2">
+        {rounds.map((round) => (
+          <RoundCard key={round.id} round={round} isAdmin={isAdmin} />
+        ))}
       </div>
     </div>
   );
 }
 
-function RoundCard({ round }: { round: SerializedRound }) {
+function RoundCard({ round, isAdmin }: { round: SerializedRound; isAdmin: boolean }) {
   const statusBadge = (() => {
     if (round.isClosed)
       return <Badge className="bg-gray-200 text-gray-800">Cerrada</Badge>;
@@ -74,6 +69,11 @@ function RoundCard({ round }: { round: SerializedRound }) {
   })();
 
   const closeRound = async () => {
+    if (!isAdmin) {
+      alert("Solo los administradores pueden cerrar rondas");
+      return;
+    }
+
     const ok = confirm("¿Cerrar esta ronda y aplicar movimientos?");
     if (!ok) return;
     
@@ -90,6 +90,11 @@ function RoundCard({ round }: { round: SerializedRound }) {
   };
 
   const generateNext = async () => {
+    if (!isAdmin) {
+      alert("Solo los administradores pueden generar rondas");
+      return;
+    }
+
     const ok = confirm("¿Generar la siguiente ronda a partir de esta?");
     if (!ok) return;
     
@@ -125,28 +130,44 @@ function RoundCard({ round }: { round: SerializedRound }) {
         <div className="space-y-2 text-sm">
           <p>
             <b>Inicio:</b>{" "}
-            {new Date(round.startDate).toLocaleString("es-ES", {
-              dateStyle: "medium",
-            })}
+            {format(new Date(round.startDate), "d MMM", { locale: es })}
           </p>
           <p>
             <b>Fin:</b>{" "}
-            {new Date(round.endDate).toLocaleString("es-ES", {
-              dateStyle: "medium",
-            })}
+            {format(new Date(round.endDate), "d MMM", { locale: es })}
           </p>
           <p>
             <b>Grupos:</b> {round.groupsCount}
           </p>
+          {round.totalPlayersInRound !== undefined && (
+            <p>
+              <b>Jugadores:</b> {round.totalPlayersInRound}
+            </p>
+          )}
         </div>
 
         <div className="space-y-2 text-sm">
           <p>
-            <b>Resultados pendientes:</b> {round.pending}
+            <b>Pendientes:</b> {round.pending}
           </p>
           <p>
-            <b>Resultados confirmados:</b> {round.confirmed}
+            <b>Confirmados:</b> {round.confirmed}
           </p>
+          {round.canGenerateMatches !== undefined && (
+            <p className="flex items-center gap-2">
+              {round.canGenerateMatches ? (
+                <>
+                  <CheckCircle2 className="w-4 h-4 text-green-600" />
+                  <span className="text-green-700">Listo para partidos</span>
+                </>
+              ) : (
+                <>
+                  <Clock className="w-4 h-4 text-orange-600" />
+                  <span className="text-orange-700">Faltan jugadores</span>
+                </>
+              )}
+            </p>
+          )}
           {!round.isClosed && round.status === "active" && (
             <p className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-orange-600" />
@@ -175,17 +196,21 @@ function RoundCard({ round }: { round: SerializedRound }) {
         </div>
 
         <div className="md:col-span-2 flex flex-wrap gap-3 pt-2">
-          {!round.isClosed && (
+          {isAdmin && !round.isClosed && (
             <Button onClick={closeRound} className="bg-emerald-600 hover:bg-emerald-700">
               Cerrar ronda
             </Button>
           )}
-          <Button variant="outline" onClick={generateNext}>
-            Generar siguiente
-          </Button>
-          <Button variant="ghost" asChild>
-            <Link href="/admin/results">Validar resultados</Link>
-          </Button>
+          {isAdmin && (
+            <Button variant="outline" onClick={generateNext}>
+              Generar siguiente
+            </Button>
+          )}
+          {isAdmin && (
+            <Button variant="ghost" asChild>
+              <Link href="/admin/results">Validar resultados</Link>
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
