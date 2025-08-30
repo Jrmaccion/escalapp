@@ -1,3 +1,4 @@
+// TournamentDetailClient.tsx
 "use client";
 
 import { 
@@ -9,17 +10,16 @@ import {
   CheckCircle, 
   Clock, 
   Play,
-  Edit,
   Trash2,
   Power,
-  Download,
-  UserPlus
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import TournamentPlayersManager from "./TournamentPlayersManager";
+import TournamentTimeline from "@/components/tournament/TournamentTimeline";
 
 type SerializedTournament = {
   id: string;
@@ -61,7 +61,7 @@ type Stats = {
   totalMatches: number;
   confirmedMatches: number;
   pendingMatches: number;
-  completionPercentage: number;
+  completionPercentage: number; // si viene decimal, se redondea en UI
   averagePlayersPerRound: number;
 };
 
@@ -73,6 +73,8 @@ type TournamentDetailClientProps = {
   onDataRefresh?: () => void;
 };
 
+type TabId = 'overview' | 'rounds' | 'players';
+
 export default function TournamentDetailClient({ 
   tournament, 
   rounds, 
@@ -81,18 +83,31 @@ export default function TournamentDetailClient({
   onDataRefresh
 }: TournamentDetailClientProps) {
   const [isPending, startTransition] = useTransition();
-  const [activeTab, setActiveTab] = useState<'overview' | 'rounds' | 'players'>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const router = useRouter();
+  const nf = new Intl.NumberFormat('es-ES');
+
+  const TABS: Array<{ id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+    { id: 'overview', label: 'Resumen',  icon: Trophy },
+    { id: 'rounds',   label: 'Rondas',   icon: Calendar },
+    { id: 'players',  label: 'Jugadores',icon: Users },
+  ];
 
   const currentRound = rounds.find(r => !r.isClosed) || rounds[rounds.length - 1];
+
   const isCurrentDate = (startDate: string, endDate: string) => {
     const now = new Date();
-    return now >= new Date(startDate) && now <= new Date(endDate);
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    // Normaliza inicio/fin del día local para evitar desajustes por zona horaria
+    const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0);
+    const dayEnd   = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
+    return now >= dayStart && now <= dayEnd;
   };
 
   const toggleTournamentStatus = () => {
     const action = tournament.isActive ? 'desactivar' : 'activar';
-    const confirmed = confirm(`¿Seguro que quieres ${action} este torneo?`);
-    if (!confirmed) return;
+    if (!confirm(`¿Seguro que quieres ${action} este torneo?`)) return;
 
     startTransition(async () => {
       try {
@@ -102,40 +117,36 @@ export default function TournamentDetailClient({
         
         const res = await fetch(endpoint, { method: "PATCH" });
         if (res.ok) {
-          window.location.reload();
+          router.refresh();
         } else {
           alert(`Error al ${action} torneo`);
         }
-      } catch (error) {
+      } catch {
         alert("Error de conexión");
       }
     });
   };
 
   const deleteTournament = () => {
-    const confirmed = confirm(`¿Seguro que quieres eliminar "${tournament.title}"? Esta acción no se puede deshacer.`);
-    if (!confirmed) return;
+    if (!confirm(`¿Seguro que quieres eliminar "${tournament.title}"? Esta acción no se puede deshacer.`)) return;
 
     startTransition(async () => {
       try {
         const res = await fetch(`/api/tournaments/${tournament.id}`, { method: "DELETE" });
         if (res.ok) {
-          window.location.href = '/admin/tournaments';
+          router.push('/admin/tournaments');
         } else {
           alert("Error al eliminar torneo");
         }
-      } catch (error) {
+      } catch {
         alert("Error de conexión");
       }
     });
   };
 
   const handlePlayersUpdated = () => {
-    if (onDataRefresh) {
-      onDataRefresh();
-    } else {
-      window.location.reload();
-    }
+    if (onDataRefresh) onDataRefresh();
+    else router.refresh();
   };
 
   return (
@@ -178,7 +189,7 @@ export default function TournamentDetailClient({
                 </div>
                 <div className="flex items-center gap-2">
                   <Settings className="h-4 w-4" />
-                  <span>{tournament.totalRounds} rondas • {tournament.roundDurationDays} días/ronda</span>
+                  <span>{nf.format(tournament.totalRounds)} rondas • {nf.format(tournament.roundDurationDays)} días/ronda</span>
                 </div>
               </div>
             </div>
@@ -188,6 +199,8 @@ export default function TournamentDetailClient({
               <button
                 onClick={toggleTournamentStatus}
                 disabled={isPending}
+                aria-busy={isPending}
+                aria-disabled={isPending}
                 className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
                   tournament.isActive
                     ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
@@ -202,6 +215,8 @@ export default function TournamentDetailClient({
                 <button
                   onClick={deleteTournament}
                   disabled={isPending}
+                  aria-busy={isPending}
+                  aria-disabled={isPending}
                   className="inline-flex items-center px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors"
                 >
                   <Trash2 className="w-4 h-4 mr-2" />
@@ -219,7 +234,7 @@ export default function TournamentDetailClient({
               <h3 className="text-sm font-medium text-gray-500">Jugadores</h3>
               <Users className="h-4 w-4 text-blue-600" />
             </div>
-            <div className="text-2xl font-bold">{stats.totalPlayers}</div>
+            <div className="text-2xl font-bold">{nf.format(stats.totalPlayers)}</div>
             <p className="text-xs text-gray-500">registrados</p>
           </div>
 
@@ -228,8 +243,8 @@ export default function TournamentDetailClient({
               <h3 className="text-sm font-medium text-gray-500">Progreso</h3>
               <Trophy className="h-4 w-4 text-purple-600" />
             </div>
-            <div className="text-2xl font-bold">{stats.completionPercentage}%</div>
-            <p className="text-xs text-gray-500">{stats.confirmedMatches} / {stats.totalMatches} partidos</p>
+            <div className="text-2xl font-bold">{Math.round(stats.completionPercentage)}%</div>
+            <p className="text-xs text-gray-500">{nf.format(stats.confirmedMatches)} / {nf.format(stats.totalMatches)} partidos</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow border">
@@ -237,8 +252,8 @@ export default function TournamentDetailClient({
               <h3 className="text-sm font-medium text-gray-500">Rondas</h3>
               <Play className="h-4 w-4 text-green-600" />
             </div>
-            <div className="text-2xl font-bold">{stats.totalRounds}</div>
-            <p className="text-xs text-gray-500">{stats.activeRounds} activas</p>
+            <div className="text-2xl font-bold">{nf.format(stats.totalRounds)}</div>
+            <p className="text-xs text-gray-500">{nf.format(stats.activeRounds)} activas</p>
           </div>
 
           <div className="bg-white p-6 rounded-lg shadow border">
@@ -246,7 +261,7 @@ export default function TournamentDetailClient({
               <h3 className="text-sm font-medium text-gray-500">Pendientes</h3>
               <Clock className="h-4 w-4 text-orange-600" />
             </div>
-            <div className="text-2xl font-bold">{stats.pendingMatches}</div>
+            <div className="text-2xl font-bold">{nf.format(stats.pendingMatches)}</div>
             <p className="text-xs text-gray-500">por validar</p>
           </div>
         </div>
@@ -255,14 +270,10 @@ export default function TournamentDetailClient({
         <div className="bg-white rounded-lg shadow border">
           <div className="border-b border-gray-200">
             <nav className="flex space-x-8 px-6">
-              {[
-                { id: 'overview', label: 'Resumen', icon: Trophy },
-                { id: 'rounds', label: 'Rondas', icon: Calendar },
-                { id: 'players', label: 'Jugadores', icon: Users },
-              ].map(({ id, label, icon: Icon }) => (
+              {TABS.map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
-                  onClick={() => setActiveTab(id as any)}
+                  onClick={() => setActiveTab(id)}
                   className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
                     activeTab === id
                       ? 'border-blue-500 text-blue-600'
@@ -296,15 +307,15 @@ export default function TournamentDetailClient({
                       </div>
                       <div>
                         <span className="text-gray-600">Grupos:</span>
-                        <div className="font-medium">{currentRound.groupsCount}</div>
+                        <div className="font-medium">{nf.format(currentRound.groupsCount)}</div>
                       </div>
                       <div>
                         <span className="text-gray-600">Partidos:</span>
-                        <div className="font-medium">{currentRound.matchesCount}</div>
+                        <div className="font-medium">{nf.format(currentRound.matchesCount)}</div>
                       </div>
                       <div>
                         <span className="text-gray-600">Pendientes:</span>
-                        <div className="font-medium text-orange-600">{currentRound.pendingMatches}</div>
+                        <div className="font-medium text-orange-600">{nf.format(currentRound.pendingMatches)}</div>
                       </div>
                     </div>
                     <div className="mt-4">
@@ -325,11 +336,11 @@ export default function TournamentDetailClient({
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span>Rondas totales:</span>
-                        <span className="font-medium">{tournament.totalRounds}</span>
+                        <span className="font-medium">{nf.format(tournament.totalRounds)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Duración por ronda:</span>
-                        <span className="font-medium">{tournament.roundDurationDays} días</span>
+                        <span className="font-medium">{nf.format(tournament.roundDurationDays)} días</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Público:</span>
@@ -347,20 +358,21 @@ export default function TournamentDetailClient({
                     <div className="space-y-2 text-sm">
                       <div className="flex justify-between">
                         <span>Promedio jugadores/ronda:</span>
-                        <span className="font-medium">{Math.round(stats.averagePlayersPerRound)}</span>
+                        <span className="font-medium">{nf.format(Math.round(stats.averagePlayersPerRound))}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Total partidos:</span>
-                        <span className="font-medium">{stats.totalMatches}</span>
+                        <span className="font-medium">{nf.format(stats.totalMatches)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Partidos confirmados:</span>
-                        <span className="font-medium text-green-600">{stats.confirmedMatches}</span>
+                        <span className="font-medium text-green-600">{nf.format(stats.confirmedMatches)}</span>
                       </div>
                       <div className="flex justify-between">
                         <span>Partidos pendientes:</span>
-                        <span className="font-medium text-orange-600">{stats.pendingMatches}</span>
+                        <span className="font-medium text-orange-600">{nf.format(stats.pendingMatches)}</span>
                       </div>
+                      <TournamentTimeline tournamentId={tournament.id} />
                     </div>
                   </div>
                 </div>
@@ -399,11 +411,11 @@ export default function TournamentDetailClient({
                           <div>{format(new Date(round.startDate), "d MMM", { locale: es })}</div>
                           <div className="text-gray-500">{format(new Date(round.endDate), "d MMM", { locale: es })}</div>
                         </td>
-                        <td className="py-3">{round.groupsCount}</td>
-                        <td className="py-3">{round.matchesCount}</td>
+                        <td className="py-3">{nf.format(round.groupsCount)}</td>
+                        <td className="py-3">{nf.format(round.matchesCount)}</td>
                         <td className="py-3">
                           {round.pendingMatches > 0 ? (
-                            <span className="text-orange-600 font-medium">{round.pendingMatches}</span>
+                            <span className="text-orange-600 font-medium">{nf.format(round.pendingMatches)}</span>
                           ) : (
                             <CheckCircle className="h-4 w-4 text-green-600" />
                           )}
