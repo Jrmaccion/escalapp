@@ -1,3 +1,4 @@
+// app/admin/players/PlayersClient.tsx
 "use client";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -32,17 +33,17 @@ export default function PlayersClient({ players, tournament }: PlayersClientProp
   const [searchTerm, setSearchTerm] = useState("");
   const [filterActive, setFilterActive] = useState<"all" | "active" | "new">("all");
 
-  const filteredPlayers = players.filter(player => {
-    const matchesSearch = player.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         player.email.toLowerCase().includes(searchTerm.toLowerCase());
-    
+  const filteredPlayers = players.filter((player) => {
+    const matchesSearch =
+      player.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      player.email.toLowerCase().includes(searchTerm.toLowerCase());
+
     if (filterActive === "new") {
       return matchesSearch && player.joinedRound === tournament.totalRounds;
     }
     if (filterActive === "active") {
       return matchesSearch && player.totalMatches > 0;
     }
-    
     return matchesSearch;
   });
 
@@ -58,9 +59,17 @@ export default function PlayersClient({ players, tournament }: PlayersClientProp
                 Dashboard Admin
               </Link>
             </Button>
+            <Button asChild>
+              <Link href="/admin/players/manage">
+                <UserPlus className="w-4 h-4 mr-2" />
+                Gestionar Jugadores
+              </Link>
+            </Button>
           </div>
           <h1 className="text-3xl font-bold">Jugadores</h1>
-          <p className="text-gray-600">{tournament.title} • {players.length} jugadores registrados</p>
+          <p className="text-gray-600">
+            {tournament.title} • {players.length} jugadores registrados
+          </p>
         </div>
 
         {/* Stats y controles */}
@@ -83,7 +92,7 @@ export default function PlayersClient({ players, tournament }: PlayersClientProp
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {players.filter(p => p.totalMatches > 0).length}
+                {players.filter((p) => p.totalMatches > 0).length}
               </div>
               <p className="text-xs text-muted-foreground">han jugado partidos</p>
             </CardContent>
@@ -96,7 +105,7 @@ export default function PlayersClient({ players, tournament }: PlayersClientProp
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {players.filter(p => p.joinedRound === tournament.totalRounds).length}
+                {players.filter((p) => p.joinedRound === tournament.totalRounds).length}
               </div>
               <p className="text-xs text-muted-foreground">última ronda</p>
             </CardContent>
@@ -193,9 +202,7 @@ export default function PlayersClient({ players, tournament }: PlayersClientProp
                         <td className="py-3 pr-4 font-medium">{player.name}</td>
                         <td className="py-3 pr-4 text-gray-600">{player.email}</td>
                         <td className="py-3 pr-4">
-                          <Badge variant="outline">
-                            Ronda {player.joinedRound}
-                          </Badge>
+                          <Badge variant="outline">Ronda {player.joinedRound}</Badge>
                         </td>
                         <td className="py-3 pr-4">{player.totalMatches}</td>
                         <td className="py-3 pr-4">
