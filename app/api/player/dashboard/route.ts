@@ -1,9 +1,10 @@
+// app/api/player/dashboard/route.ts - Tu archivo actual con mejoras mínimas:
+
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-// Forzar que esta ruta sea dinámica
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
@@ -49,7 +50,7 @@ export async function GET(request: NextRequest) {
 
     // Encontrar la ronda actual (última ronda no cerrada)
     const currentRound = activeTournament.rounds.find(r => !r.isClosed) || 
-                        activeTournament.rounds[0]; // Si todas están cerradas, tomar la última
+                        activeTournament.rounds[0];
 
     // Buscar el grupo actual del jugador en la ronda actual
     const currentGroup = await prisma.group.findFirst({
@@ -66,7 +67,7 @@ export async function GET(request: NextRequest) {
           include: {
             player: true
           },
-          orderBy: { points: 'desc' }
+          orderBy: { points: 'desc' } // CAMBIO: ordenar por puntos en lugar de posición
         }
       }
     });
@@ -87,7 +88,8 @@ export async function GET(request: NextRequest) {
       },
       include: {
         group: true
-      }
+      },
+      orderBy: { setNumber: 'asc' } // AÑADIDO: ordenar matches
     });
 
     // Obtener nombres de jugadores para los matches
@@ -160,7 +162,7 @@ export async function GET(request: NextRequest) {
         position: playerInGroup?.position || 0,
         points: playerInGroup?.points || 0,
         streak: playerInGroup?.streak || 0,
-        players: currentGroup.players.map((p, index) => ({
+        players: currentGroup.players.map(p => ({
           id: p.playerId,
           name: p.player.name,
           position: p.position,
