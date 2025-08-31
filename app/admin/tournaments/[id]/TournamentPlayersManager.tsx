@@ -1,3 +1,4 @@
+// app/admin/tournaments/[id]/TournamentPlayersManager.tsx
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
@@ -47,19 +48,23 @@ export default function TournamentPlayersManager({
   const [availablePlayers, setAvailablePlayers] = useState<AvailablePlayer[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedPlayers, setSelectedPlayers] = useState<Set<string>>(new Set());
-  const [joinRound, setJoinRound] = useState(1);
   const [loading, setLoading] = useState(false);
 
   const fetchAvailablePlayers = async () => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/tournaments/${tournamentId}/players`);
+      // CORREGIDO: Usar el endpoint correcto para jugadores disponibles
+      const response = await fetch(`/api/tournaments/${tournamentId}/available-players`);
       if (response.ok) {
         const data = await response.json();
-        setAvailablePlayers(data.availablePlayers);
+        setAvailablePlayers(data.availablePlayers || []);
+      } else {
+        console.error("Error fetching available players:", await response.text());
+        setAvailablePlayers([]);
       }
     } catch (error) {
       console.error("Error fetching available players:", error);
+      setAvailablePlayers([]);
     } finally {
       setLoading(false);
     }
@@ -69,7 +74,7 @@ export default function TournamentPlayersManager({
     if (showAddPlayers) {
       fetchAvailablePlayers();
     }
-  }, [showAddPlayers]);
+  }, [showAddPlayers, tournamentId]);
 
   const filteredPlayers = availablePlayers.filter(player =>
     player.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -92,11 +97,6 @@ export default function TournamentPlayersManager({
       return;
     }
 
-    if (joinRound < 1 || joinRound > totalRounds) {
-      alert(`La ronda debe estar entre 1 y ${totalRounds}`);
-      return;
-    }
-
     startTransition(async () => {
       try {
         const response = await fetch(`/api/tournaments/${tournamentId}/players`, {
@@ -106,13 +106,16 @@ export default function TournamentPlayersManager({
           },
           body: JSON.stringify({
             playerIds: Array.from(selectedPlayers),
-            joinRound: joinRound
+            // CORREGIDO: No enviamos joinRound, se calcula automáticamente
           }),
         });
 
         if (response.ok) {
           const result = await response.json();
-          alert(result.message);
+          const message = result.ok 
+            ? `Jugadores añadidos. Ronda objetivo: ${result.targetJoinedRoundNumber}`
+            : "Jugadores añadidos correctamente";
+          alert(message);
           setSelectedPlayers(new Set());
           setShowAddPlayers(false);
           onPlayersUpdated();
@@ -121,6 +124,7 @@ export default function TournamentPlayersManager({
           alert(error.error || "Error al añadir jugadores");
         }
       } catch (error) {
+        console.error("Error adding players:", error);
         alert("Error de conexión");
       }
     });
@@ -133,19 +137,20 @@ export default function TournamentPlayersManager({
 
     startTransition(async () => {
       try {
-        const response = await fetch(`/api/tournaments/${tournamentId}/players?playerId=${playerId}`, {
+        // CORREGIDO: Usar el endpoint específico del jugador
+        const response = await fetch(`/api/tournaments/${tournamentId}/players/${playerId}`, {
           method: "DELETE",
         });
 
         if (response.ok) {
-          const result = await response.json();
-          alert(result.message);
+          alert("Jugador eliminado correctamente");
           onPlayersUpdated();
         } else {
           const error = await response.json();
           alert(error.error || "Error al eliminar jugador");
         }
       } catch (error) {
+        console.error("Error removing player:", error);
         alert("Error de conexión");
       }
     });
@@ -168,33 +173,17 @@ export default function TournamentPlayersManager({
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Configuración */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-blue-50 rounded-lg">
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Ronda de incorporación
-                </label>
-                <Input
-                  type="number"
-                  min="1"
-                  max={totalRounds}
-                  value={joinRound}
-                  onChange={(e) => setJoinRound(parseInt(e.target.value) || 1)}
-                  className="w-full"
-                />
-                <p className="text-xs text-gray-600 mt-1">
-                  Los jugadores se unirán desde esta ronda
+            {/* Información automática de ronda */}
+            <div className="p-4 bg-blue-50 rounded-lg">
+              <div className="text-sm">
+                <p className="font-medium text-blue-900 mb-1">
+                  Incorporación Automática
                 </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Jugadores seleccionados
-                </label>
-                <div className="text-2xl font-bold text-blue-600">
-                  {selectedPlayers.size}
-                </div>
-                <p className="text-xs text-gray-600">
-                  jugadores para añadir
+                <p className="text-blue-700">
+                  Los jugadores se añadirán automáticamente a la ronda más apropiada según el estado actual del torneo.
+                </p>
+                <p className="text-blue-600 text-xs mt-2">
+                  <strong>Seleccionados:</strong> {selectedPlayers.size} jugadores
                 </p>
               </div>
             </div>
@@ -219,7 +208,10 @@ export default function TournamentPlayersManager({
               </div>
             ) : filteredPlayers.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                {searchTerm ? "No se encontraron jugadores con esa búsqueda" : "No hay jugadores disponibles"}
+                {searchTerm ? "No se encontraron jugadores con esa búsqueda" 
+                : availablePlayers.length === 0 
+                  ? "No hay jugadores disponibles para añadir"
+                  : "No se encontraron jugadores"}
               </div>
             ) : (
               <div className="max-h-96 overflow-y-auto space-y-2">
@@ -350,7 +342,7 @@ export default function TournamentPlayersManager({
             <div className="text-sm">
               <p className="font-medium text-yellow-800">Importante:</p>
               <ul className="text-yellow-700 mt-1 space-y-1">
-                <li>• Los jugadores se añadirán al grupo más bajo de la ronda especificada</li>
+                <li>• Los jugadores se añadirán automáticamente a la ronda más apropiada</li>
                 <li>• Solo se pueden eliminar jugadores que no hayan jugado partidos confirmados</li>
                 <li>• Los jugadores añadidos a rondas futuras aparecerán automáticamente cuando llegue su turno</li>
               </ul>

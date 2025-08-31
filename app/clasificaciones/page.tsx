@@ -1,19 +1,21 @@
-// app/clasificaciones/page.tsx - REEMPLAZAR completamente:
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { redirect } from "next/navigation";
+import Breadcrumbs from "@/components/Breadcrumbs";
 import ClasificacionesClient from "./ClasificacionesClient";
 
 export const metadata = {
   title: "Clasificaciones | Escalapp",
-  description: "Rankings oficial e ironman del torneo",
+  description: "Ranking oficial por promedio e Ironman por puntos totales",
 };
 
-export default async function ClasificacionesPage() {
-  const session = await getServerSession(authOptions);
-  if (!session) {
-    redirect("/auth/login");
-  }
+export default function ClasificacionesPage() {
+  const items = [
+    { label: "Inicio", href: "/dashboard" },
+    { label: "Clasificaciones", current: true },
+  ];
 
-  return <ClasificacionesClient />;
+  return (
+    <div className="px-4 py-6 max-w-7xl mx-auto space-y-6">
+      <Breadcrumbs items={items} />
+      <ClasificacionesClient />
+    </div>
+  );
 }

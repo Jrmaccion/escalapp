@@ -4,7 +4,8 @@ import { ArrowLeft, Plus, Trophy, Users, Calendar, Settings, Eye, Trash2 } from 
 import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
-import { useTransition } from "react";
+import { useState, useTransition } from "react";
+import DeleteConfirmationModal from "@/components/modals/DeleteConfirmationModal";
 
 type SerializedTournament = {
   id: string;
@@ -26,6 +27,11 @@ type TournamentsClientProps = {
 
 export default function TournamentsClient({ tournaments }: TournamentsClientProps) {
   const [isPending, startTransition] = useTransition();
+  const [deleteModal, setDeleteModal] = useState<{
+    isOpen: boolean;
+    tournament: SerializedTournament | null;
+  }>({ isOpen: false, tournament: null });
+
   const activeTournament = tournaments.find((t) => t.isActive);
 
   const getStatusBadge = (tournament: SerializedTournament) => {
@@ -60,23 +66,29 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
     });
   };
 
-  const deleteTournament = (tournamentId: string, tournamentTitle: string) => {
-    const confirmed = confirm(
-      `¿Seguro que quieres eliminar el torneo "${tournamentTitle}"? Esta acción no se puede deshacer.`
-    );
-    if (!confirmed) return;
+  const handleDeleteClick = (tournament: SerializedTournament) => {
+    setDeleteModal({ isOpen: true, tournament });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteModal.tournament) return;
 
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/tournaments/${tournamentId}`, {
+        const res = await fetch(`/api/tournaments/${deleteModal.tournament!.id}`, {
           method: "DELETE",
         });
+        
+        const data = await res.json();
+        
         if (res.ok) {
+          setDeleteModal({ isOpen: false, tournament: null });
           window.location.reload();
         } else {
-          alert("Error al eliminar torneo");
+          alert(data.error || "Error al eliminar torneo");
         }
       } catch (error) {
+        console.error("Error deleting tournament:", error);
         alert("Error de conexión");
       }
     });
@@ -283,7 +295,7 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
 
                           {tournament.status !== "active" && (
                             <button
-                              onClick={() => deleteTournament(tournament.id, tournament.title)}
+                              onClick={() => handleDeleteClick(tournament)}
                               disabled={isPending}
                               className="p-1 text-gray-600 hover:text-red-600 transition-colors"
                               title="Eliminar torneo"
@@ -300,6 +312,23 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
             </table>
           </div>
         </div>
+
+        {/* Modal de confirmación de eliminación */}
+        {deleteModal.tournament && (
+          <DeleteConfirmationModal
+            isOpen={deleteModal.isOpen}
+            onClose={() => setDeleteModal({ isOpen: false, tournament: null })}
+            onConfirm={confirmDelete}
+            tournament={{
+              title: deleteModal.tournament.title,
+              totalRounds: deleteModal.tournament.totalRounds,
+              playersCount: deleteModal.tournament.playersCount,
+              totalMatches: 0, // En la lista no tenemos estos datos detallados
+              confirmedMatches: 0 // En la lista no tenemos estos datos detallados
+            }}
+            isLoading={isPending}
+          />
+        )}
       </div>
     </div>
   );

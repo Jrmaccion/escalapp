@@ -6,21 +6,18 @@ import type { Metadata } from "next";
 import RankingsClient from "./RankingsClient";
 
 export const metadata: Metadata = {
-  title: "Rankings | Escalapp",
+  title: "Rankings | Escalapp (Admin)",
   description: "Clasificaciones y ranking del torneo",
 };
 
-// Tipos ligeros usados en los filtros/cálculos
-type TournamentLinkLite = { tournamentId: string };
-type GroupPlayerLite = {
-  points: number;
-  group: { round: { id: string; number: number; tournamentId: string } };
-};
-type PlayerForStats = {
-  id: string;
-  name: string;
-  tournaments: TournamentLinkLite[];
-  groupPlayers: GroupPlayerLite[];
+type RankingRow = {
+  playerId: string;
+  position: number | null;
+  totalPoints: any;
+  roundsPlayed: any;
+  averagePoints: any;
+  ironmanPosition: any;
+  movement: string | null;
 };
 
 type StatsRow = {
@@ -34,154 +31,168 @@ type StatsRow = {
   movement: "up" | "down" | "stable" | "new";
 };
 
-// Tipo para filas de la tabla Ranking (lo mínimo que usamos)
-type RankingRow = {
-  playerId: string;
-  position: number;
-  totalPoints: number;
-  roundsPlayed: number;
-  averagePoints: number;
-  ironmanPosition: number;
-  movement: "up" | "down" | "stable" | "new" | null;
-};
+async function pickTournamentId(preferredId?: string) {
+  if (preferredId) {
+    const t = await prisma.tournament.findUnique({ where: { id: preferredId } });
+    if (t) return t.id;
+  }
+  const active = await prisma.tournament.findFirst({ where: { isActive: true } });
+  if (active) {
+    const rankCount = await prisma.ranking.count({ where: { tournamentId: active.id } });
+    const hasResults = await prisma.match.count({
+      where: { isConfirmed: true, group: { round: { tournamentId: active.id } } },
+    });
+    if (rankCount > 0 || hasResults > 0) return active.id;
+  }
+  const tournaments = await prisma.tournament.findMany({ orderBy: { startDate: "desc" }, take: 5 });
+  for (const t of tournaments) {
+    const rankCount = await prisma.ranking.count({ where: { tournamentId: t.id } });
+    if (rankCount > 0) return t.id;
+    const hasResults = await prisma.match.count({
+      where: { isConfirmed: true, group: { round: { tournamentId: t.id } } },
+    });
+    if (hasResults > 0) return t.id;
+  }
+  if (active) return active.id;
+  const latest = await prisma.tournament.findFirst({ orderBy: { startDate: "desc" } });
+  return latest?.id ?? null;
+}
 
-export default async function AdminRankingsPage() {
+export default async function AdminRankingsPage({
+  searchParams,
+}: {
+  searchParams?: { tournamentId?: string };
+}) {
   const session = await getServerSession(authOptions);
   if (!session) redirect("/auth/login");
   if (!session.user?.isAdmin) redirect("/dashboard");
 
-  // Obtener torneo activo + rondas
-  const tournament = await prisma.tournament.findFirst({
-    where: { isActive: true },
-    include: {
-      rounds: {
-        orderBy: { number: "desc" },
-      },
-    },
-  });
-
-  if (!tournament) {
+  const tournamentId = await pickTournamentId(searchParams?.tournamentId);
+  if (!tournamentId) {
     return (
       <div className="min-h-screen bg-gray-50 py-10">
         <div className="container mx-auto px-4 max-w-4xl text-center">
-          <h1 className="text-2xl font-bold mb-4">No hay torneo activo</h1>
+          <h1 className="text-2xl font-bold mb-4">No hay torneos</h1>
           <p className="text-gray-600">Crea un torneo para ver los rankings.</p>
         </div>
       </div>
     );
   }
 
-  // Ronda más reciente (si no hay, usamos 1 por compatibilidad)
-  const latestRound = tournament.rounds[0];
-
-  // Rankings almacenados (si existen)
-  const rankings = (await prisma.ranking.findMany({
-    where: {
-      tournamentId: tournament.id,
-      roundNumber: latestRound?.number || 1,
+  const tournament = await prisma.tournament.findUnique({
+    where: { id: tournamentId },
+    include: {
+      rounds: { orderBy: { number: "desc" }, select: { id: true, number: true, isClosed: true } },
     },
-    orderBy: [{ position: "asc" }],
+  });
+  if (!tournament) redirect("/admin");
+
+  const latestClosed = tournament.rounds.find((r) => r.isClosed);
+  const referenceRound = latestClosed ?? tournament.rounds[0];
+  const refRoundNumber = referenceRound?.number ?? 1;
+
+  // 1) Ranking persistido
+  const persisted = (await prisma.ranking.findMany({
+    where: { tournamentId: tournament.id, roundNumber: refRoundNumber },
+    orderBy: { position: "asc" },
   })) as unknown as RankingRow[];
 
   let playersWithStats: StatsRow[] = [];
 
-  if (rankings.length === 0) {
-    // ---- Calcular estadísticas manualmente ----
-    const playersDb = (await prisma.player.findMany({
-      include: {
-        tournaments: {
-          where: { tournamentId: tournament.id },
-          select: { tournamentId: true },
-        },
-        groupPlayers: {
-          select: {
-            points: true,
-            group: { select: { round: { select: { id: true, number: true, tournamentId: true } } } },
-          },
-        },
-      },
-      orderBy: { name: "asc" },
-    })) as unknown as PlayerForStats[];
+  if (persisted.length > 0) {
+    const players = await prisma.player.findMany({
+      where: { id: { in: persisted.map((r) => r.playerId) } },
+      select: { id: true, name: true },
+    });
+    const nameById = new Map(players.map((p) => [p.id, p.name]));
 
-    // Filtrar inscritos en este torneo (tipamos el array, no el parámetro del callback)
-    const tournamentPlayers = (playersDb as PlayerForStats[]).filter((p) =>
-      p.tournaments.some((tp) => tp.tournamentId === tournament.id)
-    );
+    const asNumber = (v: any) => (typeof v === "number" ? v : v ? Number(v) : 0);
 
-    playersWithStats = await Promise.all(
-      (tournamentPlayers as PlayerForStats[]).map(async (p, index) => {
-        // Partidos confirmados en los que participa (4 consultas; se puede optimizar más adelante)
-        const matchesAsTeam1Player1 = await prisma.match.count({
-          where: { team1Player1Id: p.id, isConfirmed: true },
-        });
-        const matchesAsTeam1Player2 = await prisma.match.count({
-          where: { team1Player2Id: p.id, isConfirmed: true },
-        });
-        const matchesAsTeam2Player1 = await prisma.match.count({
-          where: { team2Player1Id: p.id, isConfirmed: true },
-        });
-        const matchesAsTeam2Player2 = await prisma.match.count({
-          where: { team2Player2Id: p.id, isConfirmed: true },
-        });
-
-        const totalMatches =
-          matchesAsTeam1Player1 +
-          matchesAsTeam1Player2 +
-          matchesAsTeam2Player1 +
-          matchesAsTeam2Player2;
-
-        // Puntos acumulados desde GroupPlayer
-        const totalPoints = p.groupPlayers.reduce((acc, gp) => acc + (gp.points ?? 0), 0);
-        const roundsPlayed = p.groupPlayers.length;
-        const averagePoints = totalMatches > 0 ? totalPoints / totalMatches : 0;
-
-        return {
-          playerId: p.id,
-          playerName: p.name,
-          position: index + 1, // se recalcula tras ordenar
-          totalPoints,
-          roundsPlayed,
-          averagePoints,
-          ironmanPosition: index + 1,
-          movement: "stable",
-        } as StatsRow;
-      })
-    );
-
-    // Ordenar por puntos totales y reasignar posición
-    playersWithStats.sort((a, b) => b.totalPoints - a.totalPoints);
-    playersWithStats = playersWithStats.map((row, idx) => ({
-      ...row,
-      position: idx + 1,
+    playersWithStats = persisted.map((r, i) => ({
+      playerId: r.playerId,
+      playerName: nameById.get(r.playerId) ?? "Jugador desconocido",
+      position: r.position ?? i + 1,
+      totalPoints: asNumber(r.totalPoints),
+      roundsPlayed: asNumber(r.roundsPlayed),
+      averagePoints: asNumber(r.averagePoints),
+      ironmanPosition: asNumber(r.ironmanPosition ?? r.position ?? i + 1),
+      movement: (r.movement ?? "stable") as "up" | "down" | "stable" | "new",
     }));
   } else {
-    // ---- Usar rankings persistidos ----
-    playersWithStats = await Promise.all(
-      rankings.map(async (r) => {
-        const player = await prisma.player.findUnique({
-          where: { id: r.playerId },
-          select: { name: true },
-        });
+    // 2) Fallback por resultados
+    const confirmedMatches = await prisma.match.findMany({
+      where: {
+        isConfirmed: true,
+        group: { round: { tournamentId: tournament.id, number: { lte: refRoundNumber } } },
+      },
+      select: { id: true, group: { select: { round: { select: { number: true } } } } },
+    });
 
-        return {
-          playerId: r.playerId,
-          playerName: player?.name || "Jugador desconocido",
-          position: r.position,
-          totalPoints: r.totalPoints,
-          roundsPlayed: r.roundsPlayed,
-          averagePoints: r.averagePoints,
-          ironmanPosition: r.ironmanPosition,
-          movement: (r.movement ?? "stable") as "up" | "down" | "stable" | "new",
-        } as StatsRow;
-      })
+    const matchIds = confirmedMatches.map((m) => m.id);
+    const matchIdToRoundNum = new Map<string, number>(
+      confirmedMatches.map((m) => [m.id, m.group.round.number]),
     );
+
+    const results = await prisma.matchResult.findMany({
+      where: matchIds.length ? { matchId: { in: matchIds } } : { matchId: { in: [""] } },
+      select: { playerId: true, points: true, matchId: true },
+    });
+
+    const pointsByPlayer = new Map<string, number>();
+    const roundsSetByPlayer = new Map<string, Set<number>>();
+
+    for (const r of results) {
+      const pid = r.playerId;
+      const roundNum = matchIdToRoundNum.get(r.matchId);
+      const pts = typeof r.points === "number" ? r.points : Number(r.points ?? 0);
+      pointsByPlayer.set(pid, (pointsByPlayer.get(pid) ?? 0) + pts);
+      if (roundNum !== undefined) {
+        const set = roundsSetByPlayer.get(pid) ?? new Set<number>();
+        set.add(roundNum);
+        roundsSetByPlayer.set(pid, set);
+      }
+    }
+
+    const tPlayers = await prisma.tournamentPlayer.findMany({
+      where: { tournamentId: tournament.id },
+      include: { player: { select: { id: true, name: true } } },
+      orderBy: { player: { name: "asc" } },
+    });
+
+    playersWithStats = tPlayers.map((tp, idx) => {
+      const pid = tp.player.id;
+      const totalPoints = pointsByPlayer.get(pid) ?? 0;
+      const roundsPlayed = (roundsSetByPlayer.get(pid)?.size ?? 0);
+      const averagePoints = roundsPlayed > 0 ? totalPoints / roundsPlayed : 0;
+      return {
+        playerId: pid,
+        playerName: tp.player.name,
+        position: idx + 1,
+        totalPoints,
+        roundsPlayed,
+        averagePoints,
+        ironmanPosition: idx + 1,
+        movement: "stable",
+      };
+    });
+
+    playersWithStats.sort((a, b) => {
+      if (b.averagePoints !== a.averagePoints) return b.averagePoints - a.averagePoints;
+      return b.totalPoints - a.totalPoints;
+    });
+
+    playersWithStats = playersWithStats.map((row, i) => ({
+      ...row,
+      position: i + 1,
+      ironmanPosition: i + 1,
+    }));
   }
 
   const serializedTournament = {
     id: tournament.id,
     title: tournament.title,
-    currentRound: latestRound?.number || 1,
-    totalRounds: tournament.totalRounds,
+    currentRound: refRoundNumber,
+    totalRounds: tournament.rounds[0]?.number ?? refRoundNumber,
   };
 
   return <RankingsClient rankings={playersWithStats} tournament={serializedTournament} />;

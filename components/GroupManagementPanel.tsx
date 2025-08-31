@@ -1,22 +1,29 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { 
-  Users, 
-  Shuffle, 
-  Crown, 
-  AlertTriangle, 
-  CheckCircle, 
+import {
+  Users,
+  Shuffle,
+  Crown,
+  AlertTriangle,
+  CheckCircle,
   RefreshCw,
   Trash2,
   Info,
-  Settings
+  Settings,
+  Plus,
+  Clock,
+  Pencil,
+  X,
 } from "lucide-react";
+import MatchEditDialog from "@/components/MatchEditDialog";
 
+/* ----------------------------- Tipos de datos ----------------------------- */
 type Group = {
   id: string;
   number: number;
@@ -34,6 +41,21 @@ type Tournament = {
   totalPlayers: number;
 };
 
+type MatchSummary = {
+  id: string;
+  groupId: string;
+  groupNumber: number;
+  setNumber: number | null;
+  isConfirmed: boolean;
+  team1Player1Id?: string | null;
+  team1Player2Id?: string | null;
+  team2Player1Id?: string | null;
+  team2Player2Id?: string | null;
+  team1Games?: number | null;
+  team2Games?: number | null;
+  tiebreakScore?: string | null;
+};
+
 type GroupManagementPanelProps = {
   roundId: string;
   roundNumber: number;
@@ -41,70 +63,185 @@ type GroupManagementPanelProps = {
   groups: Group[];
   availablePlayers: number;
   isAdmin?: boolean;
+  isClosed?: boolean;
 };
 
-export default function GroupManagementPanel({ 
-  roundId, 
+export default function GroupManagementPanel({
+  roundId,
   roundNumber,
   tournament,
-  groups, 
+  groups,
   availablePlayers,
-  isAdmin = false 
+  isAdmin = true,       // este panel se usa en Admin
+  isClosed = false,
 }: GroupManagementPanelProps) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
-  const [strategy, setStrategy] = useState<'random' | 'ranking'>('random');
+  const [error, setError] = useState<string | null>(null);
+  const [strategy, setStrategy] = useState<"random" | "ranking">("random");
   const [playersPerGroup, setPlayersPerGroup] = useState(4);
 
+  // Estado de sets
+  const [matches, setMatches] = useState<MatchSummary[]>([]);
+  const [loadingMatches, setLoadingMatches] = useState(false);
+  const [editing, setEditing] = useState<MatchSummary | null>(null);
+
   const hasGroups = groups.length > 0;
-  const canCreateGroups = availablePlayers >= 4 && availablePlayers % playersPerGroup === 0;
+  const canCreateGroups =
+    availablePlayers >= playersPerGroup &&
+    availablePlayers % playersPerGroup === 0;
   const totalGroupsNeeded = Math.floor(availablePlayers / playersPerGroup);
+
+  /* ---------------------------- Carga de matches --------------------------- */
+  async function reloadMatches() {
+    setLoadingMatches(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/rounds/${roundId}/matches`, { cache: "no-store" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || "No se pudieron cargar los sets");
+      const items: MatchSummary[] = Array.isArray(data?.matches) ? data.matches : [];
+      setMatches(items);
+    } catch (e: any) {
+      setError(e?.message || "No se pudieron cargar los sets");
+    } finally {
+      setLoadingMatches(false);
+    }
+  }
+
+  useEffect(() => {
+    reloadMatches();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roundId]);
+
+  /* -------------------------- Métricas y filtrado -------------------------- */
+  const totalSets = matches.length;
+  const completedSets = matches.filter((m) => m.isConfirmed).length;
+
+  type Filter = "all" | "pending" | "completed";
+  const [selectedFilter, setSelectedFilter] = useState<Filter>("all");
+
+  const filteredMatches = useMemo(() => {
+    if (selectedFilter === "completed") return matches.filter((m) => m.isConfirmed);
+    if (selectedFilter === "pending") return matches.filter((m) => !m.isConfirmed);
+    return matches;
+  }, [matches, selectedFilter]);
+
+  /* -------------------------------- Helpers -------------------------------- */
+  const getPlayerName = (playerId?: string | null): string => {
+    if (!playerId) return "—";
+    for (const g of groups) {
+      const p = g.players.find((x) => x.id === playerId);
+      if (p) return p.name;
+    }
+    return "—";
+  };
+
+  const patchMatch = async (
+    id: string,
+    payload: { team1Games: number; team2Games: number; tiebreakScore?: string | null; action?: "report" | "confirm" }
+  ) => {
+    const res = await fetch(`/api/matches/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || "No se pudo actualizar el set");
+    return data;
+  };
+
+  const deleteMatch = async (id: string) => {
+    const res = await fetch(`/api/matches/${id}`, { method: "DELETE" });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.error || "No se pudo limpiar el set");
+    return data;
+  };
+
+  const handleConfirm = (m: MatchSummary) => {
+    if (!isAdmin && (!Number.isInteger(m.team1Games) || !Number.isInteger(m.team2Games))) {
+      alert("No hay resultado que confirmar.");
+      return;
+    }
+    // Con tu API:
+    // - Jugador: PATCH con action='confirm' y los juegos.
+    // - Admin: PATCH sin action -> fuerza confirmación.
+    startTransition(async () => {
+      setError(null);
+      try {
+        const t1 = Number(m.team1Games);
+        const t2 = Number(m.team2Games);
+        if (!isAdmin && (!Number.isInteger(t1) || !Number.isInteger(t2))) {
+          throw new Error("Faltan juegos para confirmar.");
+        }
+        await patchMatch(m.id, {
+          team1Games: Number.isInteger(t1) ? t1 : 4,
+          team2Games: Number.isInteger(t2) ? t2 : 4,
+          tiebreakScore: m.tiebreakScore ?? undefined,
+          action: isAdmin ? undefined : "confirm",
+        } as any);
+        await reloadMatches();
+      } catch (e: any) {
+        setError(e?.message || "Error al confirmar el set");
+      }
+    });
+  };
+
+  const handleDelete = (m: MatchSummary) => {
+    if (!confirm("¿Limpiar el resultado de este set?")) return;
+    startTransition(async () => {
+      setError(null);
+      try {
+        await deleteMatch(m.id);
+        await reloadMatches();
+      } catch (e: any) {
+        setError(e?.message || "Error al limpiar el set");
+      }
+    });
+  };
 
   const generateGroups = async (force = false) => {
     if (!isAdmin) {
       alert("Solo los administradores pueden generar grupos");
       return;
     }
-
     if (!canCreateGroups && !force) {
-      alert(`No se pueden crear grupos. Necesitas ${playersPerGroup} jugadores o múltiplos de ${playersPerGroup}. Tienes ${availablePlayers} jugadores.`);
+      alert(
+        `No se pueden crear grupos. Necesitas ${playersPerGroup} jugadores o múltiplos de ${playersPerGroup}. Tienes ${availablePlayers} jugadores.`
+      );
       return;
     }
-
-    const confirmMessage = force 
+    const confirmMessage = force
       ? `¿Regenerar todos los grupos? Se eliminarán los ${groups.length} grupos existentes.`
-      : `¿Crear ${totalGroupsNeeded} grupos con ${playersPerGroup} jugadores cada uno usando distribución '${strategy === 'random' ? 'aleatoria' : 'por ranking'}'?`;
-      
+      : `¿Crear ${totalGroupsNeeded} grupos con ${playersPerGroup} jugadores cada uno usando distribución '${
+          strategy === "random" ? "aleatoria" : "por ranking"
+        }'?`;
     if (!confirm(confirmMessage)) return;
 
     setMessage(null);
     startTransition(async () => {
       try {
         const response = await fetch(`/api/rounds/${roundId}/generate-groups`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            strategy, 
-            playersPerGroup,
-            force 
-          })
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ strategy, playersPerGroup, force }),
         });
-
         const data = await response.json();
-        
         if (response.ok) {
-          setMessage(data.message);
+          setMessage(data.message || "Grupos generados correctamente.");
           setTimeout(() => setMessage(null), 5000);
+          await reloadMatches();
           window.location.reload();
         } else {
-          alert(data.error || 'Error generando grupos');
+          alert(data.error || "Error generando grupos");
         }
-      } catch (error) {
-        alert('Error de conexión');
+      } catch {
+        alert("Error de conexión");
       }
     });
   };
 
+  /* --------------------------------- Render -------------------------------- */
   return (
     <div className="space-y-6">
       {/* Estado general */}
@@ -135,7 +272,10 @@ export default function GroupManagementPanel({
             </div>
           </div>
 
-          {/* Estado de validación */}
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
+          )}
+
           {canCreateGroups ? (
             <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
               <div className="flex items-center gap-2 text-green-700">
@@ -157,23 +297,21 @@ export default function GroupManagementPanel({
             </div>
           )}
 
-          {/* Mensaje de estado */}
           {message && (
-            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg">
-              <div className="flex items-center gap-2 text-green-700">
-                <CheckCircle className="w-4 h-4" />
-                <span className="text-sm">{message}</span>
-              </div>
+            <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
+              <CheckCircle className="w-4 h-4 inline mr-1" />
+              {message}
             </div>
           )}
         </CardContent>
       </Card>
 
       {/* Configuración y acciones */}
-      <Tabs defaultValue="generate" className="w-full">
-        <TabsList className="grid w-full grid-cols-2">
+      <Tabs defaultValue="matches" className="w-full">
+        <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="generate">Generar Grupos</TabsTrigger>
-          <TabsTrigger value="view">Ver Grupos Actuales</TabsTrigger>
+          <TabsTrigger value="view">Ver Grupos</TabsTrigger>
+          <TabsTrigger value="matches">Gestionar Sets</TabsTrigger>
         </TabsList>
 
         <TabsContent value="generate" className="space-y-4">
@@ -185,47 +323,37 @@ export default function GroupManagementPanel({
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Estrategia de distribución */}
+              {/* Estrategia */}
               <div>
                 <label className="block text-sm font-medium mb-2">Estrategia de distribución</label>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <button
-                    onClick={() => setStrategy('random')}
+                    onClick={() => setStrategy("random")}
                     className={`p-4 rounded-lg border text-left transition-colors ${
-                      strategy === 'random' 
-                        ? 'border-blue-500 bg-blue-50' 
-                        : 'border-gray-200 hover:border-gray-300'
+                      strategy === "random" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"
                     }`}
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <Shuffle className="w-4 h-4" />
                       <span className="font-medium">Aleatoria</span>
                     </div>
-                    <p className="text-sm text-gray-600">
-                      Distribución completamente aleatoria de jugadores.
-                    </p>
+                    <p className="text-sm text-gray-600">Distribución completamente aleatoria.</p>
                   </button>
 
                   <button
-                    onClick={() => setStrategy('ranking')}
+                    onClick={() => setStrategy("ranking")}
                     className={`p-4 rounded-lg border text-left transition-colors ${
-                      strategy === 'ranking' 
-                        ? 'border-blue-500 bg-blue-50' 
-                        : 'border-gray-200 hover:border-gray-300'
+                      strategy === "ranking" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"
                     }`}
+                    disabled={roundNumber === 1}
                   >
                     <div className="flex items-center gap-2 mb-2">
                       <Crown className="w-4 h-4" />
                       <span className="font-medium">Por Ranking</span>
-                      {roundNumber === 1 && (
-                        <Badge variant="outline" className="text-xs">No disponible</Badge>
-                      )}
+                      {roundNumber === 1 && <Badge variant="outline" className="text-xs">No disponible</Badge>}
                     </div>
                     <p className="text-sm text-gray-600">
-                      {roundNumber === 1 
-                        ? "No hay ranking previo en la primera ronda."
-                        : "Equilibra grupos según ranking de ronda anterior."
-                      }
+                      {roundNumber === 1 ? "No hay ranking previo en la primera ronda." : "Equilibra según ranking previo."}
                     </p>
                   </button>
                 </div>
@@ -233,9 +361,7 @@ export default function GroupManagementPanel({
 
               {/* Jugadores por grupo */}
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  Jugadores por grupo: {playersPerGroup}
-                </label>
+                <label className="block text-sm font-medium mb-2">Jugadores por grupo: {playersPerGroup}</label>
                 <div className="flex items-center gap-4">
                   <input
                     type="range"
@@ -247,14 +373,12 @@ export default function GroupManagementPanel({
                     className="flex-1"
                   />
                   <div className="flex gap-2">
-                    {[4, 6, 8].map(size => (
+                    {[4, 6, 8].map((size) => (
                       <button
                         key={size}
                         onClick={() => setPlayersPerGroup(size)}
                         className={`px-3 py-1 rounded text-sm ${
-                          playersPerGroup === size
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                          playersPerGroup === size ? "bg-blue-600 text-white" : "bg-gray-200 text-gray-700 hover:bg-gray-300"
                         }`}
                       >
                         {size}
@@ -262,33 +386,17 @@ export default function GroupManagementPanel({
                     ))}
                   </div>
                 </div>
-                <p className="text-xs text-gray-500 mt-1">
-                  Con {playersPerGroup} jugadores por grupo se crearán {Math.floor(availablePlayers / playersPerGroup)} grupos
-                  {availablePlayers % playersPerGroup > 0 && (
-                    <span className="text-red-600"> ({availablePlayers % playersPerGroup} jugadores quedarán fuera)</span>
-                  )}
-                </p>
               </div>
 
-              {/* Botones de acción */}
+              {/* Botones */}
               {isAdmin && (
                 <div className="flex flex-wrap gap-3 pt-4">
-                  <Button
-                    onClick={() => generateGroups(false)}
-                    disabled={isPending || hasGroups}
-                    className="flex items-center gap-2"
-                  >
+                  <Button onClick={() => generateGroups(false)} disabled={isPending || hasGroups} className="flex items-center gap-2">
                     {isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
                     Crear Grupos
                   </Button>
-                  
                   {hasGroups && (
-                    <Button
-                      onClick={() => generateGroups(true)}
-                      disabled={isPending}
-                      variant="destructive"
-                      className="flex items-center gap-2"
-                    >
+                    <Button onClick={() => generateGroups(true)} disabled={isPending} variant="destructive" className="flex items-center gap-2">
                       {isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                       Regenerar Grupos
                     </Button>
@@ -299,6 +407,7 @@ export default function GroupManagementPanel({
           </Card>
         </TabsContent>
 
+        {/* Vista de grupos */}
         <TabsContent value="view" className="space-y-4">
           {hasGroups ? (
             <div className="grid gap-4">
@@ -313,6 +422,7 @@ export default function GroupManagementPanel({
                   <CardContent>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {group.players
+                        .slice()
                         .sort((a, b) => a.position - b.position)
                         .map((player) => (
                           <div key={player.id} className="flex items-center gap-2 p-2 bg-gray-50 rounded">
@@ -332,24 +442,190 @@ export default function GroupManagementPanel({
               <CardContent className="p-8 text-center">
                 <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600 mb-4">No hay grupos creados para esta ronda</p>
-                <p className="text-sm text-gray-500">Usa la pestaña "Generar Grupos" para crear los grupos.</p>
+                <p className="text-sm text-gray-500">Usa la pestaña "Generar Grupos".</p>
               </CardContent>
             </Card>
           )}
         </TabsContent>
+
+        {/* Gestión de sets */}
+        <TabsContent value="matches" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                Gestión de Sets de la Ronda
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-gray-900">{totalSets}</div>
+                  <div className="text-sm text-gray-600">Sets totales</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-green-600">{completedSets}</div>
+                  <div className="text-sm text-gray-600">Completados</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-orange-600">{totalSets - completedSets}</div>
+                  <div className="text-sm text-gray-600">Pendientes</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-blue-600">
+                    {totalSets > 0 ? Math.round((completedSets / totalSets) * 100) : 0}%
+                  </div>
+                  <div className="text-sm text-gray-600">Progreso</div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2 items-center justify-between">
+                <div className="flex flex-wrap gap-2">
+                  <Button variant={selectedFilter === "all" ? "default" : "outline"} size="sm" onClick={() => setSelectedFilter("all")}>
+                    Todos ({totalSets})
+                  </Button>
+                  <Button variant={selectedFilter === "pending" ? "default" : "outline"} size="sm" onClick={() => setSelectedFilter("pending")}>
+                    Pendientes ({totalSets - completedSets})
+                  </Button>
+                  <Button variant={selectedFilter === "completed" ? "default" : "outline"} size="sm" onClick={() => setSelectedFilter("completed")}>
+                    Completados ({completedSets})
+                  </Button>
+                </div>
+                <div className="text-sm text-gray-500">
+                  {loadingMatches ? "Cargando…" : `${filteredMatches.length} sets mostrados`}
+                </div>
+              </div>
+
+              <div className="space-y-2 max-h-[32rem] overflow-y-auto">
+                {filteredMatches.length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <Clock className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                    <p>No hay sets para mostrar</p>
+                  </div>
+                ) : (
+                  filteredMatches.map((m) => {
+                    const hasResult = m.team1Games != null && m.team2Games != null;
+
+                    return (
+                      <div
+                        key={m.id}
+                        className={`p-4 rounded-lg border transition-colors ${
+                          m.isConfirmed
+                            ? "bg-green-50 border-green-200"
+                            : hasResult
+                            ? "bg-yellow-50 border-yellow-200"
+                            : "bg-white border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-3 mb-2">
+                              <Badge variant="outline" className="shrink-0">
+                                Grupo {m.groupNumber} — Set {m.setNumber ?? "—"}
+                              </Badge>
+                              {m.isConfirmed && (
+                                <Badge className="bg-green-100 text-green-700 shrink-0">
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                  Confirmado
+                                </Badge>
+                              )}
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-2 text-sm">
+                              <div className="flex items-center justify-between">
+                                <span className="truncate">
+                                  {getPlayerName(m.team1Player1Id)} + {getPlayerName(m.team1Player2Id)}
+                                </span>
+                                <span className="font-bold text-lg ml-2">{m.team1Games ?? "-"}</span>
+                              </div>
+
+                              <div className="text-center text-xs text-gray-400">vs</div>
+
+                              <div className="flex items-center justify-between">
+                                <span className="truncate">
+                                  {getPlayerName(m.team2Player1Id)} + {getPlayerName(m.team2Player2Id)}
+                                </span>
+                                <span className="font-bold text-lg ml-2">{m.team2Games ?? "-"}</span>
+                              </div>
+                            </div>
+
+                            {m.tiebreakScore && (
+                              <div className="text-xs text-blue-600 mt-1">
+                                Tie-break: {m.tiebreakScore}
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="ml-4 flex items-center gap-2">
+                            <Button variant="outline" size="sm" onClick={() => setEditing(m)}>
+                              <Pencil className="w-4 h-4 mr-1" />
+                              Editar
+                            </Button>
+
+                            {!m.isConfirmed && (
+                              <Button variant="default" size="sm" onClick={() => handleConfirm(m)}>
+                                <CheckCircle className="w-4 h-4 mr-1" />
+                                {isAdmin ? "Forzar confirmar" : "Confirmar"}
+                              </Button>
+                            )}
+
+                            <Button variant="destructive" size="sm" onClick={() => handleDelete(m)}>
+                              <Trash2 className="w-4 h-4 mr-1" />
+                              Borrar
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {!isClosed && (
+                <div className="flex flex-wrap gap-3 pt-4 border-t">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href="/admin/results">
+                      <CheckCircle className="w-4 h-4 mr-2" />
+                      Validar Resultados
+                    </Link>
+                  </Button>
+
+                  {totalSets - completedSets > 0 && (
+                    <Button variant="outline" size="sm" onClick={reloadMatches}>
+                      <RefreshCw className="w-4 h-4 mr-2" />
+                      Recargar (pendientes: {totalSets - completedSets})
+                    </Button>
+                  )}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
-      {/* Información adicional */}
+      {/* Diálogo de edición */}
+      {editing && (
+        <MatchEditDialog
+          isAdmin={isAdmin}
+          match={editing}
+          onClose={() => setEditing(null)}
+          onSaved={async () => {
+            setEditing(null);
+            await reloadMatches();
+          }}
+        />
+      )}
+
+      {/* Info */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start gap-2">
           <Info className="w-5 h-5 text-blue-600 mt-0.5" />
           <div className="text-sm">
-            <p className="font-medium text-blue-900 mb-1">Información sobre generación de grupos:</p>
+            <p className="font-medium text-blue-900 mb-1">Reglas de sets:</p>
             <ul className="text-blue-700 space-y-1">
-              <li>• <strong>Aleatoria:</strong> Distribución completamente aleatoria</li>
-              <li>• <strong>Por Ranking:</strong> Distribuye en serpiente para equilibrar niveles (ej: Grupo1: 1°,4°,5°,8° | Grupo2: 2°,3°,6°,7°)</li>
-              <li>• Solo se incluyen jugadores que se unieron en esta ronda o anteriores</li>
-              <li>• Una vez creados los grupos, puedes generar los partidos</li>
+              <li>• Set a 4 juegos, diferencia de 2.</li>
+              <li>• Si 4–4 ⇒ tie-break a 7; se guarda TB real y el set computa 5–4.</li>
+              <li>• Admin puede forzar confirmación; para “desconfirmar” usa Borrar.</li>
             </ul>
           </div>
         </div>

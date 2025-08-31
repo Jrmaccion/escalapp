@@ -1,91 +1,49 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export const dynamic = 'force-dynamic';
-
-// Obtener jugadores disponibles y actuales del torneo
-export async function GET(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+/* ------------------------ GET: lista jugadores del torneo ------------------------ */
+export async function GET(_req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.isAdmin) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    const tournamentId = params.id;
-
-    // Verificar que el torneo existe
     const tournament = await prisma.tournament.findUnique({
-      where: { id: tournamentId },
-      include: {
-        players: {
-          include: {
-            player: true
-          }
-        }
-      }
+      where: { id: params.id },
+      select: { id: true },
     });
-
     if (!tournament) {
       return NextResponse.json({ error: "Torneo no encontrado" }, { status: 404 });
     }
 
-    // Obtener jugadores ya en el torneo
-    const currentPlayers = tournament.players.map(tp => ({
+    const tps = await prisma.tournamentPlayer.findMany({
+      where: { tournamentId: params.id },
+      select: {
+        playerId: true,
+        joinedRound: true,
+        player: { select: { id: true, name: true } },
+      },
+      orderBy: [{ joinedRound: "asc" }],
+    });
+
+    const players = tps.map((tp) => ({
       id: tp.player.id,
       name: tp.player.name,
       joinedRound: tp.joinedRound,
-      comodinesUsed: tp.comodinesUsed
     }));
 
-    // Obtener jugadores disponibles (no en este torneo)
-    const currentPlayerIds = currentPlayers.map(p => p.id);
-    const availablePlayers = await prisma.player.findMany({
-      where: {
-        id: { notIn: currentPlayerIds }
-      },
-      include: {
-        user: {
-          select: {
-            email: true
-          }
-        }
-      },
-      orderBy: { name: 'asc' }
-    });
-
-    const formattedAvailablePlayers = availablePlayers.map(player => ({
-      id: player.id,
-      name: player.name,
-      email: player.user.email
-    }));
-
-    return NextResponse.json({
-      tournament: {
-        id: tournament.id,
-        title: tournament.title,
-        isActive: tournament.isActive,
-        totalRounds: tournament.totalRounds
-      },
-      currentPlayers,
-      availablePlayers: formattedAvailablePlayers
-    });
-
-  } catch (error) {
-    console.error("Error fetching tournament players:", error);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    return NextResponse.json({ ok: true, players });
+  } catch (err: any) {
+    console.error("GET /tournaments/:id/players error", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
 
-// Añadir jugadores al torneo
-export async function POST(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+/* ------------- POST: inscribir jugadores con joinedRound automático ------------- */
+export async function POST(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.isAdmin) {
@@ -93,217 +51,169 @@ export async function POST(
     }
 
     const tournamentId = params.id;
-    const body = await request.json();
-    const { playerIds, joinRound } = body;
-
-    if (!Array.isArray(playerIds) || playerIds.length === 0) {
-      return NextResponse.json({ error: "Debe especificar al menos un jugador" }, { status: 400 });
+    let body: { playerIds?: string[]; playerId?: string } = {};
+    try {
+      body = await req.json();
+    } catch {
+      // ignore
     }
 
-    if (!joinRound || joinRound < 1) {
-      return NextResponse.json({ error: "Ronda de incorporación inválida" }, { status: 400 });
+    const playerIds = Array.isArray(body.playerIds)
+      ? body.playerIds
+      : body.playerId
+      ? [body.playerId]
+      : [];
+
+    if (playerIds.length === 0) {
+      return NextResponse.json(
+        { error: "Debes indicar 'playerIds' (string[]) o 'playerId' (string)" },
+        { status: 400 }
+      );
     }
 
-    // Verificar que el torneo existe y está activo
     const tournament = await prisma.tournament.findUnique({
-      where: { id: tournamentId }
+      where: { id: tournamentId },
+      include: {
+        rounds: {
+          orderBy: { number: "asc" },
+          select: { id: true, number: true, startDate: true, endDate: true, isClosed: true },
+        },
+      },
     });
-
     if (!tournament) {
       return NextResponse.json({ error: "Torneo no encontrado" }, { status: 404 });
     }
 
-    if (!tournament.isActive) {
-      return NextResponse.json({ error: "No se pueden añadir jugadores a un torneo inactivo" }, { status: 400 });
-    }
+    const now = new Date();
+    const rounds = tournament.rounds;
+    const first = rounds[0] ?? null;
+    const last = rounds[rounds.length - 1] ?? null;
+    const active = rounds.find((r) => r.startDate <= now && now <= r.endDate && !r.isClosed);
+    const upcoming = rounds
+      .filter((r) => r.startDate > now && !r.isClosed)
+      .sort((a, b) => a.startDate.getTime() - b.startDate.getTime())[0];
 
-    if (joinRound > tournament.totalRounds) {
-      return NextResponse.json({ error: "La ronda de incorporación no puede ser mayor al total de rondas" }, { status: 400 });
-    }
+    let targetJoinedRoundNumber: number;
+    if (first && now < first.startDate) targetJoinedRoundNumber = 1;
+    else if (active) targetJoinedRoundNumber = active.number + 1;
+    else if (upcoming) targetJoinedRoundNumber = upcoming.number;
+    else if (last) targetJoinedRoundNumber = last.number + 1;
+    else targetJoinedRoundNumber = 1;
 
-    // Verificar que los jugadores existen y no están ya en el torneo
-    const existingPlayers = await prisma.player.findMany({
-      where: { id: { in: playerIds } }
-    });
+    const results: Array<{ playerId: string; joinedRound?: number; status: string; reason?: string }> = [];
 
-    if (existingPlayers.length !== playerIds.length) {
-      return NextResponse.json({ error: "Algunos jugadores no existen" }, { status: 400 });
-    }
-
-    const alreadyInTournament = await prisma.tournamentPlayer.findMany({
-      where: {
-        tournamentId,
-        playerId: { in: playerIds }
+    for (const pid of playerIds) {
+      const playerExists = await prisma.player.findUnique({ where: { id: pid }, select: { id: true } });
+      if (!playerExists) {
+        results.push({ playerId: pid, status: "skipped", reason: "Jugador inexistente" });
+        continue;
       }
-    });
 
-    if (alreadyInTournament.length > 0) {
-      return NextResponse.json({ error: "Algunos jugadores ya están en este torneo" }, { status: 400 });
+      const existing = await prisma.tournamentPlayer.findUnique({
+        where: { tournamentId_playerId: { tournamentId, playerId: pid } },
+        select: { joinedRound: true },
+      });
+
+      if (existing) {
+        const current = existing.joinedRound ?? 1;
+        const next = Math.min(current, targetJoinedRoundNumber); // nunca elevamos el umbral si ya era anterior
+        const updated = await prisma.tournamentPlayer.update({
+          where: { tournamentId_playerId: { tournamentId, playerId: pid } },
+          data: { joinedRound: next },
+          select: { playerId: true, joinedRound: true },
+        });
+        results.push({ playerId: updated.playerId, joinedRound: updated.joinedRound, status: "updated" });
+      } else {
+        const created = await prisma.tournamentPlayer.create({
+          data: { tournamentId, playerId: pid, joinedRound: targetJoinedRoundNumber },
+          select: { playerId: true, joinedRound: true },
+        });
+        results.push({ playerId: created.playerId, joinedRound: created.joinedRound, status: "created" });
+      }
     }
 
-    // Añadir jugadores al torneo
-    const tournamentPlayers = await Promise.all(
-      playerIds.map(playerId =>
-        prisma.tournamentPlayer.create({
-          data: {
-            tournamentId,
-            playerId,
-            joinedRound: joinRound,
-            comodinesUsed: 0
-          }
-        })
-      )
-    );
-
-    // Si se incorporan a una ronda futura que ya existe, añadirlos al grupo correspondiente
-    await addPlayersToExistingRound(tournamentId, joinRound, playerIds);
-
-    return NextResponse.json({
-      success: true,
-      addedPlayers: tournamentPlayers.length,
-      message: `${tournamentPlayers.length} jugadores añadidos al torneo desde la ronda ${joinRound}`
-    });
-
-  } catch (error) {
-    console.error("Error adding players to tournament:", error);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    return NextResponse.json({ ok: true, tournamentId, targetJoinedRoundNumber, results });
+  } catch (err: any) {
+    console.error("POST /tournaments/:id/players error", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
 
-// Quitar jugador del torneo
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: { id: string } }
-) {
+/* ---- DELETE (fallback con ?playerId=... para mantener compatibilidad en UI) ---- */
+export async function DELETE(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user?.isAdmin) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    const tournamentId = params.id;
-    const { searchParams } = new URL(request.url);
-    const playerId = searchParams.get('playerId');
-
+    const url = new URL(req.url);
+    const playerId = url.searchParams.get("playerId") ?? "";
     if (!playerId) {
-      return NextResponse.json({ error: "ID del jugador requerido" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Falta 'playerId'. Usa /api/tournaments/:id/players/:playerId o /api/tournaments/:id/players?playerId=..." },
+        { status: 400 }
+      );
     }
 
-    // Verificar que el jugador está en el torneo
-    const tournamentPlayer = await prisma.tournamentPlayer.findFirst({
-      where: {
-        tournamentId,
-        playerId
-      }
+    // Reutilizamos la misma lógica del handler de :playerId
+    // 1) Validar inscripción
+    const tp = await prisma.tournamentPlayer.findUnique({
+      where: { tournamentId_playerId: { tournamentId: params.id, playerId } },
+      select: { playerId: true },
     });
-
-    if (!tournamentPlayer) {
-      return NextResponse.json({ error: "El jugador no está en este torneo" }, { status: 404 });
+    if (!tp) {
+      return NextResponse.json({ error: "Inscripción no encontrada" }, { status: 404 });
     }
 
-    // Verificar si el jugador ya tiene partidos jugados
-    const hasPlayedMatches = await prisma.match.findFirst({
-      where: {
-        OR: [
-          { team1Player1Id: playerId },
-          { team1Player2Id: playerId },
-          { team2Player1Id: playerId },
-          { team2Player2Id: playerId }
-        ],
-        isConfirmed: true,
-        group: {
-          round: {
-            tournamentId
-          }
-        }
-      }
+    // 2) Rondas abiertas
+    const rounds = await prisma.round.findMany({
+      where: { tournamentId: params.id },
+      select: { id: true, isClosed: true },
     });
+    const openRoundIds = rounds.filter((r) => !r.isClosed).map((r) => r.id);
 
-    if (hasPlayedMatches) {
-      return NextResponse.json({ 
-        error: "No se puede eliminar un jugador que ya ha jugado partidos confirmados" 
-      }, { status: 400 });
-    }
-
-    // Eliminar al jugador del torneo y de grupos actuales
-    await prisma.$transaction([
-      // Quitar de grupos actuales
-      prisma.groupPlayer.deleteMany({
+    if (openRoundIds.length > 0) {
+      const setsCount = await prisma.match.count({
         where: {
-          playerId,
-          group: {
-            round: {
-              tournamentId
-            }
-          }
-        }
-      }),
-      // Quitar del torneo
-      prisma.tournamentPlayer.delete({
-        where: {
-          tournamentId_playerId: {
-            tournamentId,
-            playerId
-          }
-        }
-      })
-    ]);
-
-    return NextResponse.json({
-      success: true,
-      message: "Jugador eliminado del torneo correctamente"
-    });
-
-  } catch (error) {
-    console.error("Error removing player from tournament:", error);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
-  }
-}
-
-// Función auxiliar para añadir jugadores a ronda existente
-async function addPlayersToExistingRound(tournamentId: string, roundNumber: number, playerIds: string[]) {
-  // Buscar si la ronda ya existe
-  const existingRound = await prisma.round.findFirst({
-    where: {
-      tournamentId,
-      number: roundNumber
-    },
-    include: {
-      groups: {
-        include: {
-          players: true
+          group: { roundId: { in: openRoundIds } },
+          OR: [
+            { team1Player1Id: playerId },
+            { team1Player2Id: playerId },
+            { team2Player1Id: playerId },
+            { team2Player2Id: playerId },
+          ],
         },
-        orderBy: { level: 'desc' } // Empezar por el grupo más bajo
+      });
+      if (setsCount > 0) {
+        return NextResponse.json(
+          { error: "No se puede eliminar: el jugador tiene partidos en rondas no cerradas." },
+          { status: 409 }
+        );
       }
     }
-  });
 
-  if (!existingRound || existingRound.isClosed) {
-    return; // No añadir a rondas que no existen o están cerradas
-  }
+    // 3) Eliminar de grupos + TournamentPlayer
+    const groups = await prisma.group.findMany({
+      where: { round: { tournamentId: params.id } },
+      select: { id: true },
+    });
+    const groupIds = groups.map((g: { id: string }) => g.id);
 
-  // Si es la ronda actual o futura, añadir jugadores al grupo más bajo
-  if (existingRound.groups.length > 0) {
-    const lowestGroup = existingRound.groups[0]; // Grupo de nivel más alto (numéricamente)
-    
-    // Añadir jugadores al grupo más bajo con posiciones altas
-    let position = Math.max(...lowestGroup.players.map(p => p.position)) + 1;
-    
-    for (const playerId of playerIds) {
-      await prisma.groupPlayer.create({
-        data: {
-          groupId: lowestGroup.id,
-          playerId,
-          position,
-          points: 0,
-          streak: 0
-        }
+    await prisma.$transaction(async (tx) => {
+      if (groupIds.length > 0) {
+        await tx.groupPlayer.deleteMany({
+          where: { groupId: { in: groupIds }, playerId },
+        });
+      }
+      await tx.tournamentPlayer.delete({
+        where: { tournamentId_playerId: { tournamentId: params.id, playerId } },
       });
-      position++;
-    }
+    });
 
-    // Regenerar matches para este grupo con los nuevos jugadores
-    // Nota: Esto podría requerir lógica más compleja dependiendo de cuántos jugadores se añadan
-    console.log(`Añadidos ${playerIds.length} jugadores al grupo ${lowestGroup.id} de la ronda ${roundNumber}`);
+    return NextResponse.json({ ok: true });
+  } catch (err: any) {
+    console.error("DELETE /tournaments/:id/players (fallback) error", err);
+    return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }

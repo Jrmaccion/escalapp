@@ -30,7 +30,6 @@ type PlayersManagerProps = {
     totalRounds: number;
   };
   currentPlayers: number;
-  // ⬇️ Opción A: selector de torneo (opcional)
   tournaments?: { id: string; title: string }[];
 };
 
@@ -44,14 +43,13 @@ export default function PlayersManager({
   const [availablePlayers, setAvailablePlayers] = useState<AvailablePlayer[]>([]);
   const [selectedPlayers, setSelectedPlayers] = useState<Set<string>>(new Set());
   const [searchTerm, setSearchTerm] = useState("");
-  const [joinRound, setJoinRound] = useState(1);
   const [loadingList, setLoadingList] = useState(false);
   const [loadingCreate, setLoadingCreate] = useState(false);
   const [loadingAdd, setLoadingAdd] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [playersInTournament, setPlayersInTournament] = useState(currentPlayers);
 
-  // Formulario para crear nuevo jugador (ADMIN: crea User + Player)
+  // Formulario para crear nuevo jugador
   const [newPlayer, setNewPlayer] = useState({
     name: "",
     email: "",
@@ -60,21 +58,26 @@ export default function PlayersManager({
 
   useEffect(() => {
     loadAvailablePlayers();
-    // joinRound por defecto a última ronda válida del torneo
-    setJoinRound(Math.max(1, Math.min(tournament.totalRounds, tournament.totalRounds)));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournament.id]);
 
   async function loadAvailablePlayers() {
     try {
       setLoadingList(true);
-      const res = await fetch(`/api/tournaments/${tournament.id}/players`, { cache: "no-store" });
-      if (!res.ok) throw new Error(await res.text());
+      // CORREGIDO: Usar el nuevo endpoint para jugadores disponibles
+      const res = await fetch(`/api/tournaments/${tournament.id}/available-players`, { 
+        cache: "no-store" 
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+      }
+      
       const data = await res.json();
       setAvailablePlayers(Array.isArray(data.availablePlayers) ? data.availablePlayers : []);
     } catch (err) {
       console.error("Error loading available players:", err);
       alert("No se pudieron cargar los jugadores disponibles.");
+      setAvailablePlayers([]);
     } finally {
       setLoadingList(false);
     }
@@ -87,7 +90,6 @@ export default function PlayersManager({
     }
     try {
       setLoadingCreate(true);
-      // Endpoint ADMIN: crea User + Player
       const res = await fetch("/api/admin/players", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -112,7 +114,6 @@ export default function PlayersManager({
       alert("Selecciona al menos un jugador");
       return;
     }
-    const round = clamp(joinRound, 1, tournament.totalRounds);
 
     try {
       setLoadingAdd(true);
@@ -121,19 +122,18 @@ export default function PlayersManager({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           playerIds: Array.from(selectedPlayers),
-          joinRound: round,
         }),
       });
       const body = await safeJson(res);
       if (!res.ok) throw new Error(body?.error || "Error al añadir jugadores");
 
-      // Optimista: actualizamos contador local
+      // Actualizar contador local
       setPlayersInTournament((n) => n + selectedPlayers.size);
       setSelectedPlayers(new Set());
       await loadAvailablePlayers();
       router.refresh();
 
-      alert(body?.message || "Jugadores añadidos al torneo");
+      alert(`Jugadores añadidos al torneo. Ronda objetivo: ${body.targetJoinedRoundNumber}`);
     } catch (err: any) {
       alert(err?.message || "Error al añadir jugadores");
     } finally {
@@ -298,34 +298,16 @@ export default function PlayersManager({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            {/* Configuración */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 bg-blue-50 rounded-lg mb-4">
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Ronda de incorporación
-                </label>
-                <Input
-                  type="number"
-                  min={1}
-                  max={tournament.totalRounds}
-                  value={joinRound}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value || "1", 10);
-                    setJoinRound(clamp(val, 1, tournament.totalRounds));
-                  }}
-                />
-                <p className="text-xs text-gray-600 mt-1">
-                  Los jugadores se unirán desde esta ronda
+            {/* Información */}
+            <div className="p-4 bg-blue-50 rounded-lg mb-4">
+              <div className="text-sm">
+                <p className="font-medium text-blue-900 mb-1">Ronda de incorporación automática</p>
+                <p className="text-blue-700">
+                  Los jugadores se añadirán automáticamente a la ronda más apropiada según el estado del torneo.
                 </p>
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">
-                  Jugadores seleccionados
-                </label>
-                <div className="text-2xl font-bold text-blue-600">
-                  {selectedPlayers.size}
-                </div>
-                <p className="text-xs text-gray-600">jugadores para añadir</p>
+                <p className="text-blue-600 text-xs mt-1">
+                  <strong>Seleccionados:</strong> {selectedPlayers.size} jugadores
+                </p>
               </div>
             </div>
 
@@ -402,10 +384,6 @@ export default function PlayersManager({
 }
 
 /* Utils */
-function clamp(n: number, min: number, max: number) {
-  return Math.max(min, Math.min(max, n));
-}
-
 async function safeJson(res: Response) {
   try {
     return await res.json();
