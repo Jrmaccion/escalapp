@@ -181,7 +181,7 @@ export default function HistorialClient() {
                 </div>
                 <div>
                   <div className="text-sm text-gray-600">Posición Final</div>
-                  <div className="font-bold">{roundData.position}°</div>
+                  <div className="font-bold">{roundData.position}º</div>
                 </div>
                 <div>
                   <div className="text-sm text-gray-600">Puntos Obtenidos</div>
@@ -189,10 +189,10 @@ export default function HistorialClient() {
                 </div>
               </div>
               
-              {/* Partidos de la ronda */}
+              {/* Sets de la ronda */}
               {roundData.matches.length > 0 && (
                 <div>
-                  <h4 className="font-medium mb-3">Partidos jugados:</h4>
+                  <h4 className="font-medium mb-3">Sets jugados:</h4>
                   <div className="space-y-2">
                     {roundData.matches.map((match, index) => (
                       <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
@@ -222,6 +222,7 @@ export default function HistorialClient() {
           <li>• Los movimientos se aplican al final de cada ronda</li>
           <li>• El primer puesto sube de grupo, el último baja</li>
           <li>• Solo se muestran rondas completadas y cerradas</li>
+          <li>• Cada partido tiene 3 sets con rotación de jugadores</li>
           <li>• Las estadísticas se actualizan automáticamente</li>
         </ul>
       </div>

@@ -123,23 +123,23 @@ export default function AdminResultsClient() {
 
   const handleBatchAction = async (action: string, resultData?: any) => {
     if (selectedMatches.size === 0) {
-      alert("Selecciona al menos un match");
+      alert("Selecciona al menos un set");
       return;
     }
 
     let confirmMessage = "";
     switch (action) {
       case 'validate_pending':
-        confirmMessage = `¿Validar ${selectedMatches.size} matches pendientes?`;
+        confirmMessage = `¿Validar ${selectedMatches.size} sets pendientes?`;
         break;
       case 'clear_results':
-        confirmMessage = `¿Limpiar resultados de ${selectedMatches.size} matches?`;
+        confirmMessage = `¿Limpiar resultados de ${selectedMatches.size} sets?`;
         break;
       case 'mark_confirmed':
-        confirmMessage = `¿Marcar como confirmados ${selectedMatches.size} matches?`;
+        confirmMessage = `¿Marcar como confirmados ${selectedMatches.size} sets?`;
         break;
       default:
-        confirmMessage = `¿Ejecutar acción en ${selectedMatches.size} matches?`;
+        confirmMessage = `¿Ejecutar acción en ${selectedMatches.size} sets?`;
     }
 
     if (!confirm(confirmMessage)) return;
@@ -227,7 +227,7 @@ export default function AdminResultsClient() {
   };
 
   const filterOptions = [
-    { value: "all", label: "Todos los matches" },
+    { value: "all", label: "Todos los sets" },
     { value: "needs_review", label: "Necesitan revisión" },
     { value: "pending", label: "Pendientes confirmación" },
     { value: "unplayed", label: "Sin jugar" },
@@ -271,7 +271,7 @@ export default function AdminResultsClient() {
             <Card className="p-4">
               <div className="text-center">
                 <div className="text-2xl font-bold">{stats.totalMatches}</div>
-                <div className="text-xs text-gray-600">Total</div>
+                <div className="text-xs text-gray-600">Total Sets</div>
               </div>
             </Card>
             <Card className="p-4">
@@ -417,12 +417,12 @@ export default function AdminResultsClient() {
         {/* Tabla de resultados */}
         <Card>
           <CardHeader>
-            <CardTitle>Matches ({matches.length} encontrados)</CardTitle>
+            <CardTitle>Sets ({matches.length} encontrados)</CardTitle>
           </CardHeader>
           <CardContent>
             {matches.length === 0 ? (
               <div className="text-center py-8 text-gray-500">
-                No se encontraron matches con los filtros aplicados
+                No se encontraron sets con los filtros aplicados
               </div>
             ) : (
               <div className="overflow-x-auto">

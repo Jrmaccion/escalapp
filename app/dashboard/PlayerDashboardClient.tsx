@@ -166,7 +166,7 @@ export default function PlayerDashboardClient() {
                 </div>
               </CardHeader>
               <CardContent>
-                <p className="text-gray-600">Introduce resultados cuando tengas partidos.</p>
+                <p className="text-gray-600">Introduce resultados cuando tengas sets.</p>
               </CardContent>
             </Card>
 
@@ -280,7 +280,7 @@ export default function PlayerDashboardClient() {
             <CardContent className="p-4">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm text-gray-600">Partidos</p>
+                  <p className="text-sm text-gray-600">Sets</p>
                   <p className="text-2xl font-bold">
                     {data.stats.matchesPlayed}
                   </p>
@@ -297,14 +297,14 @@ export default function PlayerDashboardClient() {
         {/* Contenido en tabs */}
         <Tabs defaultValue="matches" className="space-y-6">
           <TabsList className="grid w-full grid-cols-3">
-            <TabsTrigger value="matches">Mis Partidos ({data.stats.matchesPending})</TabsTrigger>
+            <TabsTrigger value="matches">Mis Sets ({data.stats.matchesPending})</TabsTrigger>
             <TabsTrigger value="group">Mi Grupo</TabsTrigger>
             <TabsTrigger value="ranking">Clasificación</TabsTrigger>
           </TabsList>
 
           <TabsContent value="matches" className="space-y-4">
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold">Partidos de Esta Ronda</h2>
+              <h2 className="text-xl font-semibold">Sets de Esta Ronda</h2>
               <div className="flex gap-2">
                 <div className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
                   data.stats.matchesPending > 0 
@@ -323,7 +323,7 @@ export default function PlayerDashboardClient() {
               <Card>
                 <CardContent className="p-8 text-center">
                   <Calendar className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-600">No tienes partidos programados en esta ronda.</p>
+                  <p className="text-gray-600">No tienes sets programados en esta ronda.</p>
                 </CardContent>
               </Card>
             ) : (
@@ -373,7 +373,7 @@ export default function PlayerDashboardClient() {
                         <div className="mt-3 pt-3 border-t">
                           <Link href={`/match/${match.id}`}>
                             <Button className="w-full">
-                              {match.reportedById ? 'Ver/Confirmar Resultado' : 'Reportar Resultado'}
+                              {match.reportedById ? 'Ver/Confirmar Set' : 'Reportar Resultado del Set'}
                             </Button>
                           </Link>
                         </div>

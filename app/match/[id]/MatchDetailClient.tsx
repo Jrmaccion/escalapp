@@ -12,6 +12,7 @@ import {
   Users,
   CheckCircle,
   Trophy,
+  Info,
 } from "lucide-react";
 import MatchScheduling from "@/components/MatchScheduling";
 import { MatchData } from "@/types/match";
@@ -58,14 +59,17 @@ export default function MatchDetailClient({
     match.team1Games !== null && match.team2Games !== null;
 
   const goBack = () => {
+    // Si es admin, siempre redirigir a la página de detalle de la ronda
+    if (isAdmin && match?.round?.id) {
+      router.push(`/admin/rounds/${match.round.id}`);
+      return;
+    }
+    
+    // Para jugadores normales, usar historial o dashboard
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
-      if (isAdmin && match?.round?.id) {
-        router.push(`/admin/rounds/${match.round.id}`);
-      } else {
-        router.push("/dashboard");
-      }
+      router.push("/dashboard");
     }
   };
 
@@ -111,7 +115,13 @@ export default function MatchDetailClient({
           setErrors({ general: data?.error || "Error al guardar" });
           return;
         }
-        router.refresh();
+        
+        // Después de guardar exitosamente, redirigir según el tipo de usuario
+        if (isAdmin) {
+          router.push(`/admin/rounds/${match.round.id}`);
+        } else {
+          router.refresh(); // Para jugadores, solo refrescar la página
+        }
       } catch {
         setErrors({ general: "Error de conexión" });
       }
@@ -140,7 +150,7 @@ export default function MatchDetailClient({
           </div>
         </div>
 
-        {/* Cabecera */}
+        {/* Cabecera con información del set */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -163,7 +173,21 @@ export default function MatchDetailClient({
               </div>
             </div>
 
-            {/* Programación de partido */}
+            {/* Información contextual del partido */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start gap-2">
+                <Info className="w-5 h-5 text-blue-600 mt-0.5" />
+                <div className="text-sm">
+                  <p className="font-medium text-blue-900 mb-1">Información del Set</p>
+                  <p className="text-blue-700">
+                    Este es el Set {match.setNumber} de un partido de 3 sets con rotación de jugadores. 
+                    Los 4 jugadores participan en los 3 sets con diferentes combinaciones de equipos.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Programación de set */}
             <MatchScheduling
               match={{
                 id: match.id,
@@ -196,15 +220,15 @@ export default function MatchDetailClient({
           </CardContent>
         </Card>
 
-        {/* Resultado */}
+        {/* Resultado del Set */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Trophy className="w-5 h-5" />
-              Resultado
+              Resultado del Set
             </CardTitle>
           </CardHeader>
-        <CardContent className="space-y-4">
+          <CardContent className="space-y-4">
             {errors.general && (
               <div className="p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
                 {errors.general}
@@ -217,7 +241,7 @@ export default function MatchDetailClient({
                 <div className="text-2xl font-bold text-green-900 mb-2">
                   {formatExistingScore()}
                 </div>
-                <p className="text-green-700">Resultado confirmado</p>
+                <p className="text-green-700">Resultado del set confirmado</p>
                 {match.reportedByName && (
                   <p className="text-sm text-green-600 mt-2">
                     Reportado por: {match.reportedByName}
@@ -282,13 +306,24 @@ export default function MatchDetailClient({
                   />
                 </div>
 
+                {/* Mostrar errores de validación */}
+                {Object.keys(errors).filter(k => k !== 'general').length > 0 && (
+                  <div className="p-3 bg-red-50 border border-red-200 rounded">
+                    <ul className="text-red-600 text-sm space-y-1">
+                      {Object.entries(errors).filter(([k]) => k !== 'general').map(([key, error]) => (
+                        <li key={key}>• {error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2">
                   {canReport && (
                     <Button
                       onClick={() => submit("report")}
                       disabled={isPending}
                     >
-                      Reportar resultado
+                      Reportar resultado del set
                     </Button>
                   )}
                   {canConfirm && (
@@ -297,7 +332,7 @@ export default function MatchDetailClient({
                       onClick={() => submit("confirm")}
                       disabled={isPending}
                     >
-                      Confirmar resultado
+                      Confirmar resultado del set
                     </Button>
                   )}
                   {canEdit && (

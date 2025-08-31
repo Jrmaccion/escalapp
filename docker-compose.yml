@@ -1,3 +1,5 @@
+name: escalapp
+
 services:
   db:
     image: postgres:15
@@ -21,12 +23,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      # target: dev   # (opcional, aquí ya usamos la última etapa que es dev)
     container_name: escalapp-web
     restart: unless-stopped
     env_file:
       - .env
       - .env.local
+    environment:
+      # Controla si se ejecutan seeds al arrancar (por defecto, NO)
+      SEED_ON_START: ${SEED_ON_START:-false}
     ports:
       - "3000:3000"
     depends_on:
@@ -40,9 +44,33 @@ services:
       sh -c "
         npx prisma generate &&
         npx prisma migrate deploy &&
-        npm run db:seed &&
+        if [ \"${SEED_ON_START}\" = \"true\" ]; then npm run db:seed; fi &&
         npm run dev
       "
+
+  # Servicio opcional para sembrar datos bajo demanda
+  # Se ejecuta SOLO si indicas el profile 'seed'
+  init-db:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - .env
+      - .env.local
+    volumes:
+      - .:/app
+      - /app/node_modules
+    command: >
+      sh -c "
+        npx prisma generate &&
+        npx prisma migrate deploy &&
+        npm run db:seed
+      "
+    profiles: ["seed"]
+    restart: "no"
 
 volumes:
   pgdata:

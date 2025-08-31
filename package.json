@@ -16,7 +16,8 @@
     "db:reset": "prisma migrate reset && npm run db:seed",
     "db:deploy": "prisma migrate deploy",
     "create-admin": "tsx scripts/create-admin.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "estructura": "node scripts/genera-estructura.js"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

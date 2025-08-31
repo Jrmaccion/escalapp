@@ -48,7 +48,7 @@ export default function MatchGenerationPanel({
     window.location.reload();
   };
 
-  // Calcular estadísticas de validación
+  // Calcular estadísticas de validación - TERMINOLOGÍA ACTUALIZADA
   const groupStats = groups.map(group => ({
     ...group,
     playerCount: group.players.length,
@@ -56,6 +56,7 @@ export default function MatchGenerationPanel({
     hasMatches: group.matches.length > 0,
     missingPlayers: group.players.length < 4 ? 4 - group.players.length : 0,
     excessPlayers: group.players.length % 4,
+    partidosGenerados: Math.floor(group.matches.length / 3), // 3 sets = 1 partido
   }));
 
   const validGroups = groupStats.filter(g => g.canGenerateMatches);
@@ -63,6 +64,7 @@ export default function MatchGenerationPanel({
   const groupsWithMatches = groupStats.filter(g => g.hasMatches);
   const canGenerateAny = validGroups.length > 0;
   const totalPlayers = groups.reduce((acc, g) => acc + g.players.length, 0);
+  const totalPartidosEsperados = validGroups.reduce((acc, g) => acc + Math.floor(g.playerCount / 4), 0);
 
   const generateMatches = async (force = false) => {
     if (!isAdmin) {
@@ -72,7 +74,7 @@ export default function MatchGenerationPanel({
 
     const confirmMessage = force 
       ? `¿Regenerar todos los partidos? Se eliminarán ${groupsWithMatches.length} grupos con partidos existentes.`
-      : `¿Generar partidos para ${validGroups.length} grupos válidos?`;
+      : `¿Generar partidos para ${validGroups.length} grupos válidos? Se crearán ${totalPartidosEsperados} partidos (${totalPartidosEsperados * 3} sets).`;
       
     if (!confirm(confirmMessage)) return;
 
@@ -102,7 +104,7 @@ export default function MatchGenerationPanel({
 
   return (
     <div className="space-y-4">
-      {/* Panel de estado general */}
+      {/* Panel de estado general - TERMINOLOGÍA ACTUALIZADA */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -121,11 +123,11 @@ export default function MatchGenerationPanel({
               <div className="text-sm text-gray-600">Grupos válidos</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-red-600">{invalidGroups.length}</div>
-              <div className="text-sm text-gray-600">Grupos inválidos</div>
+              <div className="text-2xl font-bold text-blue-600">{totalPartidosEsperados}</div>
+              <div className="text-sm text-gray-600">Partidos a crear</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{totalPlayers}</div>
+              <div className="text-2xl font-bold text-purple-600">{totalPlayers}</div>
               <div className="text-sm text-gray-600">Jugadores total</div>
             </div>
           </div>
@@ -140,7 +142,7 @@ export default function MatchGenerationPanel({
             </div>
           )}
 
-          {/* Botones de acción */}
+          {/* Botones de acción - TERMINOLOGÍA ACTUALIZADA */}
           {isAdmin && (
             <div className="flex flex-wrap gap-3">
               <Button
@@ -149,7 +151,7 @@ export default function MatchGenerationPanel({
                 className="flex items-center gap-2"
               >
                 {isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-                Generar partidos ({validGroups.length} grupos)
+                Generar partidos ({totalPartidosEsperados} partidos, {totalPartidosEsperados * 3} sets)
               </Button>
               
               {groupsWithMatches.length > 0 && (
@@ -189,7 +191,7 @@ export default function MatchGenerationPanel({
         </CardContent>
       </Card>
 
-      {/* Estado detallado por grupo */}
+      {/* Estado detallado por grupo - TERMINOLOGÍA ACTUALIZADA */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -228,7 +230,7 @@ export default function MatchGenerationPanel({
                       
                       {group.hasMatches && (
                         <Badge variant="outline">
-                          {group.matches.length} partidos
+                          {group.partidosGenerados} partido{group.partidosGenerados !== 1 ? 's' : ''} ({group.matches.length} sets)
                         </Badge>
                       )}
                     </div>
@@ -281,7 +283,7 @@ export default function MatchGenerationPanel({
         </CardContent>
       </Card>
 
-      {/* Información adicional */}
+      {/* Información adicional - TERMINOLOGÍA ACTUALIZADA */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
         <div className="flex items-start gap-2">
           <Info className="w-5 h-5 text-blue-600 mt-0.5" />
@@ -289,7 +291,7 @@ export default function MatchGenerationPanel({
             <p className="font-medium text-blue-900 mb-1">Información sobre generación de partidos:</p>
             <ul className="text-blue-700 space-y-1">
               <li>• Cada grupo necesita exactamente 4 jugadores (o múltiplos de 4)</li>
-              <li>• Se generan 3 partidos por grupo con rotación completa</li>
+              <li>• Se genera 1 partido por cada 4 jugadores (3 sets con rotación completa)</li>
               <li>• La rotación asegura que cada jugador juegue con y contra todos</li>
               <li>• Los partidos existentes se mantienen salvo que uses "Regenerar todo"</li>
             </ul>

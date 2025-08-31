@@ -19,7 +19,7 @@ export default function Navigation() {
 
   const playerRoutes = [
     { href: "/dashboard",   label: "Inicio",      icon: Home },
-    { href: "/tournaments", label: "Torneo",      icon: Target }, // ← plural
+    { href: "/tournaments", label: "Torneo",      icon: Target },
     { href: "/mi-grupo",    label: "Mi Grupo",    icon: Users },
     { href: "/clasificaciones", label: "Rankings", icon: Trophy },
     { href: "/historial",   label: "Historial",   icon: Calendar },
