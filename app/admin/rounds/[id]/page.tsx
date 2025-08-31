@@ -31,30 +31,30 @@ async function getRoundData(roundId: string) {
       where: { id: roundId },
       include: {
         tournament: {
-          select: { id: true, title: true }
+          select: { id: true, title: true },
         },
         groups: {
           include: {
             players: {
               include: {
                 player: {
-                  select: { id: true, name: true }
-                }
+                  select: { id: true, name: true },
+                },
               },
-              orderBy: { position: 'asc' }
+              orderBy: { position: "asc" },
             },
             matches: {
               include: {
                 proposer: {
-                  select: { name: true }
-                }
+                  select: { name: true },
+                },
               },
-              orderBy: { setNumber: 'asc' }
-            }
+              orderBy: { setNumber: "asc" },
+            },
           },
-          orderBy: { number: 'asc' }
-        }
-      }
+          orderBy: { number: "asc" },
+        },
+      },
     });
 
     return round;
@@ -69,13 +69,13 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
   if (!session) {
     redirect("/auth/login");
   }
-  
+
   if (!session.user?.isAdmin) {
     redirect("/dashboard");
   }
 
   const round = await getRoundData(params.id);
-  
+
   if (!round) {
     notFound();
   }
@@ -84,8 +84,8 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
   const now = new Date();
   const daysToEnd = differenceInDays(round.endDate, now);
   const daysToStart = differenceInDays(round.startDate, now);
-  
-  const status = round.isClosed 
+
+  const status = round.isClosed
     ? "closed"
     : isBefore(now, round.startDate)
     ? "upcoming"
@@ -93,26 +93,31 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
     ? "overdue"
     : "active";
 
-  const totalMatches = round.groups.reduce((acc, group) => acc + group.matches.length, 0);
-  const completedMatches = round.groups.reduce((acc, group) => 
-    acc + group.matches.filter(m => m.isConfirmed).length, 0
+  const totalMatches = round.groups.reduce(
+    (acc, group) => acc + group.matches.length,
+    0
   );
-  const scheduledMatches = round.groups.reduce((acc, group) => 
-    acc + group.matches.filter(m => m.status === 'SCHEDULED').length, 0
+  const completedMatches = round.groups.reduce(
+    (acc, group) => acc + group.matches.filter((m) => m.isConfirmed).length,
+    0
+  );
+  const scheduledMatches = round.groups.reduce(
+    (acc, group) => acc + group.matches.filter((m) => m.status === "SCHEDULED").length,
+    0
   );
 
   // Breadcrumbs personalizados
   const breadcrumbItems = [
-    { label: 'Inicio', href: '/dashboard' },
-    { label: 'Admin', href: '/admin' },
-    { label: 'Rondas', href: '/admin/rounds' },
-    { label: `Ronda ${round.number}`, current: true }
+    { label: "Inicio", href: "/dashboard" },
+    { label: "Admin", href: "/admin" },
+    { label: "Rondas", href: "/admin/rounds" },
+    { label: `Ronda ${round.number}`, current: true },
   ];
 
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto space-y-6">
       <Breadcrumbs items={breadcrumbItems} />
-      
+
       {/* Header con navegación */}
       <div className="flex items-center justify-between">
         <div>
@@ -120,7 +125,7 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
             Ronda {round.number} - {round.tournament.title}
           </h1>
           <p className="text-gray-600">
-            {format(round.startDate, "d 'de' MMMM", { locale: es })} - {" "}
+            {format(round.startDate, "d 'de' MMMM", { locale: es })} -{" "}
             {format(round.endDate, "d 'de' MMMM 'de' yyyy", { locale: es })}
           </p>
         </div>
@@ -192,7 +197,9 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
                 <Clock className="w-5 h-5 text-blue-600" />
                 <span className="font-medium">Programados</span>
               </div>
-              <div className="text-2xl font-bold text-blue-600">{scheduledMatches}</div>
+              <div className="text-2xl font-bold text-blue-600">
+                {scheduledMatches}
+              </div>
             </div>
           </div>
         </CardContent>
@@ -203,11 +210,14 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
         <div className="bg-red-50 border border-red-200 rounded-lg p-4">
           <div className="flex items-center gap-2">
             <Calendar className="w-5 h-5 text-red-600" />
-            <span className="font-medium text-red-900">Ronda fuera de plazo</span>
+            <span className="font-medium text-red-900">
+              Ronda fuera de plazo
+            </span>
           </div>
           <p className="text-red-700 text-sm mt-1">
-            Esta ronda terminó el {format(round.endDate, "d 'de' MMMM", { locale: es })}. 
-            Considera cerrarla para aplicar movimientos y generar la siguiente ronda.
+            Esta ronda terminó el{" "}
+            {format(round.endDate, "d 'de' MMMM", { locale: es })}. Considera
+            cerrarla para aplicar movimientos y generar la siguiente ronda.
           </p>
         </div>
       )}
@@ -217,60 +227,88 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
           <div className="flex items-center gap-2">
             <Clock className="w-5 h-5 text-yellow-600" />
             <span className="font-medium text-yellow-900">
-              {daysToEnd === 1 ? "Último día" : `${daysToEnd} días restantes`}
+              {daysToEnd === 1
+                ? "Último día"
+                : `${daysToEnd} días restantes`}
             </span>
           </div>
           <p className="text-yellow-700 text-sm mt-1">
-            La ronda termina pronto. Asegúrate de que todos los partidos estén programados.
+            La ronda termina pronto. Asegúrate de que todos los partidos estén
+            programados.
           </p>
         </div>
       )}
 
       {/* Panel de gestión de grupos */}
-      <GroupManagementPanel 
+      <GroupManagementPanel
         roundId={params.id}
         roundNumber={round.number}
         tournament={{
           id: round.tournament.id,
           title: round.tournament.title,
-          totalPlayers: 0 // Se calculará dinámicamente
+          totalPlayers: 0, // Se calculará dinámicamente
         }}
-        groups={round.groups.map(group => ({
+        groups={round.groups.map((group) => ({
           id: group.id,
           number: group.number,
           level: group.level,
-          players: group.players.map(gp => ({
+          players: group.players.map((gp) => ({
             id: gp.player.id,
             name: gp.player.name,
-            position: gp.position
-          }))
+            position: gp.position,
+          })),
         }))}
-        availablePlayers={round.groups.reduce((acc, group) => acc + group.players.length, 0)}
+        availablePlayers={round.groups.reduce(
+          (acc, group) => acc + group.players.length,
+          0
+        )}
         isAdmin={true}
       />
 
       {/* Panel de generación de partidos */}
-      <MatchGenerationPanel 
+      <MatchGenerationPanel
         roundId={params.id}
-        groups={round.groups.map(group => ({
+        groups={round.groups.map((group) => ({
           id: group.id,
           number: group.number,
           level: group.level,
-          players: group.players.map(gp => ({
+          players: group.players.map((gp) => ({
             id: gp.player.id,
             name: gp.player.name,
-            position: gp.position
+            position: gp.position,
           })),
-          matches: group.matches.map(match => ({
-            id: match.id,
-            setNumber: match.setNumber
-          }))
+          matches: group.matches.map((m) => ({
+            id: m.id,
+            setNumber: m.setNumber,
+          })),
         }))}
         isAdmin={true}
       />
 
-      {/* Vista global de partidos con generación */}
+      {/* Vista global de partidos */}
       <RoundsMatchesOverview roundId={params.id} isAdmin={true} />
+
+      {/* Listado de partidos con botón abrir */}
+      {round.groups.map((group) => (
+        <Card key={group.id}>
+          <CardHeader>
+            <CardTitle>Grupo {group.number}</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {group.matches.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between border rounded p-3"
+              >
+                <span>Set {m.setNumber}</span>
+                <Button variant="outline" asChild>
+                  <Link href={`/match/${m.id}`}>Abrir partido</Link>
+                </Button>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      ))}
 
       {/* Acciones de administración */}
       {!round.isClosed && (
@@ -281,21 +319,15 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
           <CardContent>
             <div className="flex flex-wrap gap-3">
               <Button variant="outline" asChild>
-                <Link href="/admin/results">
-                  Validar Resultados
-                </Link>
+                <Link href="/admin/results">Validar Resultados</Link>
               </Button>
-              
               <Button variant="outline" asChild>
                 <Link href={`/admin/rounds/${round.id}/close`}>
                   Cerrar Ronda
                 </Link>
               </Button>
-              
               <Button variant="outline" asChild>
-                <Link href="/admin/players">
-                  Gestionar Jugadores
-                </Link>
+                <Link href="/admin/players">Gestionar Jugadores</Link>
               </Button>
             </div>
           </CardContent>
