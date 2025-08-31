@@ -1,45 +1,20 @@
-FROM node:18-alpine AS base
+# ---- Base ----
+FROM node:20-alpine AS base
+WORKDIR /app
+RUN apk add --no-cache openssl libc6-compat bash
 
+# ---- Dependencias (sin postinstall) ----
 FROM base AS deps
-RUN apk add --no-cache libc6-compat
-WORKDIR /app
-
 COPY package.json package-lock.json* ./
-RUN npm ci
+# Evita ejecutar "postinstall" (prisma generate) aquí, porque aún no hemos copiado /prisma
+RUN npm ci --no-audit --no-fund --ignore-scripts
 
-FROM base AS builder
-WORKDIR /app
+# ---- Dev ----
+FROM base AS dev
+ENV NODE_ENV=development
+# node_modules listos
 COPY --from=deps /app/node_modules ./node_modules
+# copiamos el código (el volumen del compose lo montará encima en runtime)
 COPY . .
-
-RUN npx prisma generate
-RUN npm run build
-
-FROM base AS runner
-WORKDIR /app
-
-ENV NODE_ENV production
-
-RUN addgroup --system --gid 1001 nodejs
-RUN adduser --system --uid 1001 nextjs
-
-COPY --from=builder /app/public ./public
-
-RUN mkdir .next
-RUN chown nextjs:nodejs .next
-
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-COPY --from=builder /app/prisma ./prisma
-
-RUN mkdir -p ./public/uploads
-RUN chown -R nextjs:nodejs ./public/uploads
-
-USER nextjs
-
 EXPOSE 3000
-
-ENV PORT 3000
-ENV HOSTNAME "0.0.0.0"
-
-CMD ["node", "server.js"]
+CMD ["npm","run","dev"]

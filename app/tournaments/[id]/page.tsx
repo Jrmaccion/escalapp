@@ -7,7 +7,9 @@ import TournamentTimeline from "@/components/tournament/TournamentTimeline";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
+
 type PageProps = { params: { id: string } };
+
 
 export default async function TournamentPublicPage({ params }: PageProps) {
   const { id } = params;

@@ -1,188 +1,193 @@
-// app/tournaments/page.tsx
-import { prisma } from "@/lib/prisma";
-import { redirect } from "next/navigation";
+// components/Navigation.tsx
+"use client";
+
+import { useSession, signOut } from "next-auth/react";
 import Link from "next/link";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import { usePathname } from "next/navigation";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Home, Users, Trophy, Calendar, Settings, LogOut, Menu, X, ChevronDown, Target } from "lucide-react";
+import { useState } from "react";
 
-export const metadata = {
-  title: "Torneos | Escalapp",
-  description: "Accede a los torneos disponibles",
-};
+export default function Navigation() {
+  const { data: session } = useSession();
+  const pathname = usePathname();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
 
-export default async function TournamentsPage() {
-  // Buscar el torneo activo
-  const activeTournament = await prisma.tournament.findFirst({
-    where: { isActive: true },
-    include: {
-      rounds: {
-        select: { id: true, number: true, isClosed: true, startDate: true, endDate: true },
-        orderBy: { number: "asc" },
-      },
-      players: {
-        select: { id: true },
-      },
-    },
-  });
+  const isAdmin = session?.user?.isAdmin;
 
-  // Si hay un torneo activo, redirigir automáticamente
-  if (activeTournament) {
-    redirect(`/tournaments/${activeTournament.id}`);
-  }
+  const playerRoutes = [
+    { href: "/dashboard",   label: "Inicio",      icon: Home },
+    { href: "/tournaments", label: "Torneo",      icon: Target }, // ← plural
+    { href: "/mi-grupo",    label: "Mi Grupo",    icon: Users },
+    { href: "/clasificaciones", label: "Rankings", icon: Trophy },
+    { href: "/historial",   label: "Historial",   icon: Calendar },
+  ];
 
-  // Si no hay torneo activo, buscar torneos disponibles
-  const availableTournaments = await prisma.tournament.findMany({
-    where: { 
-      OR: [
-        { isPublic: true },
-        { isActive: false, endDate: { gt: new Date() } }
-      ]
-    },
-    orderBy: [
-      { isActive: "desc" },
-      { startDate: "desc" }
-    ],
-    take: 10,
-    include: {
-      rounds: {
-        select: { id: true, number: true, isClosed: true, startDate: true, endDate: true },
-        orderBy: { number: "asc" },
-      },
-      players: {
-        select: { id: true },
-      },
-    },
-  });
+  const adminRoutes = [
+    { href: "/admin",             label: "Dashboard Admin", icon: Home },
+    { href: "/admin/tournaments", label: "Torneos",         icon: Trophy },
+    { href: "/admin/rounds",      label: "Rondas",          icon: Calendar },
+    { href: "/admin/players",     label: "Jugadores",       icon: Users },
+    { href: "/admin/results",     label: "Resultados",      icon: Settings },
+    { href: "/admin/rankings",    label: "Rankings",        icon: Trophy },
+  ];
 
-  if (availableTournaments.length === 0) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center max-w-md mx-auto px-4">
-          <div className="w-16 h-16 bg-gray-200 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-            </svg>
-          </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">No hay torneos disponibles</h2>
-          <p className="text-gray-600 mb-6">
-            No hay torneos activos o públicos en este momento.
-          </p>
-          <Link
-            href="/dashboard"
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Volver al dashboard
-          </Link>
-        </div>
-      </div>
-    );
-  }
+  const isActiveRoute = (href: string) => {
+    if (href === "/dashboard")    return pathname === "/dashboard";
+    if (href === "/admin")        return pathname === "/admin" || pathname.startsWith("/admin/");
+    if (href === "/tournaments")  return pathname === "/tournaments" || pathname.startsWith("/tournaments/");
+    return pathname.startsWith(href);
+  };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Seleccionar Torneo</h1>
-          <p className="text-gray-600">
-            No hay un torneo activo. Puedes consultar los siguientes torneos disponibles:
-          </p>
-        </div>
-
-        <div className="grid gap-6">
-          {availableTournaments.map((tournament) => {
-            const isUpcoming = new Date() < tournament.startDate;
-            const isFinished = new Date() > tournament.endDate;
-            const currentRound = tournament.rounds?.find(r => !r.isClosed) || tournament.rounds?.at(-1);
-
-            return (
-              <Link
-                key={tournament.id}
-                href={`/tournaments/${tournament.id}`}
-                className="block bg-white rounded-lg shadow border hover:shadow-md transition-shadow"
-              >
-                <div className="p-6">
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-3">
-                        <h3 className="text-lg font-semibold text-gray-900">
-                          {tournament.title}
-                        </h3>
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          tournament.isActive 
-                            ? 'bg-green-100 text-green-800'
-                            : isUpcoming 
-                              ? 'bg-blue-100 text-blue-800'
-                              : isFinished
-                                ? 'bg-gray-100 text-gray-800'
-                                : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {tournament.isActive ? 'Activo' : 
-                           isUpcoming ? 'Próximo' : 
-                           isFinished ? 'Finalizado' : 'Inactivo'}
-                        </span>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600 mb-3">
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                          </svg>
-                          <span>
-                            {format(tournament.startDate, "d MMM", { locale: es })} - {format(tournament.endDate, "d MMM yyyy", { locale: es })}
-                          </span>
-                        </div>
-                        
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                          </svg>
-                          <span>{tournament.players?.length || 0} jugadores</span>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                          </svg>
-                          <span>{tournament.totalRounds} rondas • {tournament.roundDurationDays} días/ronda</span>
-                        </div>
-                      </div>
-
-                      {currentRound && (
-                        <div className="text-sm text-gray-600">
-                          <span className="font-medium">
-                            {tournament.isActive ? 'Ronda actual: ' : 'Última ronda: '}
-                            {currentRound.number}
-                          </span>
-                          {currentRound.startDate && currentRound.endDate && (
-                            <span className="ml-2 text-gray-500">
-                              ({format(new Date(currentRound.startDate), "d MMM", { locale: es })} - {format(new Date(currentRound.endDate), "d MMM", { locale: es })})
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="flex-shrink-0 ml-4">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7" />
-                      </svg>
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
-        </div>
-
-        <div className="text-center mt-8">
-          <Link
-            href="/dashboard"
-            className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-          >
-            ← Volver al dashboard
+    <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center h-16">
+          <Link href="/dashboard" className="flex items-center space-x-2">
+            <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold text-sm">E</span>
+            </div>
+            <span className="text-xl font-bold text-gray-900">Escalapp</span>
           </Link>
+
+          {/* Desktop */}
+          <div className="hidden md:flex items-center space-x-1">
+            {playerRoutes.map((route) => {
+              const Icon = route.icon;
+              const active = isActiveRoute(route.href);
+              return (
+                <Link
+                  key={route.href}
+                  href={route.href}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                    active
+                      ? "bg-blue-50 text-blue-700 border border-blue-200"
+                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {route.label}
+                </Link>
+              );
+            })}
+
+            {/* Admin dropdown */}
+            {isAdmin && (
+              <div className="relative">
+                <button
+                  onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+                  className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                    pathname.startsWith("/admin")
+                      ? "bg-purple-50 text-purple-700 border border-purple-200"
+                      : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  Admin
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+
+                {adminMenuOpen && (
+                  <>
+                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                      {adminRoutes.map((route) => {
+                        const Icon = route.icon;
+                        return (
+                          <Link
+                            key={route.href}
+                            href={route.href}
+                            className={`block px-4 py-2 text-sm transition-colors flex items-center gap-2 ${
+                              isActiveRoute(route.href) ? "bg-purple-50 text-purple-700" : "text-gray-700 hover:bg-gray-50"
+                            }`}
+                            onClick={() => setAdminMenuOpen(false)}
+                          >
+                            <Icon className="w-4 h-4" />
+                            {route.label}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                    <div className="fixed inset-0 z-40" onClick={() => setAdminMenuOpen(false)} />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* User + mobile toggle */}
+          <div className="flex items-center space-x-3">
+            <div className="hidden sm:flex items-center space-x-2">
+              <span className="text-sm text-gray-700">
+                {session?.user?.name || session?.user?.email}
+              </span>
+              {isAdmin && <Badge variant="outline" className="text-xs">Admin</Badge>}
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => signOut({ callbackUrl: "/auth/login" })} className="text-gray-600 hover:text-gray-900">
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline ml-2">Salir</span>
+            </Button>
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="md:hidden p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
+
+        {/* Mobile */}
+        {mobileMenuOpen && (
+          <div className="md:hidden border-t border-gray-200 bg-white">
+            <div className="px-2 pt-2 pb-3 space-y-1">
+              {playerRoutes.map((route) => {
+                const Icon = route.icon;
+                const active = isActiveRoute(route.href);
+                return (
+                  <Link
+                    key={route.href}
+                    href={route.href}
+                    className={`block px-3 py-2 rounded-md text-base font-medium transition-colors flex items-center gap-3 ${
+                      active ? "bg-blue-50 text-blue-700" : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                    }`}
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    <Icon className="w-5 h-5" />
+                    {route.label}
+                  </Link>
+                );
+              })}
+
+              {isAdmin && (
+                <div className="border-t border-gray-200 mt-2 pt-2">
+                  <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    Administración
+                  </div>
+                  {adminRoutes.map((route) => {
+                    const Icon = route.icon;
+                    return (
+                      <Link
+                        key={route.href}
+                        href={route.href}
+                        className={`block px-3 py-2 rounded-md text-base font-medium transition-colors flex items-center gap-3 ${
+                          isActiveRoute(route.href) ? "bg-purple-50 text-purple-700" : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                        }`}
+                        onClick={() => setMobileMenuOpen(false)}
+                      >
+                        <Icon className="w-5 h-5" />
+                        {route.label}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
       </div>
-    </div>
+
+      {adminMenuOpen && <div className="fixed inset-0 z-40" onClick={() => setAdminMenuOpen(false)} />}
+    </nav>
   );
 }

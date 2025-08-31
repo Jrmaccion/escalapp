@@ -1,391 +1,318 @@
-import { PrismaClient } from '@prisma/client'
-import bcrypt from 'bcryptjs'
-import { addDays } from 'date-fns'
+// prisma/seed.ts
+import { PrismaClient, MatchStatus } from "@prisma/client";
+import { addDays } from "date-fns";
+import bcrypt from "bcryptjs";
 
-const prisma = new PrismaClient()
+const prisma = new PrismaClient();
+
+// Rotación fija (por posición 1..4 en el grupo)
+const ROTATIONS = [
+  (ids: string[]) => [ids[0], ids[3], ids[1], ids[2]], // set 1: #1 + #4 vs #2 + #3
+  (ids: string[]) => [ids[0], ids[2], ids[1], ids[3]], // set 2: #1 + #3 vs #2 + #4
+  (ids: string[]) => [ids[0], ids[1], ids[2], ids[3]], // set 3: #1 + #2 vs #3 + #4
+];
+
+const SET_BONUS = 1;
+const pointsForSet = (gamesWon: number, wonSet: boolean) =>
+  gamesWon + (wonSet ? SET_BONUS : 0);
+
+type SetScore = { t1: number; t2: number; tb?: string };
+const setScore = (t1: number, t2: number, tb?: string): SetScore => ({ t1, t2, tb });
+
+const movementSymbol = (prevLevel: number, nextLevel: number) => {
+  if (nextLevel < prevLevel) return "↑";
+  if (nextLevel > prevLevel) return "↓";
+  return "→";
+};
 
 async function main() {
-  console.log('🌱 Iniciando seed de la base de datos...')
+  console.log("🧹 Reseteando tablas...");
+  await prisma.matchResult.deleteMany();
+  await prisma.match.deleteMany();
+  await prisma.groupPlayer.deleteMany();
+  await prisma.group.deleteMany();
+  await prisma.round.deleteMany();
+  await prisma.ranking.deleteMany();
+  await prisma.tournamentPlayer.deleteMany();
+  await prisma.tournament.deleteMany();
+  await prisma.player.deleteMany();
+  await prisma.user.deleteMany();
 
-  // Limpiar datos existentes
-  await prisma.matchResult.deleteMany()
-  await prisma.match.deleteMany()
-  await prisma.groupPlayer.deleteMany()
-  await prisma.group.deleteMany()
-  await prisma.round.deleteMany()
-  await prisma.ranking.deleteMany()
-  await prisma.tournamentPlayer.deleteMany()
-  await prisma.tournament.deleteMany()
-  await prisma.player.deleteMany()
-  await prisma.user.deleteMany()
+  console.log("🔐 Creando usuarios (1 admin + 12 jugadores)...");
+  const hash = await bcrypt.hash("demo1234", 10);
+  const admin = await prisma.user.create({
+    data: {
+      name: "Admin Demo",
+      email: "admin@demo.local",
+      password: await bcrypt.hash("admin1234", 10),
+      isAdmin: true,
+    },
+  });
 
-  // Hash para contraseñas
-  const hashedPassword = await bcrypt.hash('password123', 10)
-
-  // Crear usuarios y jugadores
-  const usersData = [
-    { name: 'Carlos Martínez', email: 'carlos@escalapp.com', isAdmin: false },
-    { name: 'Ana García', email: 'ana@escalapp.com', isAdmin: false },
-    { name: 'Miguel López', email: 'miguel@escalapp.com', isAdmin: false },
-    { name: 'Laura Rodríguez', email: 'laura@escalapp.com', isAdmin: false },
-    { name: 'David Sánchez', email: 'david@escalapp.com', isAdmin: false },
-    { name: 'Elena Fernández', email: 'elena@escalapp.com', isAdmin: false },
-    { name: 'Javier Torres', email: 'javier@escalapp.com', isAdmin: false },
-    { name: 'María González', email: 'maria@escalapp.com', isAdmin: false },
-    { name: 'Pablo Ruiz', email: 'pablo@escalapp.com', isAdmin: false },
-    { name: 'Sofía Moreno', email: 'sofia@escalapp.com', isAdmin: false },
-    { name: 'Adrián Jiménez', email: 'adrian@escalapp.com', isAdmin: false },
-    { name: 'Carmen Álvarez', email: 'carmen@escalapp.com', isAdmin: false },
-    { name: 'Administrador', email: 'admin@escalapp.com', isAdmin: true }
-  ]
-
-  const users = []
-  const players = []
-
-  for (const userData of usersData) {
-    const user = await prisma.user.create({
-      data: {
-        ...userData,
-        password: hashedPassword
-      }
-    })
-    users.push(user)
-
-    if (!userData.isAdmin) {
-      const player = await prisma.player.create({
+  const NAMES = [
+    "Lucía","Marcos","Sofía","Diego",
+    "Paula","Álvaro","Marta","Javier",
+    "Nuria","Hugo","Elena","Pablo",
+  ];
+  const users = await Promise.all(
+    NAMES.map((name, i) =>
+      prisma.user.create({
         data: {
-          userId: user.id,
-          name: userData.name
-        }
+          name,
+          email: `${name.toLowerCase().normalize("NFD").replace(/\p{Diacritic}/gu,"")}${i+1}@demo.local`,
+          password: hash,
+          isAdmin: false,
+        },
       })
-      players.push(player)
-    }
-  }
+    )
+  );
 
-  // Crear torneo
-  const startDate = new Date('2025-03-01')
-  const endDate = addDays(startDate, 6 * 14) // 6 rondas x 14 días
+  console.log("🎾 Creando players (1-1 con users)...");
+  const players = await Promise.all(
+    users.map((u) =>
+      prisma.player.create({
+        data: { userId: u.id, name: u.name },
+      })
+    )
+  );
 
+  console.log("🏆 Creando torneo + inscripción...");
+  const roundDurationDays = 14;
+  const totalRounds = 2;
+  const startDate = addDays(new Date(), -28); // hace 4 semanas
   const tournament = await prisma.tournament.create({
     data: {
-      title: 'Torneo Escalera Primavera 2025',
+      title: "Liga Escalera – Temporada Demo",
       startDate,
-      endDate,
-      totalRounds: 6,
-      roundDurationDays: 14,
+      endDate: addDays(startDate, totalRounds * roundDurationDays),
+      totalRounds,
+      roundDurationDays,
       isActive: true,
-      isPublic: true
-    }
-  })
-
-  // Inscribir jugadores al torneo
-  for (const player of players) {
-    await prisma.tournamentPlayer.create({
-      data: {
-        tournamentId: tournament.id,
-        playerId: player.id,
-        joinedRound: 1
-      }
-    })
-  }
-
-  // Crear todas las rondas
-  const rounds = []
-  let currentStartDate = startDate
-
-  for (let i = 1; i <= 6; i++) {
-    const roundEndDate = addDays(currentStartDate, 14)
-    
-    const round = await prisma.round.create({
-      data: {
-        tournamentId: tournament.id,
-        number: i,
-        startDate: currentStartDate,
-        endDate: roundEndDate,
-        isClosed: i <= 2 // Primeras 2 rondas cerradas
-      }
-    })
-    
-    rounds.push(round)
-    currentStartDate = roundEndDate
-  }
-
-  // Crear Ronda 1 (cerrada) con distribución aleatoria
-  const round1 = rounds[0]
-  const groups1 = []
-  
-  for (let i = 1; i <= 3; i++) {
-    const group = await prisma.group.create({
-      data: {
-        roundId: round1.id,
-        number: i,
-        level: i
-      }
-    })
-    groups1.push(group)
-  }
-
-  // Distribución inicial aleatoria en grupos
-  const shuffledPlayers = [...players].sort(() => Math.random() - 0.5)
-  
-  // Grupo 1 (Nivel más alto)
-  const group1Players = shuffledPlayers.slice(0, 4)
-  for (let i = 0; i < 4; i++) {
-    await prisma.groupPlayer.create({
-      data: {
-        groupId: groups1[0].id,
-        playerId: group1Players[i].id,
-        position: i + 1,
-        points: 15 - (i * 2) + Math.random() * 2, // 15, 13, 11, 9 + variación
-        streak: Math.floor(Math.random() * 3)
-      }
-    })
-  }
-
-  // Grupo 2 (Nivel medio)
-  const group2Players = shuffledPlayers.slice(4, 8)
-  for (let i = 0; i < 4; i++) {
-    await prisma.groupPlayer.create({
-      data: {
-        groupId: groups1[1].id,
-        playerId: group2Players[i].id,
-        position: i + 1,
-        points: 12 - (i * 1.5) + Math.random() * 2, // 12, 10.5, 9, 7.5 + variación
-        streak: Math.floor(Math.random() * 2)
-      }
-    })
-  }
-
-  // Grupo 3 (Nivel más bajo)
-  const group3Players = shuffledPlayers.slice(8, 12)
-  for (let i = 0; i < 4; i++) {
-    await prisma.groupPlayer.create({
-      data: {
-        groupId: groups1[2].id,
-        playerId: group3Players[i].id,
-        position: i + 1,
-        points: 8 - (i * 1) + Math.random() * 2, // 8, 7, 6, 5 + variación
-        streak: 0
-      }
-    })
-  }
-
-  // Crear algunos resultados de partidos para el Grupo 1
-  const sampleMatches = [
-    {
-      groupId: groups1[0].id,
-      setNumber: 1,
-      team1Player1Id: group1Players[0].id,
-      team1Player2Id: group1Players[3].id,
-      team2Player1Id: group1Players[1].id,
-      team2Player2Id: group1Players[2].id,
-      team1Games: 4,
-      team2Games: 2,
-      isConfirmed: true,
-      reportedById: group1Players[0].id,
-      confirmedById: group1Players[1].id
+      isPublic: true,
     },
-    {
-      groupId: groups1[0].id,
-      setNumber: 2,
-      team1Player1Id: group1Players[0].id,
-      team1Player2Id: group1Players[2].id,
-      team2Player1Id: group1Players[1].id,
-      team2Player2Id: group1Players[3].id,
-      team1Games: 5,
-      team2Games: 4,
-      tiebreakScore: '7-5',
-      isConfirmed: true,
-      reportedById: group1Players[2].id,
-      confirmedById: group1Players[3].id
+  });
+
+  await prisma.tournamentPlayer.createMany({
+    data: players.map((p) => ({
+      tournamentId: tournament.id,
+      playerId: p.id,
+      joinedRound: 1,
+      comodinesUsed: 0,
+    })),
+  });
+
+  console.log("📅 Ronda 1 (cerrada) + grupos iniciales...");
+  const round1 = await prisma.round.create({
+    data: {
+      tournamentId: tournament.id,
+      number: 1,
+      startDate,
+      endDate: addDays(startDate, roundDurationDays - 1),
+      isClosed: true,
     },
-    {
-      groupId: groups1[0].id,
-      setNumber: 3,
-      team1Player1Id: group1Players[0].id,
-      team1Player2Id: group1Players[1].id,
-      team2Player1Id: group1Players[2].id,
-      team2Player2Id: group1Players[3].id,
-      team1Games: 3,
-      team2Games: 4,
-      isConfirmed: false,
-      reportedById: group1Players[2].id
-    }
-  ]
+  });
 
-  for (const matchData of sampleMatches) {
-    await prisma.match.create({ data: matchData })
-  }
+  // 3 grupos de 4 (niveles 1..3)
+  const group1Players = [players[0], players[1], players[2], players[3]];
+  const group2Players = [players[4], players[5], players[6], players[7]];
+  const group3Players = [players[8], players[9], players[10], players[11]];
 
-  // Crear Ronda 2 (cerrada) con movimientos aplicados
-  const round2 = rounds[1]
-  const groups2 = []
-  
-  for (let i = 1; i <= 3; i++) {
-    const group = await prisma.group.create({
-      data: {
-        roundId: round2.id,
-        number: i,
-        level: i
-      }
-    })
-    groups2.push(group)
-  }
+  const group1 = await prisma.group.create({ data: { roundId: round1.id, number: 1, level: 1 } });
+  const group2 = await prisma.group.create({ data: { roundId: round1.id, number: 2, level: 2 } });
+  const group3 = await prisma.group.create({ data: { roundId: round1.id, number: 3, level: 3 } });
 
-  // Simular movimientos de escalera para Ronda 2
-  const newDistribution = [
-    // Grupo 1: ganador de grupo 2 + 2º y 3º de grupo 1 + último de grupo superior ficticio
-    [group2Players[0], group1Players[1], group1Players[2], group1Players[0]],
-    // Grupo 2: último de grupo 1 + ganador de grupo 3 + 2º y 3º de grupo 2
-    [group1Players[3], group3Players[0], group2Players[1], group2Players[2]],
-    // Grupo 3: último de grupo 2 + 2º, 3º y 4º de grupo 3
-    [group2Players[3], group3Players[1], group3Players[2], group3Players[3]]
-  ]
+  await prisma.groupPlayer.createMany({
+    data: [
+      ...group1Players.map((p, i) => ({ groupId: group1.id, playerId: p.id, position: i + 1, points: 0, streak: i % 2 === 0 ? 2 : 1, usedComodin: false })),
+      ...group2Players.map((p, i) => ({ groupId: group2.id, playerId: p.id, position: i + 1, points: 0, streak: 1, usedComodin: i === 3 })),
+      ...group3Players.map((p, i) => ({ groupId: group3.id, playerId: p.id, position: i + 1, points: 0, streak: i === 0 ? 3 : 0, usedComodin: false })),
+    ],
+  });
 
-  for (let groupIndex = 0; groupIndex < 3; groupIndex++) {
-    for (let playerIndex = 0; playerIndex < 4; playerIndex++) {
-      await prisma.groupPlayer.create({
+  // Crea 3 sets por grupo con resultados y MatchResult
+  async function createGroupMatchesWithResults(groupId: string, orderedPlayers: { id: string }[], demo: "A" | "B" | "C") {
+    const ids = orderedPlayers.map((p) => p.id);
+    const SCORES: SetScore[] =
+      demo === "A"
+        ? [setScore(4, 2), setScore(2, 4), setScore(5, 4, "7-5")] // incluye TB
+        : demo === "B"
+        ? [setScore(4, 0), setScore(4, 1), setScore(4, 2)]
+        : [setScore(2, 4), setScore(1, 4), setScore(0, 4)];
+
+    for (let s = 0; s < 3; s++) {
+      const [t1p1, t1p2, t2p1, t2p2] = ROTATIONS[s](ids);
+      const score = SCORES[s];
+
+      const match = await prisma.match.create({
         data: {
-          groupId: groups2[groupIndex].id,
-          playerId: newDistribution[groupIndex][playerIndex].id,
-          position: playerIndex + 1,
-          points: 10 - (playerIndex * 1.5) + Math.random() * 2,
-          streak: Math.floor(Math.random() * 2)
-        }
-      })
+          groupId,
+          setNumber: s + 1,
+          team1Player1Id: t1p1,
+          team1Player2Id: t1p2,
+          team2Player1Id: t2p1,
+          team2Player2Id: t2p2,
+          team1Games: score.t1,
+          team2Games: score.t2,
+          tiebreakScore: score.tb ?? null, // si hubo TB, guardamos “7-5”
+          isConfirmed: true,
+          status: MatchStatus.COMPLETED,
+        },
+      });
+
+      const team1Won = score.t1 > score.t2;
+      const results = [
+        { playerId: t1p1, games: score.t1, isWinner: team1Won },
+        { playerId: t1p2, games: score.t1, isWinner: team1Won },
+        { playerId: t2p1, games: score.t2, isWinner: !team1Won },
+        { playerId: t2p2, games: score.t2, isWinner: !team1Won },
+      ].map((r) => ({
+        matchId: match.id,
+        playerId: r.playerId,
+        games: r.games,
+        sets: r.isWinner ? 1 : 0,
+        points: pointsForSet(r.games, r.isWinner),
+        isWinner: r.isWinner,
+      }));
+
+      await prisma.matchResult.createMany({ data: results });
     }
   }
 
-  // Crear Ronda 3 (activa) con movimientos aplicados
-  const round3 = rounds[2]
-  const groups3 = []
-  
-  for (let i = 1; i <= 3; i++) {
-    const group = await prisma.group.create({
-      data: {
-        roundId: round3.id,
-        number: i,
-        level: i
-      }
-    })
-    groups3.push(group)
+  console.log("🎯 Partidos + resultados de Ronda 1...");
+  await createGroupMatchesWithResults(group1.id, group1Players, "A");
+  await createGroupMatchesWithResults(group2.id, group2Players, "B");
+  await createGroupMatchesWithResults(group3.id, group3Players, "C");
+
+  // Suma de puntos por jugador en R1
+  const round1Agg = await prisma.matchResult.groupBy({
+    by: ["playerId"],
+    _sum: { points: true },
+  });
+  const pointsByPlayerR1 = new Map<string, number>(
+    round1Agg.map((r) => [r.playerId, Number(r._sum.points ?? 0)])
+  );
+
+  // Orden de cada grupo por puntos (para movimientos)
+  async function orderByPoints(groupId: string) {
+    const gps = await prisma.groupPlayer.findMany({ where: { groupId } });
+    return gps
+      .map((gp) => ({ playerId: gp.playerId, pts: pointsByPlayerR1.get(gp.playerId) ?? 0 }))
+      .sort((a, b) => b.pts - a.pts)
+      .map((x) => x.playerId);
   }
 
-  // Nueva distribución para Ronda 3 (actual)
-  const round3Distribution = [
-    // Grupo 1
-    [newDistribution[1][0], newDistribution[0][1], newDistribution[0][2], newDistribution[1][1]],
-    // Grupo 2  
-    [newDistribution[0][3], newDistribution[2][0], newDistribution[1][2], newDistribution[1][3]],
-    // Grupo 3
-    [newDistribution[2][1], newDistribution[2][2], newDistribution[2][3], group2Players[3]]
-  ]
+  const orderedG1 = await orderByPoints(group1.id); // [1º, 2º, 3º, 4º]
+  const orderedG2 = await orderByPoints(group2.id);
+  const orderedG3 = await orderByPoints(group3.id);
 
-  for (let groupIndex = 0; groupIndex < 3; groupIndex++) {
-    for (let playerIndex = 0; playerIndex < 4; playerIndex++) {
-      await prisma.groupPlayer.create({
-        data: {
-          groupId: groups3[groupIndex].id,
-          playerId: round3Distribution[groupIndex][playerIndex].id,
-          position: playerIndex + 1,
-          points: 0, // Reset para nueva ronda
-          streak: Math.floor(Math.random() * 2)
-        }
-      })
-    }
-  }
-
-  // Agregar algunos resultados parciales a la ronda actual
-  await prisma.match.create({
+  console.log("🔁 Calculando movimientos hacia Ronda 2...");
+  const round2Start = addDays(round1.endDate, 1);
+  const round2 = await prisma.round.create({
     data: {
-      groupId: groups3[1].id, // Grupo 2 de la ronda actual
-      setNumber: 1,
-      team1Player1Id: round3Distribution[1][0].id,
-      team1Player2Id: round3Distribution[1][3].id,
-      team2Player1Id: round3Distribution[1][1].id,
-      team2Player2Id: round3Distribution[1][2].id,
-      team1Games: 4,
-      team2Games: 2,
-      isConfirmed: true,
-      reportedById: round3Distribution[1][0].id,
-      confirmedById: round3Distribution[1][1].id
-    }
-  })
+      tournamentId: tournament.id,
+      number: 2,
+      startDate: round2Start,
+      endDate: addDays(round2Start, roundDurationDays - 1),
+      isClosed: false,
+    },
+  });
 
-  await prisma.match.create({
-    data: {
-      groupId: groups3[1].id,
-      setNumber: 2,
-      team1Player1Id: round3Distribution[1][0].id,
-      team1Player2Id: round3Distribution[1][2].id,
-      team2Player1Id: round3Distribution[1][1].id,
-      team2Player2Id: round3Distribution[1][3].id,
-      team1Games: 5,
-      team2Games: 4,
-      tiebreakScore: '7-5',
-      isConfirmed: false,
-      reportedById: round3Distribution[1][2].id
-    }
-  })
+  // Composición de grupos aplicando reglas (↑, ↓, →)
+  const g1r2Players = [orderedG1[0], orderedG1[1], orderedG1[2], orderedG2[0]]; // 1º G2 sube
+  const g2r2Players = [orderedG1[3], orderedG2[1], orderedG2[2], orderedG3[0]]; // 4º G1 baja, 1º G3 sube
+  const g3r2Players = [orderedG2[3], orderedG3[1], orderedG3[2], orderedG3[3]]; // 4º G2 baja, resto mantienen
 
-  // Crear rankings para las rondas cerradas
-  for (let roundNum = 1; roundNum <= 2; roundNum++) {
-    const roundGroups = roundNum === 1 ? [groups1, newDistribution] : [groups2, round3Distribution]
-    
-    for (let i = 0; i < players.length; i++) {
-      const player = players[i]
-      
-      // Calcular estadísticas acumuladas hasta esta ronda
-      const stats = await prisma.groupPlayer.findMany({
-        where: {
-          playerId: player.id,
-          group: {
-            round: {
-              tournamentId: tournament.id,
-              number: { lte: roundNum },
-              isClosed: true
-            }
-          }
-        }
-      })
-      
-      const totalPoints = stats.reduce((sum, stat) => sum + stat.points, 0)
-      const roundsPlayed = stats.length
-      const averagePoints = roundsPlayed > 0 ? totalPoints / roundsPlayed : 0
-      
-      await prisma.ranking.create({
-        data: {
-          tournamentId: tournament.id,
-          playerId: player.id,
-          roundNumber: roundNum,
-          totalPoints,
-          roundsPlayed,
-          averagePoints,
-          position: i + 1, // Simplificado
-          ironmanPosition: i + 1, // Simplificado
-          movement: roundNum === 1 ? 'new' : 'same'
-        }
-      })
-    }
+  const group1R2 = await prisma.group.create({ data: { roundId: round2.id, number: 1, level: 1 } });
+  const group2R2 = await prisma.group.create({ data: { roundId: round2.id, number: 2, level: 2 } });
+  const group3R2 = await prisma.group.create({ data: { roundId: round2.id, number: 3, level: 3 } });
+
+  await prisma.groupPlayer.createMany({
+    data: [
+      ...g1r2Players.map((pid, i) => ({ groupId: group1R2.id, playerId: pid, position: i + 1, points: 0, streak: 2, usedComodin: false })),
+      ...g2r2Players.map((pid, i) => ({ groupId: group2R2.id, playerId: pid, position: i + 1, points: 0, streak: 2, usedComodin: false })),
+      ...g3r2Players.map((pid, i) => ({ groupId: group3R2.id, playerId: pid, position: i + 1, points: 0, streak: 1, usedComodin: false })),
+    ],
+  });
+
+  console.log("📊 Rankings R1 y estado inicial R2...");
+  // Mapas de nivel por jugador en R1 y R2 (para movimiento en ranking)
+  const levelByPlayerR1 = new Map<string, number>();
+  orderedG1.forEach((pid) => levelByPlayerR1.set(pid, 1));
+  orderedG2.forEach((pid) => levelByPlayerR1.set(pid, 2));
+  orderedG3.forEach((pid) => levelByPlayerR1.set(pid, 3));
+
+  const levelByPlayerR2 = new Map<string, number>();
+  g1r2Players.forEach((pid) => levelByPlayerR2.set(pid, 1));
+  g2r2Players.forEach((pid) => levelByPlayerR2.set(pid, 2));
+  g3r2Players.forEach((pid) => levelByPlayerR2.set(pid, 3));
+
+  // Ranking R1 por puntos totales
+  const allR1 = players.map((p) => ({
+    playerId: p.id,
+    totalPoints: pointsByPlayerR1.get(p.id) ?? 0,
+  }));
+  const sortedR1 = [...allR1].sort((a, b) => b.totalPoints - a.totalPoints);
+
+  await prisma.ranking.createMany({
+    data: sortedR1.map((row, i) => ({
+      tournamentId: tournament.id,
+      playerId: row.playerId,
+      roundNumber: 1,
+      totalPoints: row.totalPoints,
+      roundsPlayed: 1,
+      averagePoints: row.totalPoints,
+      position: i + 1,
+      ironmanPosition: i + 1,
+      movement: movementSymbol(levelByPlayerR1.get(row.playerId)!, levelByPlayerR2.get(row.playerId)!),
+    })),
+  });
+
+  // Ranking R2 inicial (0 puntos en la ronda 2, media acumulando R1)
+  await prisma.ranking.createMany({
+    data: [...g1r2Players, ...g2r2Players, ...g3r2Players].map((pid, i) => ({
+      tournamentId: tournament.id,
+      playerId: pid,
+      roundNumber: 2,
+      totalPoints: 0,
+      roundsPlayed: 1, // jugó R1
+      averagePoints: pointsByPlayerR1.get(pid) ?? 0,
+      position: i + 1,
+      ironmanPosition: i + 1,
+      movement: "→",
+    })),
+  });
+
+  console.log("📆 Un partido de R2 SCHEDULED (para probar fechas)...");
+  // Creamos un set en G1 R2 con estado de fechas
+  {
+    const ids = g1r2Players;
+    const [t1p1, t1p2, t2p1, t2p2] = ROTATIONS[0](ids);
+    await prisma.match.create({
+      data: {
+        groupId: group1R2.id,
+        setNumber: 1,
+        team1Player1Id: t1p1,
+        team1Player2Id: t1p2,
+        team2Player1Id: t2p1,
+        team2Player2Id: t2p2,
+        status: MatchStatus.SCHEDULED,
+        proposedDate: addDays(new Date(), 2),
+        proposedById: admin.id,
+        acceptedDate: addDays(new Date(), 3),
+        acceptedBy: [users[0].id, users[1].id], // algunos han aceptado
+        isConfirmed: false,
+      },
+    });
   }
 
-  console.log('✅ Seed completado con éxito!')
-  console.log(`📊 Creado torneo: "${tournament.title}"`)
-  console.log(`👥 ${players.length} jugadores inscritos`)
-  console.log(`🎯 ${rounds.length} rondas creadas (2 cerradas, 1 activa, 3 futuras)`)
-  console.log(`🏆 3 grupos por ronda con sistema de escalera`)
-  console.log(`\n🔐 Credenciales de prueba:`)
-  console.log(`📧 Admin: admin@escalapp.com / password123`)
-  console.log(`📧 Jugador: carlos@escalapp.com / password123`)
-  console.log(`📧 (Cualquier email listado) / password123`)
+  console.log("✅ Seed completado.");
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Error en el seed:', e)
-    process.exit(1)
+    console.error("❌ Error en seed:", e);
+    process.exit(1);
   })
   .finally(async () => {
-    await prisma.$disconnect()
-  })
-
+    await prisma.$disconnect();
+  });

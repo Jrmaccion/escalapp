@@ -1,4 +1,4 @@
-// TournamentDetailClient.tsx
+// app/admin/tournaments/[id]/TournamentDetailClient.tsx
 "use client";
 
 import { 
@@ -372,10 +372,28 @@ export default function TournamentDetailClient({
                         <span>Partidos pendientes:</span>
                         <span className="font-medium text-orange-600">{nf.format(stats.pendingMatches)}</span>
                       </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Timeline (ahora ANCHO dentro de la tarjeta, no en la columna derecha) */}
+                <div className="mt-6 -mx-6">
+                  {/* -mx-6 para contrarrestar el padding del card (p-6) y que ocupe todo el ancho del card */}
+                  <div className="px-6">
+                    <div className="w-full overflow-x-auto">
                       <TournamentTimeline tournamentId={tournament.id} />
                     </div>
                   </div>
                 </div>
+                {/* Si lo quieres a ancho de viewport real (full-bleed), sustituye el bloque anterior por:
+                <div className="mt-6 p-0">
+                  <div className="relative left-1/2 right-1/2 -mx-[50vw] w-screen">
+                    <div className="px-4 sm:px-6 lg:px-8">
+                      <TournamentTimeline tournamentId={tournament.id} />
+                    </div>
+                  </div>
+                </div>
+                */}
               </div>
             )}
 

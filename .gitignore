@@ -10,7 +10,11 @@
 .env
 .env.local
 .env.*.local
+.env.*        # <-- ignora .env.production, .env.staging, etc.
 !.env.example
+!env.example
+!.env.sample
+!env.sample
 # Asegura que los ejemplos SÍ se suben
 !.env.example
 !env.example

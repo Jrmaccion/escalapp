@@ -7,20 +7,22 @@ import { Home, Users, Target, Trophy, User } from "lucide-react";
 import clsx from "clsx";
 
 const TABS = [
-  { href: "/dashboard", label: "Inicio", icon: Home },
-  { href: "/tournaments", label: "Torneos", icon: Target },
-  { href: "/mi-grupo", label: "Mi grupo", icon: Users },
+  { href: "/dashboard",   label: "Inicio",          icon: Home },
+  { href: "/tournaments", label: "Torneo",          icon: Target }, // ← plural
+  { href: "/mi-grupo",    label: "Mi grupo",        icon: Users },
   { href: "/clasificaciones", label: "Clasificación", icon: Trophy },
-  { href: "/perfil", label: "Perfil", icon: User },
+  { href: "/perfil",      label: "Perfil",          icon: User },
 ];
 
 export default function PlayerTabbar() {
   const pathname = usePathname();
 
   const isActive = (href: string) => {
-    if (href === "/dashboard") return pathname === "/dashboard";
-    if (href === "/tournaments") return pathname === "/tournaments" || pathname.startsWith("/tournaments/");
-    return pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+    if (href === "/tournaments") {
+      // activo en /tournaments y /tournaments/[id]
+      return pathname === "/tournaments" || pathname.startsWith("/tournaments/");
+    }
+    return pathname === href || pathname.startsWith(href + "/");
   };
 
   return (
@@ -28,7 +30,6 @@ export default function PlayerTabbar() {
       <ul className="grid grid-cols-5">
         {TABS.map(({ href, label, icon: Icon }) => {
           const active = isActive(href);
-
           return (
             <li key={href}>
               <Link
@@ -36,11 +37,7 @@ export default function PlayerTabbar() {
                 aria-current={active ? "page" : undefined}
                 className={clsx(
                   "flex flex-col items-center justify-center py-2 text-xs transition-colors",
-                  active 
-                    ? href === "/tournaments"
-                      ? "text-green-600 font-medium" 
-                      : "text-foreground font-medium"
-                    : "text-muted-foreground hover:text-foreground"
+                  active ? "text-foreground font-medium" : "text-muted-foreground hover:text-foreground"
                 )}
               >
                 <Icon className="size-5 mb-1" />
