@@ -86,3 +86,17 @@
 .movement-same {
   @apply text-blue-600;
 }
+
+/* Estilos para ancho completo */
+.tournaments-full-width,
+.tournament-full-width {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin-left: calc(-50vw + 50%) !important;
+}
+
+.tournaments-content,
+.tournament-content {
+  width: 100% !important;
+  max-width: none !important;
+}

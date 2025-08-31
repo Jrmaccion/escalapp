@@ -83,8 +83,8 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
-      <div className="container mx-auto px-4 max-w-7xl">
+    <div className="w-full max-w-none min-h-screen bg-gray-50 py-10">
+      <div className="w-full max-w-none px-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-8">
           <div className="flex items-center gap-4 mb-4">
@@ -103,7 +103,6 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
               <p className="text-gray-600">{tournaments.length} torneos creados</p>
             </div>
 
-            {/* Botón cambiado → ahora redirige a /admin/tournaments/create */}
             <Link href="/admin/tournaments/create">
               <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors">
                 <Plus className="w-4 h-4 mr-2" />
@@ -114,7 +113,7 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 w-full">
           <div className="bg-white p-6 rounded-lg shadow border">
             <div className="flex items-center justify-between mb-2">
               <h3 className="text-sm font-medium text-gray-500">Total</h3>
@@ -154,7 +153,7 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
 
         {/* Torneo activo destacado */}
         {activeTournament && (
-          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-6 mb-8">
+          <div className="bg-gradient-to-r from-green-50 to-blue-50 border border-green-200 rounded-lg p-6 mb-8 w-full">
             <div className="flex items-center justify-between">
               <div>
                 <div className="flex items-center gap-3 mb-2">
@@ -202,13 +201,13 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
         )}
 
         {/* Lista de torneos */}
-        <div className="bg-white rounded-lg shadow border">
+        <div className="bg-white rounded-lg shadow border w-full max-w-none">
           <div className="px-6 py-4 border-b">
             <h2 className="text-lg font-semibold">Todos los Torneos</h2>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto w-full">
+            <table className="w-full text-sm min-w-full">
               <thead>
                 <tr className="text-left text-gray-500 border-b bg-gray-50">
                   <th className="py-3 px-6">Torneo</th>

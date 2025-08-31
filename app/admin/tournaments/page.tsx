@@ -30,20 +30,26 @@ export default async function AdminTournamentsPage() {
 
   // Serializar datos para el cliente
   const serializedTournaments = tournaments.map(tournament => ({
-  id: tournament.id,
-  title: tournament.title,
-  startDate: tournament.startDate.toISOString(),
-  endDate: tournament.endDate.toISOString(),
-  totalRounds: tournament.totalRounds,
-  roundDurationDays: tournament.roundDurationDays,
-  isActive: tournament.isActive,
-  isPublic: tournament.isPublic,
-  playersCount: tournament.players.length,
-  roundsCount: tournament.rounds.length,
-  status: tournament.isActive ? 'active' as const : 
-           new Date() > tournament.endDate ? 'finished' as const : 
-           new Date() < tournament.startDate ? 'upcoming' as const : 'inactive' as const
-}));
+    id: tournament.id,
+    title: tournament.title,
+    startDate: tournament.startDate.toISOString(),
+    endDate: tournament.endDate.toISOString(),
+    totalRounds: tournament.totalRounds,
+    roundDurationDays: tournament.roundDurationDays,
+    isActive: tournament.isActive,
+    isPublic: tournament.isPublic,
+    playersCount: tournament.players.length,
+    roundsCount: tournament.rounds.length,
+    status: tournament.isActive ? 'active' as const : 
+             new Date() > tournament.endDate ? 'finished' as const : 
+             new Date() < tournament.startDate ? 'upcoming' as const : 'inactive' as const
+  }));
 
-  return <TournamentsClient tournaments={serializedTournaments} />;
+  return (
+    <div className="tournaments-full-width">
+      <div className="tournaments-content">
+        <TournamentsClient tournaments={serializedTournaments} />
+      </div>
+    </div>
+  );
 }
