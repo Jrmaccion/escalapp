@@ -47,7 +47,7 @@ export default function HistorialClient() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const response = await fetch('/api/player/history');
+        const response = await fetch('/api/player/historial');
         if (response.ok) {
           const historyData = await response.json();
           setData(historyData);
