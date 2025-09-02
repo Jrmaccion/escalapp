@@ -198,6 +198,34 @@ export default function MiGrupoClient() {
     };
   };
 
+  // CTA único (a nivel partido)
+  const computePartyCTA = (matches: NonNullable<GroupData["allMatches"]>) => {
+    if (!matches || matches.length === 0) return null;
+
+    const firstPending = matches.find((m) => !m.isConfirmed && !m.hasResult);
+    const firstToConfirm = matches.find((m) => !m.isConfirmed && m.hasResult);
+
+    if (firstPending) {
+      return {
+        label: "Programar/Jugar",
+        href: `/match/${firstPending.id}`, // usa la vista existente de partido/fecha
+      };
+    }
+
+    if (firstToConfirm) {
+      return {
+        label: "Confirmar resultado",
+        href: `/match/${firstToConfirm.id}`,
+      };
+    }
+
+    // Todo confirmado → ver cualquiera (el primero)
+    return {
+      label: "Ver resultados",
+      href: `/match/${matches[0].id}`,
+    };
+  };
+
   if (loading) {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
@@ -224,9 +252,13 @@ export default function MiGrupoClient() {
     );
   }
 
-  const matches = (data.allMatches || data.nextMatches || []).slice().sort((a, b) => a.setNumber - b.setNumber);
+  const matches = (data.allMatches || data.nextMatches || [])
+    .slice()
+    .sort((a, b) => a.setNumber - b.setNumber);
+
   const completedMatches = matches.filter((m) => m.isConfirmed);
   const partyStatus = getPartyScheduleStatus(matches);
+  const partyCTA = computePartyCTA(matches);
 
   return (
     <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
@@ -241,13 +273,13 @@ export default function MiGrupoClient() {
         </div>
       </div>
 
-      {/* Estado del partido completo */}
-      {partyStatus && (
+      {/* Estado del partido completo + CTA ÚNICO */}
+      {(partyStatus || partyCTA) && (
         <Card className="border-purple-200 bg-purple-50">
           <CardContent className="p-4">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
               <div className="flex items-center gap-3">
-                {(() => {
+                {partyStatus && (() => {
                   const PartyIcon = partyStatus.icon;
                   return <PartyIcon className="w-5 h-5 text-purple-600" />;
                 })()}
@@ -258,9 +290,19 @@ export default function MiGrupoClient() {
                   </div>
                 </div>
               </div>
-              <div className={`px-3 py-1 rounded text-sm font-medium ${partyStatus.color}`}>
-                {partyStatus.label}
-                {partyStatus.date ? ` · ${formatDate(partyStatus.date)}` : ""}
+
+              <div className="flex items-center gap-3">
+                {partyStatus && (
+                  <div className={`px-3 py-1 rounded text-sm font-medium ${partyStatus.color}`}>
+                    {partyStatus.label}
+                    {partyStatus.date ? ` · ${formatDate(partyStatus.date)}` : ""}
+                  </div>
+                )}
+                {partyCTA && (
+                  <Button asChild>
+                    <Link href={partyCTA.href}>{partyCTA.label}</Link>
+                  </Button>
+                )}
               </div>
             </div>
           </CardContent>
@@ -324,7 +366,7 @@ export default function MiGrupoClient() {
                   key={player.id}
                   className={`flex items-center justify-between p-3 rounded-lg ${
                     player.isCurrentUser
-                      ? "bg-blue-50 border border-blue-200"
+                      ? "bg-blue-50 border border-blue-2 00"
                       : "bg-gray-50"
                   }`}
                 >
@@ -353,7 +395,7 @@ export default function MiGrupoClient() {
           </CardContent>
         </Card>
 
-        {/* Mis sets */}
+        {/* Mis sets (sin CTA por set) */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -386,30 +428,24 @@ export default function MiGrupoClient() {
                             {statusInfo.label}
                           </Badge>
                         </div>
-                        <Button size="sm" asChild>
-                          {/* Mantengo tu ruta antigua /match/[id] */}
-                          <Link href={`/match/${match.id}`}>
-                            {match.isConfirmed
-                              ? "Ver resultado"
-                              : match.hasResult
-                              ? "Confirmar"
-                              : "Programar/Jugar"}
-                          </Link>
-                        </Button>
+                        {/* Sin botón aquí para no duplicar CTA */}
                       </div>
 
-                      {/* Presentación de equipos (usa partner/opponents si vienen; si no, usa los nombres de equipo) */}
                       <div className="text-sm space-y-1">
                         <div className="font-medium text-blue-700">
                           {match.partner
                             ? `Tú + ${match.partner}`
-                            : `${match.team1Player1Name ?? "—"} + ${match.team1Player2Name ?? "—"}`}
+                            : `${match.team1Player1Name ?? "—"} + ${
+                                match.team1Player2Name ?? "—"
+                              }`}
                         </div>
                         <div className="text-gray-500 text-center text-xs">vs</div>
                         <div className="font-medium text-red-700">
                           {match.opponents?.length
                             ? match.opponents.join(" + ")
-                            : `${match.team2Player1Name ?? "—"} + ${match.team2Player2Name ?? "—"}`}
+                            : `${match.team2Player1Name ?? "—"} + ${
+                                match.team2Player2Name ?? "—"
+                              }`}
                         </div>
                       </div>
 

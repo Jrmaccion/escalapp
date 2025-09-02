@@ -1,6 +1,7 @@
+// app/match/[id]/MatchDetailClient.tsx
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,6 +14,8 @@ import {
   CheckCircle,
   Trophy,
   Info,
+  Lock,
+  Clock,
 } from "lucide-react";
 import PartyScheduling from "@/components/PartyScheduling";
 import { MatchData } from "@/types/match";
@@ -22,7 +25,7 @@ type MatchDetailClientProps = {
   currentPlayerId?: string | null;
   currentUserId?: string;
   isAdmin: boolean;
-  // Datos del partido completo para programación
+  // Datos del partido completo para programación (3 sets)
   partyData?: {
     groupId: string;
     groupNumber: number;
@@ -38,7 +41,7 @@ type MatchDetailClientProps = {
       hasResult: boolean;
       isConfirmed: boolean;
     }>;
-    scheduleStatus: 'PENDING' | 'DATE_PROPOSED' | 'SCHEDULED' | 'COMPLETED';
+    scheduleStatus: "PENDING" | "DATE_PROPOSED" | "SCHEDULED" | "COMPLETED";
     proposedDate: string | null;
     acceptedDate: string | null;
     proposedBy: string | null;
@@ -57,12 +60,11 @@ export default function MatchDetailClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [formData, setFormData] = useState({
-    team1Games: match.team1Games || 0,
-    team2Games: match.team2Games || 0,
-    tiebreakScore: match.tiebreakScore || "",
+    team1Games: match.team1Games ?? 0,
+    team2Games: match.team2Games ?? 0,
+    tiebreakScore: match.tiebreakScore ?? "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [showTiebreak] = useState(Boolean(match.tiebreakScore));
 
   const isParticipant =
     !!currentPlayerId &&
@@ -73,25 +75,54 @@ export default function MatchDetailClient({
       match.team2Player2Id,
     ].includes(currentPlayerId);
 
+  // ====== Ventana de edición (bloqueo temporal) ======
+  // La fecha efectiva del partido es la aceptada (acceptedDate) del set/partido.
+  // Editar solo está permitido para jugadores a partir de +90 minutos de esa fecha.
+  const scheduledISO =
+    match.acceptedDate || partyData?.acceptedDate || null;
+
+  const madridFmt = (d: Date) =>
+    new Intl.DateTimeFormat("es-ES", {
+      timeZone: "Europe/Madrid",
+      weekday: "short",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(d);
+
+  const { isScheduled, lockUntil, isAfterLock } = useMemo(() => {
+    const isScheduled = Boolean(scheduledISO);
+    if (!isScheduled) {
+      return { isScheduled: false, lockUntil: null as Date | null, isAfterLock: false };
+    }
+    const scheduled = new Date(scheduledISO as string);
+    const lockUntil = new Date(scheduled.getTime() + 90 * 60 * 1000); // +90 min
+    const isAfterLock = new Date() >= lockUntil;
+    return { isScheduled: true, lockUntil, isAfterLock };
+  }, [scheduledISO]);
+
+  // ====== Permisos por rol/tiempo/estado de ronda ======
+  const roundOpen = !match.round.isClosed;
+
+  const canTimeWindow = isAdmin || (isScheduled && isAfterLock);
   const canReport =
-    isParticipant && !match.reportedById && !match.round.isClosed;
+    isParticipant && !match.reportedById && roundOpen && canTimeWindow;
   const canConfirm =
     isParticipant &&
     match.reportedById &&
     !match.confirmedById &&
-    !match.round.isClosed;
-  const canEdit = isAdmin && !match.round.isClosed;
-  const hasResult =
-    match.team1Games !== null && match.team2Games !== null;
+    roundOpen &&
+    canTimeWindow;
+  const canAdminEdit = isAdmin && roundOpen;
+
+  const hasResult = match.team1Games != null && match.team2Games != null;
 
   const goBack = () => {
-    // Si es admin, siempre redirigir a la página de detalle de la ronda
     if (isAdmin && match?.round?.id) {
       router.push(`/admin/rounds/${match.round.id}`);
       return;
     }
-    
-    // Para jugadores normales, usar historial o dashboard
     if (typeof window !== "undefined" && window.history.length > 1) {
       router.back();
     } else {
@@ -103,23 +134,29 @@ export default function MatchDetailClient({
     const e: Record<string, string> = {};
     const a = Number(formData.team1Games),
       b = Number(formData.team2Games);
-    if (Number.isNaN(a) || Number.isNaN(b))
-      e.score = "Los juegos deben ser números";
-    if (a < 0 || a > 5 || b < 0 || b > 5)
-      e.range = "Los juegos deben estar entre 0 y 5";
+    if (Number.isNaN(a) || Number.isNaN(b)) e.score = "Los juegos deben ser números";
+    if (a < 0 || a > 5 || b < 0 || b > 5) e.range = "Los juegos deben estar entre 0 y 5";
     const max = Math.max(a, b),
       diff = Math.abs(a - b);
     if (max < 4) e.min = "Un set se gana al llegar a 4";
-    if (max > 5)
-      e.max = "No puede superar 5-? (tie-break se registra como 5-4)";
+    if (max > 5) e.max = "No puede superar 5-? (el tie-break se registra como 5-4)";
     if (max === 4 && diff < 2)
       e.diff = "Diferencia mínima de 2 salvo 4-4 con tie-break";
     if (a === 4 && b === 4 && !formData.tiebreakScore.trim())
-      e.tb = "Si hay 4-4 debes introducir tie-break";
+      e.tb = "Si hay 4-4 debes introducir el tie-break (p. ej. 7-5)";
     return e;
   };
 
   const submit = (action: "report" | "confirm" | "admin_edit") => {
+    // Bloqueo extra por si alguien manipula el DOM
+    if (!canAdminEdit && !canTimeWindow) {
+      setErrors({
+        general:
+          "La edición está bloqueada hasta 90 minutos después de la hora programada.",
+      });
+      return;
+    }
+
     const e = validateForm();
     setErrors(e);
     if (Object.keys(e).length) return;
@@ -141,12 +178,11 @@ export default function MatchDetailClient({
           setErrors({ general: data?.error || "Error al guardar" });
           return;
         }
-        
-        // Después de guardar exitosamente, redirigir según el tipo de usuario
+
         if (isAdmin) {
           router.push(`/admin/rounds/${match.round.id}`);
         } else {
-          router.refresh(); // Para jugadores, solo refrescar la página
+          router.refresh();
         }
       } catch {
         setErrors({ general: "Error de conexión" });
@@ -164,9 +200,12 @@ export default function MatchDetailClient({
     router.refresh();
   };
 
+  const inputsDisabled = !canAdminEdit && !canTimeWindow;
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container mx-auto px-4 max-w-4xl space-y-6">
+        {/* Barra superior */}
         <div className="flex items-center justify-between">
           <button
             onClick={goBack}
@@ -180,7 +219,7 @@ export default function MatchDetailClient({
           </div>
         </div>
 
-        {/* Programación del partido completo */}
+        {/* Programación del partido (los 3 sets) */}
         {partyData && (
           <PartyScheduling
             party={partyData}
@@ -190,7 +229,38 @@ export default function MatchDetailClient({
           />
         )}
 
-        {/* Cabecera con información del set */}
+        {/* Avisos de bloqueo/estado de programación */}
+        {!isAdmin && (
+          <Card>
+            <CardContent className="p-4">
+              {!isScheduled ? (
+                <div className="flex items-start gap-2 text-orange-700">
+                  <Lock className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium">Edición bloqueada: partido sin programar</p>
+                    <p>
+                      Primero hay que proponer/aceptar fecha y hora del partido para poder introducir resultados.
+                    </p>
+                  </div>
+                </div>
+              ) : !isAfterLock ? (
+                <div className="flex items-start gap-2 text-blue-700">
+                  <Clock className="w-5 h-5 shrink-0 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium">Edición bloqueada temporalmente</p>
+                    <p>
+                      La edición se habilitará{" "}
+                      <strong>90 minutos después</strong> de la hora programada:{" "}
+                      <strong>{madridFmt(lockUntil as Date)}</strong>.
+                    </p>
+                  </div>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Cabecera con información del set actual */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -213,7 +283,7 @@ export default function MatchDetailClient({
               </div>
             </div>
 
-            {/* Información contextual del partido */}
+            {/* Info contextual */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
               <div className="flex items-start gap-2">
                 <Info className="w-5 h-5 text-blue-600 mt-0.5" />
@@ -221,8 +291,7 @@ export default function MatchDetailClient({
                   <p className="font-medium text-blue-900 mb-1">Información del Set</p>
                   <p className="text-blue-700">
                     Este es el Set {match.setNumber} de un partido de 3 sets con rotación de jugadores. 
-                    Los 4 jugadores participan en los 3 sets con diferentes combinaciones de equipos.
-                    La fecha se programa para el partido completo (3 sets).
+                    La fecha se programa para el partido completo (aplica a los 3 sets).
                   </p>
                 </div>
               </div>
@@ -230,7 +299,7 @@ export default function MatchDetailClient({
           </CardContent>
         </Card>
 
-        {/* Resultado del Set */}
+        {/* Resultado del set (con bloqueo por tiempo/rol) */}
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -245,7 +314,7 @@ export default function MatchDetailClient({
               </div>
             )}
 
-            {hasResult && match.isConfirmed && !canEdit ? (
+            {hasResult && match.isConfirmed && !canAdminEdit ? (
               <div className="p-6 bg-green-50 border border-green-200 rounded-lg text-center">
                 <CheckCircle className="h-12 w-12 text-green-600 mx-auto mb-4" />
                 <div className="text-2xl font-bold text-green-900 mb-2">
@@ -278,6 +347,7 @@ export default function MatchDetailClient({
                       }
                       min={0}
                       max={5}
+                      disabled={inputsDisabled}
                     />
                   </div>
                   <div>
@@ -295,6 +365,7 @@ export default function MatchDetailClient({
                       }
                       min={0}
                       max={5}
+                      disabled={inputsDisabled}
                     />
                   </div>
                 </div>
@@ -313,26 +384,28 @@ export default function MatchDetailClient({
                         tiebreakScore: e.target.value,
                       }))
                     }
+                    disabled={inputsDisabled}
                   />
                 </div>
 
-                {/* Mostrar errores de validación */}
-                {Object.keys(errors).filter(k => k !== 'general').length > 0 && (
+                {/* Errores de validación */}
+                {Object.keys(errors)
+                  .filter((k) => k !== "general")
+                  .length > 0 && (
                   <div className="p-3 bg-red-50 border border-red-200 rounded">
                     <ul className="text-red-600 text-sm space-y-1">
-                      {Object.entries(errors).filter(([k]) => k !== 'general').map(([key, error]) => (
-                        <li key={key}>• {error}</li>
-                      ))}
+                      {Object.entries(errors)
+                        .filter(([k]) => k !== "general")
+                        .map(([key, error]) => (
+                          <li key={key}>• {error}</li>
+                        ))}
                     </ul>
                   </div>
                 )}
 
                 <div className="flex flex-wrap gap-2">
                   {canReport && (
-                    <Button
-                      onClick={() => submit("report")}
-                      disabled={isPending}
-                    >
+                    <Button onClick={() => submit("report")} disabled={isPending}>
                       Reportar resultado del set
                     </Button>
                   )}
@@ -345,7 +418,7 @@ export default function MatchDetailClient({
                       Confirmar resultado del set
                     </Button>
                   )}
-                  {canEdit && (
+                  {canAdminEdit && (
                     <Button
                       variant="outline"
                       onClick={() => submit("admin_edit")}
@@ -354,11 +427,75 @@ export default function MatchDetailClient({
                       Guardar como admin
                     </Button>
                   )}
+                  {!canAdminEdit && !canTimeWindow && (
+                    <span className="text-sm text-gray-600">
+                      Edición disponible a partir de:{" "}
+                      <strong>
+                        {isScheduled && lockUntil ? madridFmt(lockUntil) : "—"}
+                      </strong>
+                    </span>
+                  )}
                 </div>
               </div>
             )}
           </CardContent>
         </Card>
+
+        {/* Resumen de los 3 sets del partido */}
+        {partyData && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Users className="w-5 h-5" />
+                Sets del partido (vista general)
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {partyData.sets
+                .slice()
+                .sort((a, b) => a.setNumber - b.setNumber)
+                .map((s) => {
+                  const badge = s.isConfirmed
+                    ? { text: "Confirmado", cls: "bg-green-100 text-green-700" }
+                    : s.hasResult
+                    ? { text: "Por confirmar", cls: "bg-yellow-100 text-yellow-700" }
+                    : { text: "Sin resultado", cls: "bg-gray-100 text-gray-700" };
+
+                  return (
+                    <div
+                      key={s.id}
+                      className="border rounded-lg p-4 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-sm font-medium">Set {s.setNumber}</span>
+                          <span className={`px-2 py-0.5 rounded text-xs ${badge.cls}`}>
+                            {badge.text}
+                          </span>
+                        </div>
+                        <div className="text-sm text-gray-700">
+                          {s.team1Player1Name} + {s.team1Player2Name} vs{" "}
+                          {s.team2Player1Name} + {s.team2Player2Name}
+                        </div>
+                      </div>
+
+                      <div className="flex gap-2">
+                        {s.id === match.id ? (
+                          <Button size="sm" disabled variant="default">
+                            Estás en este set
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" asChild>
+                            <Link href={`/match/${s.id}`}>Abrir</Link>
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Enlaces adicionales */}
         <div className="flex justify-center space-x-4 text-sm">
@@ -366,7 +503,10 @@ export default function MatchDetailClient({
             Ver mi grupo completo
           </Link>
           {isAdmin && (
-            <Link href={`/admin/rounds/${match.round.id}`} className="text-blue-600 hover:underline">
+            <Link
+              href={`/admin/rounds/${match.round.id}`}
+              className="text-blue-600 hover:underline"
+            >
               Gestión de ronda
             </Link>
           )}
