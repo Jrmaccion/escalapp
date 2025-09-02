@@ -63,6 +63,11 @@
 \app\api\matches\[id]\reject
 \app\api\matches\[id]\reject\route.ts
 \app\api\matches\[id]\route.ts
+\app\api\matches\party
+\app\api\matches\party\propose-date
+\app\api\matches\party\propose-date\route.ts
+\app\api\matches\party\respond-date
+\app\api\matches\party\respond-date\route.ts
 \app\api\player
 \app\api\player\dashboard
 \app\api\player\dashboard\route.ts
@@ -156,6 +161,7 @@
 \components\modals
 \components\modals\DeleteConfirmationModal.tsx
 \components\Navigation.tsx
+\components\PartyScheduling.tsx
 \components\PlayerTabbar.tsx
 \components\RoundsMatchesOverview.tsx
 \components\tournament

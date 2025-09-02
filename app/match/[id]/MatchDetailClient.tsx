@@ -14,19 +14,45 @@ import {
   Trophy,
   Info,
 } from "lucide-react";
-import MatchScheduling from "@/components/MatchScheduling";
+import PartyScheduling from "@/components/PartyScheduling";
 import { MatchData } from "@/types/match";
 
 type MatchDetailClientProps = {
   match: MatchData;
   currentPlayerId?: string | null;
+  currentUserId?: string;
   isAdmin: boolean;
+  // Datos del partido completo para programación
+  partyData?: {
+    groupId: string;
+    groupNumber: number;
+    roundNumber: number;
+    players: string[];
+    sets: Array<{
+      id: string;
+      setNumber: number;
+      team1Player1Name: string;
+      team1Player2Name: string;
+      team2Player1Name: string;
+      team2Player2Name: string;
+      hasResult: boolean;
+      isConfirmed: boolean;
+    }>;
+    scheduleStatus: 'PENDING' | 'DATE_PROPOSED' | 'SCHEDULED' | 'COMPLETED';
+    proposedDate: string | null;
+    acceptedDate: string | null;
+    proposedBy: string | null;
+    acceptedCount: number;
+    proposedByCurrentUser?: boolean;
+  };
 };
 
 export default function MatchDetailClient({
   match,
   currentPlayerId,
+  currentUserId,
   isAdmin,
+  partyData,
 }: MatchDetailClientProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -87,9 +113,9 @@ export default function MatchDetailClient({
     if (max > 5)
       e.max = "No puede superar 5-? (tie-break se registra como 5-4)";
     if (max === 4 && diff < 2)
-      e.diff = "Diferencia mínima de 2 salvo 4–4 con tie-break";
+      e.diff = "Diferencia mínima de 2 salvo 4-4 con tie-break";
     if (a === 4 && b === 4 && !formData.tiebreakScore.trim())
-      e.tb = "Si hay 4–4 debes introducir tie-break";
+      e.tb = "Si hay 4-4 debes introducir tie-break";
     return e;
   };
 
@@ -134,9 +160,13 @@ export default function MatchDetailClient({
     return match.tiebreakScore ? `${base} (TB ${match.tiebreakScore})` : base;
   };
 
+  const handlePartyUpdate = () => {
+    router.refresh();
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 py-8">
-      <div className="container mx-auto px-4 max-w-3xl space-y-6">
+      <div className="container mx-auto px-4 max-w-4xl space-y-6">
         <div className="flex items-center justify-between">
           <button
             onClick={goBack}
@@ -149,6 +179,16 @@ export default function MatchDetailClient({
             Ronda {match.round.number} · {match.tournament.title}
           </div>
         </div>
+
+        {/* Programación del partido completo */}
+        {partyData && (
+          <PartyScheduling
+            party={partyData}
+            currentUserId={currentUserId || ""}
+            isParticipant={isParticipant}
+            onUpdate={handlePartyUpdate}
+          />
+        )}
 
         {/* Cabecera con información del set */}
         <Card>
@@ -182,41 +222,11 @@ export default function MatchDetailClient({
                   <p className="text-blue-700">
                     Este es el Set {match.setNumber} de un partido de 3 sets con rotación de jugadores. 
                     Los 4 jugadores participan en los 3 sets con diferentes combinaciones de equipos.
+                    La fecha se programa para el partido completo (3 sets).
                   </p>
                 </div>
               </div>
             </div>
-
-            {/* Programación de set */}
-            <MatchScheduling
-              match={{
-                id: match.id,
-                setNumber: match.setNumber,
-                status: match.status,
-                proposedDate: match.proposedDate,
-                acceptedDate: match.acceptedDate,
-                proposedBy: match.proposedById || null,
-                acceptedCount: match.acceptedBy?.length || 0,
-                team1Player1Name: match.team1Player1Name,
-                team1Player2Name: match.team1Player2Name,
-                team2Player1Name: match.team2Player1Name,
-                team2Player2Name: match.team2Player2Name,
-                team1Games: match.team1Games,
-                team2Games: match.team2Games,
-                isConfirmed: match.isConfirmed,
-              }}
-              currentUserId={currentPlayerId || ""}
-              isParticipant={
-                !!currentPlayerId &&
-                [
-                  match.team1Player1Id,
-                  match.team1Player2Id,
-                  match.team2Player1Id,
-                  match.team2Player2Id,
-                ].includes(currentPlayerId)
-              }
-              onUpdate={() => router.refresh()}
-            />
           </CardContent>
         </Card>
 
@@ -292,10 +302,10 @@ export default function MatchDetailClient({
                 <div>
                   <label className="flex items-center gap-2 text-sm font-medium mb-2">
                     <Calendar className="w-4 h-4" />
-                    Tie-break (obligatorio si 4–4)
+                    Tie-break (obligatorio si 4-4)
                   </label>
                   <Input
-                    placeholder="Ej. 7–5"
+                    placeholder="Ej. 7-5"
                     value={formData.tiebreakScore}
                     onChange={(e) =>
                       setFormData((s) => ({
@@ -349,6 +359,18 @@ export default function MatchDetailClient({
             )}
           </CardContent>
         </Card>
+
+        {/* Enlaces adicionales */}
+        <div className="flex justify-center space-x-4 text-sm">
+          <Link href="/mi-grupo" className="text-blue-600 hover:underline">
+            Ver mi grupo completo
+          </Link>
+          {isAdmin && (
+            <Link href={`/admin/rounds/${match.round.id}`} className="text-blue-600 hover:underline">
+              Gestión de ronda
+            </Link>
+          )}
+        </div>
       </div>
     </div>
   );
