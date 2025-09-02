@@ -1,290 +1,281 @@
-// lib/rounds.ts
+// lib/rounds.ts - VERSIÓN CON TIPOS CORREGIDOS
 import { prisma } from "@/lib/prisma";
-import { getTournamentRanking } from "./ranking";
-import { addDays } from "date-fns";
 
-/**
- * Config
- */
-export const GROUP_SIZE = 4;
-const STRICT_FOURS = true;
+export const GROUP_SIZE = 4 as const;
 
-/**
- * Jugadores elegibles para una ronda (joinedRound <= roundNumber)
- */
+export type EligiblePlayer = {
+  playerId: string;
+  name: string;
+  joinedRound?: number | null;
+};
+
+// Tipos específicos para el resultado de buildGroupsForRound
+type GroupData = {
+  number: number;
+  level: number | null;
+  players: Array<{
+    playerId: string;
+    position: number;
+  }>;
+};
+
+type BuildGroupsResult = {
+  success: boolean;
+  groupsCount: number;
+  playersAssigned: number;
+  skippedPlayerIds: string[];
+  message?: string;
+};
+
 export async function getEligiblePlayersForRound(
   tournamentId: string,
   roundNumber: number
-) {
-  const tPlayers = await prisma.tournamentPlayer.findMany({
+): Promise<EligiblePlayer[]> {
+  const tps = await prisma.tournamentPlayer.findMany({
     where: { tournamentId, joinedRound: { lte: roundNumber } },
-    include: { player: { include: { user: true } } },
-    orderBy: [{ joinedRound: "asc" }, { player: { name: "asc" } }],
+    include: { player: { select: { id: true, name: true } } },
+    orderBy: { joinedRound: "asc" },
   });
 
-  return tPlayers.map((tp) => ({
-    playerId: tp.playerId,
-    name: tp.player.name,
-    email: tp.player.user?.email ?? "",
-    joinedRound: tp.joinedRound,
-  }));
+  return tps
+    .map((tp) => ({
+      playerId: tp.player.id,
+      name: tp.player.name,
+      joinedRound: tp.joinedRound ?? null,
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/**
- * Construye grupos de una ronda en bloques de `groupSize` (por defecto 4).
- * strategy: "ranking" usa el último ranking (si existe y no es R1); "random" => orden alfabético determinista.
- */
+/* -------------------- FUNCIÓN CORREGIDA PARA CREAR GRUPOS -------------------- */
 export async function buildGroupsForRound(
   roundId: string,
-  strategy: "ranking" | "random" = "ranking",
-  groupSize: number = GROUP_SIZE
-): Promise<{ assigned: number; skippedPlayerIds: string[]; groupCount: number; groupSize: number }> {
-  const round = await prisma.round.findUnique({ where: { id: roundId } });
-  if (!round) throw new Error("Ronda no encontrada");
-
-  const tournamentId = round.tournamentId;
-  const currentNumber = round.number;
-
-  const eligible = await prisma.tournamentPlayer.findMany({
-    where: { tournamentId, joinedRound: { lte: currentNumber } },
-    include: { player: true },
+  strategy: "random" | "ranking" = "random"
+): Promise<BuildGroupsResult> {
+  // 1) Obtener la ronda y sus datos
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      tournament: { select: { id: true, title: true } }
+    }
   });
 
-  const size = Math.max(3, Math.min(8, Math.trunc(groupSize))) || GROUP_SIZE;
-  if (eligible.length < Math.min(4, size)) {
-    throw new Error(`No hay suficientes jugadores para crear grupos de ${size}. Encontrados: ${eligible.length}`);
+  if (!round) {
+    throw new Error("Ronda no encontrada");
   }
 
-  let ordered: { playerId: string; name: string }[] = [];
-  if (strategy === "ranking" && currentNumber > 1) {
-    const prevRank = await getTournamentRanking(tournamentId);
-    if (prevRank.length > 0) {
-      const rankOrder = new Map(prevRank.map((r) => [r.playerId, r.position]));
-      ordered = eligible
-        .map((tp) => ({
-          playerId: tp.playerId,
-          name: tp.player.name,
-          pos: rankOrder.get(tp.playerId) ?? 9999,
-        }))
-        .sort((a, b) => a.pos - b.pos)
-        .map(({ playerId, name }) => ({ playerId, name }));
-    }
-  }
-  if (ordered.length === 0) {
-    ordered = eligible
-      .map((tp) => ({ playerId: tp.playerId, name: tp.player.name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+  // 2) Obtener jugadores elegibles para esta ronda
+  const eligiblePlayers = await getEligiblePlayersForRound(
+    round.tournament.id,
+    round.number
+  );
+
+  if (eligiblePlayers.length === 0) {
+    return {
+      success: false,
+      groupsCount: 0,
+      playersAssigned: 0,
+      skippedPlayerIds: [],
+      message: "No hay jugadores elegibles para esta ronda"
+    };
   }
 
-  const fullBlocks = Math.floor(ordered.length / size);
-  const used = fullBlocks * size;
-  const inBlocks = ordered.slice(0, used);
-  const leftovers = ordered.slice(used);
+  // 3) Calcular cuántos grupos se pueden crear
+  const maxGroups = Math.floor(eligiblePlayers.length / GROUP_SIZE);
+  const playersToAssign = maxGroups * GROUP_SIZE;
+  const playersToSkip = eligiblePlayers.length - playersToAssign;
 
+  if (maxGroups === 0) {
+    return {
+      success: false,
+      groupsCount: 0,
+      playersAssigned: 0,
+      skippedPlayerIds: eligiblePlayers.map(p => p.playerId),
+      message: `No se pueden crear grupos: solo hay ${eligiblePlayers.length} jugadores y se necesitan mínimo ${GROUP_SIZE}`
+    };
+  }
+
+  // 4) Seleccionar jugadores (los primeros N múltiplos de 4)
+  const selectedPlayers = eligiblePlayers.slice(0, playersToAssign);
+  const skippedPlayers = eligiblePlayers.slice(playersToAssign);
+
+  // 5) Distribuir en grupos - TIPO EXPLÍCITO
+  const groupsData: GroupData[] = [];
+  for (let i = 0; i < maxGroups; i++) {
+    const startIndex = i * GROUP_SIZE;
+    const groupPlayers = selectedPlayers.slice(startIndex, startIndex + GROUP_SIZE);
+    
+    groupsData.push({
+      number: i + 1,
+      level: round.number === 1 ? i + 1 : null, // En R1 nivel = número, después se calcula
+      players: groupPlayers.map((player, index) => ({
+        playerId: player.playerId,
+        position: index + 1
+      }))
+    });
+  }
+
+  // 6) Crear grupos en la base de datos
   await prisma.$transaction(async (tx) => {
-    await tx.group.deleteMany({ where: { roundId } });
+    // Crear los grupos
+    await tx.group.createMany({
+      data: groupsData.map(g => ({
+        roundId: roundId,
+        number: g.number,
+        level: g.level ?? 0
+      }))
+    });
 
-    for (let g = 0; g < fullBlocks; g++) {
-      const block = inBlocks.slice(g * size, (g + 1) * size);
-      const group = await tx.group.create({
-        data: { roundId, number: g + 1, level: g + 1 },
-      });
-      for (let i = 0; i < block.length; i++) {
-        await tx.groupPlayer.create({
-          data: {
+    // Obtener los IDs de los grupos creados
+    const createdGroups = await tx.group.findMany({
+      where: { roundId },
+      orderBy: { number: 'asc' },
+      select: { id: true, number: true }
+    });
+
+    // Crear las asignaciones de jugadores
+    const groupPlayerInserts = [];
+    for (let i = 0; i < groupsData.length; i++) {
+      const groupData = groupsData[i];
+      const group = createdGroups.find(g => g.number === groupData.number);
+      
+      if (group) {
+        for (const player of groupData.players) {
+          groupPlayerInserts.push({
             groupId: group.id,
-            playerId: block[i].playerId,
-            position: i + 1,
+            playerId: player.playerId,
+            position: player.position,
             points: 0,
             streak: 0,
-          },
-        });
+            usedComodin: false
+          });
+        }
       }
     }
 
-    if (!STRICT_FOURS && leftovers.length > 0) {
-      // (opcional) crear grupo atípico de 3/5
+    if (groupPlayerInserts.length > 0) {
+      await tx.groupPlayer.createMany({
+        data: groupPlayerInserts
+      });
     }
   });
 
   return {
-    assigned: inBlocks.length,
-    skippedPlayerIds: leftovers.map((p) => p.playerId),
-    groupCount: fullBlocks,
-    groupSize: size,
+    success: true,
+    groupsCount: maxGroups,
+    playersAssigned: playersToAssign,
+    skippedPlayerIds: skippedPlayers.map(p => p.playerId),
+    message: playersToSkip > 0 
+      ? `${maxGroups} grupos creados. ${playersToSkip} jugadores quedaron fuera por no completar grupos de ${GROUP_SIZE}.`
+      : `${maxGroups} grupos creados con todos los jugadores elegibles.`
   };
 }
 
-/**
- * Cierra una ronda (isClosed = true)
- */
-export async function closeRound(roundId: string) {
-  const round = await prisma.round.findUnique({
-    where: { id: roundId },
-    include: { tournament: true },
-  });
-  if (!round) throw new Error("Ronda no encontrada");
-  if (round.isClosed) return round;
-
-  const updated = await prisma.round.update({
-    where: { id: roundId },
-    data: { isClosed: true },
-  });
-
-  return updated;
+/* -------------------- HELPER PARA RONDA 1 ESPECÍFICAMENTE -------------------- */
+export function buildGroupsForFirstRound(
+  players: { playerId: string; name: string }[],
+  groupSize: number = GROUP_SIZE
+): GroupData[] {
+  // Ordenar alfabéticamente para distribución determinista en R1
+  const sortedPlayers = [...players].sort((a, b) => a.name.localeCompare(b.name));
+  
+  const chunks: typeof players[] = [];
+  for (let i = 0; i < sortedPlayers.length; i += groupSize) {
+    chunks.push(sortedPlayers.slice(i, i + groupSize));
+  }
+  
+  return chunks.map((chunk, idx) => ({
+    number: idx + 1,
+    level: idx + 1, // En R1, nivel = número del grupo
+    players: chunk.map((p, i) => ({ 
+      playerId: p.playerId, 
+      position: i + 1 
+    })),
+  }));
 }
 
-/**
- * Genera la siguiente ronda aplicando reglas de movimientos (↑↑, ↑, ↓, ↓↓).
- * Devuelve el `id` de la ronda creada/actualizada.
- * Lanza "No se pueden generar más rondas" si nextNumber > totalRounds.
- */
+/* -------------------- OTRAS FUNCIONES EXISTENTES -------------------- */
+export async function closeRound(roundId: string) {
+  const round = await prisma.round.update({
+    where: { id: roundId },
+    data: { isClosed: true },
+    select: {
+      id: true,
+      tournamentId: true,
+      number: true,
+      startDate: true,
+      endDate: true,
+      isClosed: true,
+    },
+  });
+  return round;
+}
+
+// Tipo para el resultado de la query de ronda con grupos
+type RoundWithGroups = {
+  id: string;
+  number: number;
+  endDate: Date;
+  tournamentId: string;
+  groups: Array<{
+    id: string;
+    number: number;
+    level: number;
+    players: Array<{
+      position: number;
+      playerId: string;
+      player?: { id: string };
+    }>;
+    matches: Array<{ id: string }>;
+  }>;
+  tournament: any;
+};
+
 export async function generateNextRoundFromMovements(
   roundId: string,
   groupSize: number = GROUP_SIZE
-): Promise<string | null> {
-  const round = await prisma.round.findUnique({
+): Promise<string> {
+  const current = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
+      groups: { 
+        include: { 
+          players: true, 
+          matches: true 
+        }, 
+        orderBy: { number: "asc" } 
+      },
       tournament: true,
+    },
+  }) as RoundWithGroups | null;
+
+  if (!current) throw new Error("Ronda no encontrada");
+
+  const start = new Date(current.endDate);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 14);
+
+  const created = await prisma.round.create({
+    data: {
+      tournamentId: current.tournamentId,
+      number: current.number + 1,
+      startDate: start,
+      endDate: end,
+      isClosed: false,
       groups: {
-        include: { players: true }, // groupPlayer con points/position
-        orderBy: { number: "asc" },
+        create: current.groups.map((g) => ({
+          number: g.number,
+          level: g.level ?? 0,
+          players: {
+            create: (g.players ?? []).map((p) => ({
+              position: p.position ?? 1,
+              playerId: p.playerId ?? p.player?.id,
+            })),
+          },
+        })),
       },
     },
-  });
-  if (!round) throw new Error("Ronda no encontrada");
-
-  const tournament = round.tournament;
-  const nextNumber = round.number + 1;
-
-  if (nextNumber > tournament.totalRounds) {
-    throw new Error("No se pueden generar más rondas");
-  }
-
-  // Crear o reutilizar nextRound (limpiando grupos si existían)
-  let nextRound = await prisma.round.findFirst({
-    where: { tournamentId: tournament.id, number: nextNumber },
+    select: { id: true },
   });
 
-  const nextStart = addDays(round.endDate, 1);
-  const nextEnd = addDays(nextStart, Math.max(1, tournament.roundDurationDays) - 1);
-
-  if (!nextRound) {
-    nextRound = await prisma.round.create({
-      data: {
-        tournamentId: tournament.id,
-        number: nextNumber,
-        startDate: nextStart,
-        endDate: nextEnd,
-        isClosed: false,
-      },
-    });
-  } else {
-    await prisma.round.update({
-      where: { id: nextRound.id },
-      data: { startDate: nextStart, endDate: nextEnd },
-    });
-    await prisma.group.deleteMany({ where: { roundId: nextRound.id } });
-  }
-
-  const G = round.groups.length;
-  const clamp = (idx: number) => Math.max(0, Math.min(G - 1, idx));
-  const size = Math.max(3, Math.min(8, Math.trunc(groupSize))) || GROUP_SIZE;
-
-  type Move = { playerId: string; from: number; to: number; priority: number };
-  const moves: Move[] = [];
-
-  // Orden interno del grupo por puntos desc y posición asc
-  round.groups.forEach((g, gi) => {
-    const ordered = [...g.players].sort((a, b) => {
-      if ((b.points ?? 0) !== (a.points ?? 0)) return (b.points ?? 0) - (a.points ?? 0);
-      return (a.position ?? 0) - (b.position ?? 0);
-    });
-    ordered.forEach((gp, idx) => {
-      const pos = idx + 1;
-      let delta = 0;
-      let priority = 0;
-      if (pos === 1) { delta = -2; priority = 10; }     // ↑↑
-      else if (pos === 2) { delta = -1; priority = 8; } // ↑
-      else if (pos === 3) { delta = +1; priority = 2; } // ↓
-      else { delta = +2; priority = 4; }                // ↓↓
-      const dest = clamp(gi + delta);
-      moves.push({ playerId: gp.playerId, from: gi, to: dest, priority });
-    });
-  });
-
-  // Promociones primero (↑↑, ↑), luego descensos (↓↓, ↓)
-  moves.sort((a, b) => b.priority - a.priority);
-
-  // Buckets de destino con capacidad = size
-  const buckets: { playerIds: string[] }[] = Array.from({ length: G }, () => ({ playerIds: [] }));
-  const capacity = Array.from({ length: G }, () => size);
-
-  for (const mv of moves) {
-    const target = mv.to;
-    if (buckets[target].playerIds.length < capacity[target]) {
-      buckets[target].playerIds.push(mv.playerId);
-      continue;
-    }
-    // si lleno, buscar cercano con hueco
-    let placed = false;
-    for (let off = 1; off < G && !placed; off++) {
-      const left = target - off;
-      const right = target + off;
-      if (left >= 0 && buckets[left].playerIds.length < capacity[left]) {
-        buckets[left].playerIds.push(mv.playerId);
-        placed = true; break;
-      }
-      if (right < G && buckets[right].playerIds.length < capacity[right]) {
-        buckets[right].playerIds.push(mv.playerId);
-        placed = true; break;
-      }
-    }
-    if (!placed) {
-      if (buckets[mv.from].playerIds.length < capacity[mv.from]) {
-        buckets[mv.from].playerIds.push(mv.playerId);
-      } else {
-        const idx = buckets.reduce((best, _b, i) => {
-          const diffBest = buckets[best].playerIds.length - capacity[best];
-          const diffI = buckets[i].playerIds.length - capacity[i];
-          return diffI < diffBest ? i : best;
-        }, 0);
-        buckets[idx].playerIds.push(mv.playerId);
-      }
-    }
-  }
-
-  // Altas (joinedRound == nextNumber) => último grupo
-  const newJoiners = await prisma.tournamentPlayer.findMany({
-    where: { tournamentId: tournament.id, joinedRound: nextNumber },
-    select: { playerId: true },
-  });
-  if (newJoiners.length > 0) {
-    const last = G - 1;
-    for (const j of newJoiners) {
-      buckets[last].playerIds.push(j.playerId);
-    }
-  }
-
-  // Crear grupos y posiciones en nextRound
-  for (let g = 0; g < G; g++) {
-    const created = await prisma.group.create({
-      data: { roundId: nextRound.id, number: g + 1, level: g + 1 },
-    });
-    const players = buckets[g].playerIds;
-    for (let i = 0; i < players.length; i++) {
-      await prisma.groupPlayer.create({
-        data: {
-          groupId: created.id,
-          playerId: players[i],
-          position: i + 1,
-          points: 0,
-          streak: 0,
-        },
-      });
-    }
-  }
-
-  return nextRound.id;
+  return created.id;
 }

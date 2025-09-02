@@ -1,30 +1,36 @@
+// app/admin/tournaments/[id]/TournamentDetailClient.tsx - VERSIÓN CORREGIDA
 "use client";
 
-import { 
-  ArrowLeft, 
-  Trophy, 
-  Calendar, 
-  Users, 
-  Settings, 
-  CheckCircle, 
-  Clock, 
-  Play,
-  Trash2,
-  Power,
-  ChevronRight
-} from "lucide-react";
-import Link from "next/link";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Users,
+  Calendar,
+  Trophy,
+  Settings,
+  CheckCircle,
+  Clock,
+  Play,
+  ArrowLeft,
+  Power,
+  Trash2,
+  AlertTriangle,
+  BarChart3,
+  Target,
+} from "lucide-react";
 import TournamentPlayersManager from "./TournamentPlayersManager";
-import TournamentTimeline from "@/components/tournament/TournamentTimeline";
-import DeleteConfirmationModal from "@/components/modals/DeleteConfirmationModal";
+import GroupManagementPanel from "@/components/GroupManagementPanel";
 
+/* ========================= Tipos que llegan del server ========================= */
 type SerializedTournament = {
   id: string;
   title: string;
+  totalPlayers: number;
   startDate: string;
   endDate: string;
   totalRounds: number;
@@ -33,6 +39,17 @@ type SerializedTournament = {
   isPublic: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+type Group = {
+  id: string;
+  number: number;
+  level: number;
+  players: Array<{
+    id: string;
+    name: string;
+    position: number;
+  }>;
 };
 
 type SerializedRound = {
@@ -45,6 +62,7 @@ type SerializedRound = {
   playersCount: number;
   matchesCount: number;
   pendingMatches: number;
+  groups?: Group[]; // ✅ AHORA SÍ LLEGAN LOS GRUPOS
 };
 
 type SerializedPlayer = {
@@ -66,52 +84,37 @@ type Stats = {
   averagePlayersPerRound: number;
 };
 
-type TournamentDetailClientProps = {
+/* =============================================================================
+ * Componente principal
+ * =========================================================================== */
+export default function TournamentDetailClient({
+  tournament,
+  rounds,
+  players,
+  stats,
+}: {
   tournament: SerializedTournament;
   rounds: SerializedRound[];
   players: SerializedPlayer[];
   stats: Stats;
-  onDataRefresh?: () => void;
-};
-
-type TabId = 'overview' | 'rounds' | 'players';
-
-export default function TournamentDetailClient({ 
-  tournament, 
-  rounds, 
-  players, 
-  stats,
-  onDataRefresh
-}: TournamentDetailClientProps) {
-  const [isPending, startTransition] = useTransition();
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
+}) {
   const router = useRouter();
-  const nf = new Intl.NumberFormat('es-ES');
+  const [isPending, startTransition] = useTransition();
+  
+  // Pestañas de alto nivel
+  type TabId = "overview" | "rounds" | "players" | "settings";
+  const [activeTab, setActiveTab] = useState<TabId>("overview");
 
-  const TABS: Array<{ id: TabId; label: string; icon: React.ComponentType<{ className?: string }> }> = [
-    { id: 'overview', label: 'Resumen',  icon: Trophy },
-    { id: 'rounds',   label: 'Rondas',   icon: Calendar },
-    { id: 'players',  label: 'Jugadores',icon: Users },
-  ];
+  // Ronda seleccionada para gestión
+  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(
+    rounds.find(r => !r.isClosed)?.id || rounds[0]?.id || null
+  );
 
+  const selectedRound = rounds.find(r => r.id === selectedRoundId);
   const currentRound = rounds.find(r => !r.isClosed) || rounds[rounds.length - 1];
 
-  const isCurrentDate = (startDate: string, endDate: string) => {
-    const now = new Date();
-    const start = new Date(startDate);
-    const end = new Date(endDate);
-    const dayStart = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 0, 0, 0);
-    const dayEnd   = new Date(end.getFullYear(), end.getMonth(), end.getDate(), 23, 59, 59, 999);
-    return now >= dayStart && now <= dayEnd;
-  };
-
-  const roundStatus = (r: SerializedRound) => {
-    if (r.isClosed) return { label: "Cerrada", cls: "bg-gray-100 text-gray-700" };
-    if (isCurrentDate(r.startDate, r.endDate)) return { label: "En curso", cls: "bg-green-100 text-green-700" };
-    const now = new Date();
-    if (now < new Date(r.startDate)) return { label: "Próxima", cls: "bg-blue-100 text-blue-700" };
-    return { label: "Fuera de plazo", cls: "bg-red-100 text-red-700" };
+  const handlePlayersUpdated = () => {
+    router.refresh();
   };
 
   const toggleTournamentStatus = () => {
@@ -137,18 +140,18 @@ export default function TournamentDetailClient({
   };
 
   const deleteTournament = () => {
+    if (!confirm('¿SEGURO que quieres eliminar este torneo? Esta acción es irreversible.')) return;
+    
     startTransition(async () => {
       try {
         const res = await fetch(`/api/tournaments/${tournament.id}`, { 
           method: "DELETE" 
         });
         
-        const data = await res.json();
-        
         if (res.ok) {
-          setShowDeleteModal(false);
           router.push('/admin/tournaments');
         } else {
+          const data = await res.json();
           alert(data.error || "Error al eliminar torneo");
         }
       } catch (error) {
@@ -158,241 +161,315 @@ export default function TournamentDetailClient({
     });
   };
 
-  const handlePlayersUpdated = () => {
-    if (onDataRefresh) onDataRefresh();
-    else router.refresh();
+  // Formatear fechas
+  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('es-ES', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric'
+  });
+
+  const getRoundStatus = (round: SerializedRound) => {
+    if (round.isClosed) return { label: "Cerrada", variant: "secondary" as const };
+    
+    const now = new Date();
+    const start = new Date(round.startDate);
+    const end = new Date(round.endDate);
+    
+    if (now >= start && now <= end) return { label: "En curso", variant: "default" as const };
+    if (now < start) return { label: "Próxima", variant: "outline" as const };
+    return { label: "Fuera de plazo", variant: "destructive" as const };
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 py-10">
-      <div className="container mx-auto px-4 max-w-7xl">
-        {/* Header */}
-        <div className="mb-8">
-          <div className="flex items-center gap-4 mb-4">
-            <Link href="/admin/tournaments" className="inline-flex items-center px-3 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition-colors">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Volver a Torneos
-            </Link>
-            <Link href="/admin" className="inline-flex items-center px-3 py-2 bg-gray-100 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors">
-              Dashboard Admin
-            </Link>
-          </div>
-          
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-3 mb-2">
-                <Trophy className="h-8 w-8 text-blue-600" />
-                <h1 className="text-3xl font-bold">{tournament.title}</h1>
-                <span className={`inline-block px-3 py-1 rounded text-sm font-medium ${
-                  tournament.isActive 
-                    ? 'bg-green-100 text-green-700' 
-                    : 'bg-gray-100 text-gray-700'
-                }`}>
-                  {tournament.isActive ? 'Activo' : 'Inactivo'}
-                </span>
-              </div>
-              
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-gray-600 mb-4">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  <span>Inicio: {format(new Date(tournament.startDate), "d MMM yyyy", { locale: es })}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-4 w-4" />
-                  <span>Fin: {format(new Date(tournament.endDate), "d MMM yyyy", { locale: es })}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Settings className="h-4 w-4" />
-                  <span>{nf.format(tournament.totalRounds)} rondas • {nf.format(tournament.roundDurationDays)} días/ronda</span>
-                </div>
+    <div className="space-y-6">
+      {/* Header con estadísticas principales */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <Users className="w-8 h-8 text-blue-600" />
+              <div>
+                <div className="text-2xl font-bold">{stats.totalPlayers}</div>
+                <div className="text-sm text-gray-600">Jugadores</div>
               </div>
             </div>
+          </CardContent>
+        </Card>
 
-            {/* Acciones */}
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <Calendar className="w-8 h-8 text-green-600" />
+              <div>
+                <div className="text-2xl font-bold">{stats.activeRounds}</div>
+                <div className="text-sm text-gray-600">Rondas activas</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <Target className="w-8 h-8 text-purple-600" />
+              <div>
+                <div className="text-2xl font-bold">{Math.round(stats.completionPercentage)}%</div>
+                <div className="text-sm text-gray-600">Progreso</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-3">
+              <Clock className="w-8 h-8 text-orange-600" />
+              <div>
+                <div className="text-2xl font-bold">{stats.pendingMatches}</div>
+                <div className="text-sm text-gray-600">Pendientes</div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Tabs principales */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="flex items-center gap-2">
+              <Trophy className="w-5 h-5" />
+              Gestión del Torneo
+            </CardTitle>
             <div className="flex items-center gap-2">
-              <button
-                onClick={toggleTournamentStatus}
-                disabled={isPending}
-                className={`inline-flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                  tournament.isActive
-                    ? 'bg-orange-100 text-orange-700 hover:bg-orange-200'
-                    : 'bg-green-100 text-green-700 hover:bg-green-200'
-                }`}
-              >
-                <Power className="w-4 h-4 mr-2" />
-                {tournament.isActive ? 'Desactivar' : 'Activar'}
-              </button>
-              
-              {!tournament.isActive && (
-                <button
-                  onClick={() => setShowDeleteModal(true)}
-                  disabled={isPending}
-                  className="inline-flex items-center px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 transition-colors"
-                >
-                  <Trash2 className="w-4 h-4 mr-2" />
-                  Eliminar
-                </button>
-              )}
+              <Badge variant={tournament.isActive ? "default" : "secondary"}>
+                {tournament.isActive ? "Activo" : "Inactivo"}
+              </Badge>
             </div>
           </div>
-        </div>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
+            <TabsList className="grid w-full grid-cols-4">
+              <TabsTrigger value="overview">Resumen</TabsTrigger>
+              <TabsTrigger value="rounds">Rondas</TabsTrigger>
+              <TabsTrigger value="players">Jugadores</TabsTrigger>
+              <TabsTrigger value="settings">Configuración</TabsTrigger>
+            </TabsList>
 
-        {/* Stats principales */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-500">Jugadores</h3>
-              <Users className="h-4 w-4 text-blue-600" />
-            </div>
-            <div className="text-2xl font-bold">{nf.format(stats.totalPlayers)}</div>
-            <p className="text-xs text-gray-500">registrados</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-lg shadow border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-500">Progreso</h3>
-              <Trophy className="h-4 w-4 text-purple-600" />
-            </div>
-            <div className="text-2xl font-bold">{Math.round(stats.completionPercentage)}%</div>
-            <p className="text-xs text-gray-500">{nf.format(stats.confirmedMatches)} / {nf.format(stats.totalMatches)} partidos</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-lg shadow border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-500">Rondas</h3>
-            <Play className="h-4 w-4 text-green-600" />
-            </div>
-            <div className="text-2xl font-bold">{nf.format(stats.totalRounds)}</div>
-            <p className="text-xs text-gray-500">{nf.format(stats.activeRounds)} activas</p>
-          </div>
-
-          <div className="bg-white p-6 rounded-lg shadow border">
-            <div className="flex items-center justify-between mb-2">
-              <h3 className="text-sm font-medium text-gray-500">Pendientes</h3>
-              <Clock className="h-4 w-4 text-orange-600" />
-            </div>
-            <div className="text-2xl font-bold">{nf.format(stats.pendingMatches)}</div>
-            <p className="text-xs text-gray-500">por validar</p>
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="bg-white rounded-lg shadow border">
-          <div className="border-b border-gray-200">
-            <nav className="flex space-x-8 px-6">
-              {TABS.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setActiveTab(id)}
-                  className={`flex items-center gap-2 py-4 px-1 border-b-2 font-medium text-sm transition-colors ${
-                    activeTab === id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }`}
-                >
-                  <Icon className="h-4 w-4" />
-                  {label}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          <div className="p-6">
-            {activeTab === 'overview' && (
-              <div className="space-y-6">
-                {currentRound && (
-                  <div className="bg-gradient-to-r from-blue-50 to-green-50 border border-blue-200 rounded-lg p-6">
-                    <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                      <Play className="h-5 w-5 text-blue-600" />
+            {/* ===================== PESTAÑA: RESUMEN ===================== */}
+            <TabsContent value="overview" className="space-y-6 mt-6">
+              {currentRound && (
+                <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-blue-200">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Play className="w-5 h-5 text-blue-600" />
                       Ronda Actual: Ronda {currentRound.number}
-                    </h3>
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="text-gray-600">Estado:</span>
-                        <div className="font-medium">
-                          {isCurrentDate(currentRound.startDate, currentRound.endDate) ? 'En curso' : 
-                           currentRound.isClosed ? 'Cerrada' : 'Próxima'}
-                        </div>
+                        <div className="font-medium">{getRoundStatus(currentRound).label}</div>
                       </div>
                       <div>
                         <span className="text-gray-600">Grupos:</span>
-                        <div className="font-medium">{nf.format(currentRound.groupsCount)}</div>
+                        <div className="font-medium">{currentRound.groupsCount}</div>
                       </div>
                       <div>
                         <span className="text-gray-600">Partidos:</span>
-                        <div className="font-medium">{nf.format(currentRound.matchesCount)}</div>
+                        <div className="font-medium">{currentRound.matchesCount}</div>
                       </div>
                       <div>
                         <span className="text-gray-600">Pendientes:</span>
-                        <div className="font-medium text-orange-600">{nf.format(currentRound.pendingMatches)}</div>
+                        <div className="font-medium text-orange-600">{currentRound.pendingMatches}</div>
                       </div>
                     </div>
-                  </div>
-                )}
-                {/* Aquí puedes mantener/añadir más contenido del overview si lo tenías */}
-              </div>
-            )}
+                    <div className="mt-4">
+                      <Button asChild>
+                        <Link href={`/admin/rounds/${currentRound.id}`}>
+                          Gestionar Ronda Actual
+                        </Link>
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
-            {activeTab === 'rounds' && (
-              <div className="overflow-x-auto">
-                {rounds.length === 0 ? (
-                  <div className="text-center text-gray-500 py-10">
-                    No hay rondas registradas en este torneo.
+              {/* Información del torneo */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Información General</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-600">Inicio:</span>
+                      <div className="font-medium">{formatDate(tournament.startDate)}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Fin:</span>
+                      <div className="font-medium">{formatDate(tournament.endDate)}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Total rondas:</span>
+                      <div className="font-medium">{tournament.totalRounds}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Días por ronda:</span>
+                      <div className="font-medium">{tournament.roundDurationDays}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Visibilidad:</span>
+                      <div className="font-medium">{tournament.isPublic ? "Público" : "Privado"}</div>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Progreso total:</span>
+                      <div className="font-medium">{stats.confirmedMatches} / {stats.totalMatches} partidos</div>
+                    </div>
                   </div>
-                ) : (
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Ronda</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fechas</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Grupos</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Jugadores</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Partidos</th>
-                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Pendientes</th>
-                        <th className="px-4 py-3"></th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {rounds.map((r) => {
-                        const st = roundStatus(r);
-                        return (
-                          <tr key={r.id} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 font-medium">Ronda {r.number}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600">
-                              {format(new Date(r.startDate), "d MMM", { locale: es })} –{" "}
-                              {format(new Date(r.endDate), "d MMM yyyy", { locale: es })}
-                            </td>
-                            <td className="px-4 py-3">
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${st.cls}`}>{st.label}</span>
-                            </td>
-                            <td className="px-4 py-3">{nf.format(r.groupsCount)}</td>
-                            <td className="px-4 py-3">{nf.format(r.playersCount)}</td>
-                            <td className="px-4 py-3">{nf.format(r.matchesCount)}</td>
-                            <td className="px-4 py-3">
-                              <span className={r.pendingMatches > 0 ? "text-orange-600 font-medium" : "text-gray-600"}>
-                                {nf.format(r.pendingMatches)}
-                              </span>
-                            </td>
-                            <td className="px-4 py-3 text-right">
-                              <Link
-                                href={`/admin/rounds/${r.id}`}
-                                className="inline-flex items-center px-3 py-2 text-sm rounded-md border bg-white hover:bg-gray-50"
-                              >
-                                Abrir
-                                <ChevronRight className="w-4 h-4 ml-1" />
-                              </Link>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )}
+                </CardContent>
+              </Card>
+            </TabsContent>
 
-            {activeTab === 'players' && (
+            {/* =================== PESTAÑA: RONDAS =================== */}
+            <TabsContent value="rounds" className="space-y-6 mt-6">
+              {/* Selector de ronda */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Seleccionar Ronda para Gestionar</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-wrap gap-2 mb-4">
+                    {rounds.map((round) => {
+                      const status = getRoundStatus(round);
+                      return (
+                        <Button
+                          key={round.id}
+                          variant={round.id === selectedRoundId ? "default" : "outline"}
+                          size="sm"
+                          onClick={() => setSelectedRoundId(round.id)}
+                          className="flex items-center gap-2"
+                        >
+                          Ronda {round.number}
+                          <Badge variant={status.variant} className="ml-1 text-xs">
+                            {status.label}
+                          </Badge>
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  {selectedRound && (
+                    <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <h4 className="font-medium">Ronda {selectedRound.number}</h4>
+                        <Button size="sm" asChild>
+                          <Link href={`/admin/rounds/${selectedRound.id}`}>
+                            Abrir Vista Completa
+                          </Link>
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                        <div>
+                          <span className="text-gray-600">Fechas:</span>
+                          <div>{formatDate(selectedRound.startDate)} - {formatDate(selectedRound.endDate)}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Grupos:</span>
+                          <div className="font-medium">{selectedRound.groupsCount}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Jugadores:</span>
+                          <div className="font-medium">{selectedRound.playersCount}</div>
+                        </div>
+                        <div>
+                          <span className="text-gray-600">Pendientes:</span>
+                          <div className="font-medium text-orange-600">{selectedRound.pendingMatches}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Panel de gestión de grupos de la ronda seleccionada */}
+              {selectedRound && (
+                <GroupManagementPanel
+                  roundId={selectedRound.id}
+                  roundNumber={selectedRound.number}
+                  tournament={{
+                    id: tournament.id,
+                    title: tournament.title,
+                    totalPlayers: tournament.totalPlayers,
+                  }}
+                  groups={selectedRound.groups || []} // ✅ AHORA SÍ TENEMOS LOS GRUPOS
+                  availablePlayers={selectedRound.playersCount}
+                  isAdmin={true}
+                  isClosed={selectedRound.isClosed}
+                />
+              )}
+
+              {/* Lista completa de rondas */}
+              <Card>
+                <CardHeader>
+                  <CardTitle>Todas las Rondas</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left">Ronda</th>
+                          <th className="px-3 py-2 text-left">Fechas</th>
+                          <th className="px-3 py-2 text-left">Estado</th>
+                          <th className="px-3 py-2 text-center">Grupos</th>
+                          <th className="px-3 py-2 text-center">Partidos</th>
+                          <th className="px-3 py-2 text-center">Pendientes</th>
+                          <th className="px-3 py-2 text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {rounds.map((round) => {
+                          const status = getRoundStatus(round);
+                          return (
+                            <tr key={round.id} className="hover:bg-gray-50">
+                              <td className="px-3 py-3 font-medium">#{round.number}</td>
+                              <td className="px-3 py-3 text-xs">
+                                {formatDate(round.startDate)} - {formatDate(round.endDate)}
+                              </td>
+                              <td className="px-3 py-3">
+                                <Badge variant={status.variant} className="text-xs">
+                                  {status.label}
+                                </Badge>
+                              </td>
+                              <td className="px-3 py-3 text-center">{round.groupsCount}</td>
+                              <td className="px-3 py-3 text-center">{round.matchesCount}</td>
+                              <td className="px-3 py-3 text-center">
+                                <span className={round.pendingMatches > 0 ? "text-orange-600 font-medium" : ""}>
+                                  {round.pendingMatches}
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <Button size="sm" variant="outline" asChild>
+                                  <Link href={`/admin/rounds/${round.id}`}>
+                                    Gestionar
+                                  </Link>
+                                </Button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* =================== PESTAÑA: JUGADORES =================== */}
+            <TabsContent value="players" className="space-y-6 mt-6">
               <TournamentPlayersManager
                 tournamentId={tournament.id}
                 tournamentTitle={tournament.title}
@@ -400,25 +477,69 @@ export default function TournamentDetailClient({
                 currentPlayers={players}
                 onPlayersUpdated={handlePlayersUpdated}
               />
-            )}
-          </div>
-        </div>
+            </TabsContent>
 
-        {/* Modal de confirmación de eliminación */}
-        <DeleteConfirmationModal
-          isOpen={showDeleteModal}
-          onClose={() => setShowDeleteModal(false)}
-          onConfirm={deleteTournament}
-          tournament={{
-            title: tournament.title,
-            totalRounds: tournament.totalRounds,
-            playersCount: players.length,
-            totalMatches: stats.totalMatches,
-            confirmedMatches: stats.confirmedMatches
-          }}
-          isLoading={isPending}
-        />
-      </div>
+            {/* =================== PESTAÑA: CONFIGURACIÓN =================== */}
+            <TabsContent value="settings" className="space-y-6 mt-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="w-5 h-5" />
+                    Configuración del Torneo
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between p-4 border rounded-lg">
+                    <div>
+                      <div className="font-medium">Estado del torneo</div>
+                      <div className="text-sm text-gray-600">
+                        {tournament.isActive ? 'El torneo está activo y visible' : 'El torneo está pausado'}
+                      </div>
+                    </div>
+                    <Button
+                      onClick={toggleTournamentStatus}
+                      disabled={isPending}
+                      variant={tournament.isActive ? "outline" : "default"}
+                    >
+                      <Power className="w-4 h-4 mr-2" />
+                      {tournament.isActive ? 'Desactivar' : 'Activar'}
+                    </Button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-4 border border-red-200 rounded-lg bg-red-50">
+                    <div>
+                      <div className="font-medium text-red-900">Eliminar torneo</div>
+                      <div className="text-sm text-red-700">
+                        Esta acción es irreversible y eliminará todos los datos asociados
+                      </div>
+                    </div>
+                    <Button
+                      onClick={deleteTournament}
+                      disabled={isPending || tournament.isActive}
+                      variant="destructive"
+                    >
+                      <Trash2 className="w-4 h-4 mr-2" />
+                      Eliminar
+                    </Button>
+                  </div>
+
+                  {tournament.isActive && (
+                    <div className="p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                      <div className="flex items-center gap-2 text-yellow-800">
+                        <AlertTriangle className="w-4 h-4" />
+                        <span className="font-medium">Torneo activo</span>
+                      </div>
+                      <p className="text-sm text-yellow-700 mt-1">
+                        Desactiva el torneo antes de eliminarlo para evitar pérdida accidental de datos.
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   );
 }

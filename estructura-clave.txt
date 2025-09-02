@@ -84,6 +84,10 @@
 \app\api\rounds\[id]\generate-matches\route.ts
 \app\api\rounds\[id]\generate-next
 \app\api\rounds\[id]\generate-next\route.ts
+\app\api\rounds\[id]\manage-groups
+\app\api\rounds\[id]\manage-groups\route.ts
+\app\api\rounds\[id]\matches
+\app\api\rounds\[id]\matches\route.ts
 \app\api\rounds\TournamentPicker.tsx
 \app\api\tournaments
 \app\api\tournaments\[id]
@@ -95,6 +99,8 @@
 \app\api\tournaments\[id]\deactivate\route.ts
 \app\api\tournaments\[id]\delete-info
 \app\api\tournaments\[id]\delete-info\route.ts
+\app\api\tournaments\[id]\extend-rounds
+\app\api\tournaments\[id]\extend-rounds\route.ts
 \app\api\tournaments\[id]\players
 \app\api\tournaments\[id]\players\[playerId]
 \app\api\tournaments\[id]\players\[playerId]\route.ts
@@ -143,6 +149,8 @@
 \components\Breadcrumbs.tsx
 \components\CloseRoundButton.tsx
 \components\GroupManagementPanel.tsx
+\components\ManualGroupManager.tsx
+\components\MatchEditDialog.tsx
 \components\MatchGenerationPanel.tsx
 \components\MatchScheduling.tsx
 \components\modals
@@ -158,7 +166,7 @@
 \components\ui\card.tsx
 \components\ui\dialog.tsx
 \components\ui\input.tsx
-\components\ui\label.tsx.txt
+\components\ui\label.tsx
 \components\ui\progress.tsx
 \components\ui\switch.tsx
 \components\ui\tabs.tsx
@@ -200,6 +208,7 @@
 \scripts\genera-estructura.js
 \tailwind.config.ts
 \tsconfig.json
+\tsconfig.tsbuildinfo
 \types
 \types\match.ts
 \types\next-auth.d.ts

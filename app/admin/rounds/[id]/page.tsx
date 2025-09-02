@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { redirect, notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { getEligiblePlayersForRound } from "@/lib/rounds"; // Importar la función
+import { getEligiblePlayersForRound } from "@/lib/rounds";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import MatchGenerationPanel from "@/components/MatchGenerationPanel";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
@@ -15,10 +15,44 @@ import { format, differenceInDays, isAfter, isBefore } from "date-fns";
 import { es } from "date-fns/locale";
 import Link from "next/link";
 
+/** Tipos mínimos necesarios según los select/include usados en este fichero */
+type PlayerLite = { id: string; name: string };
+
+type GroupPlayerLite = {
+  position: number;
+  player: PlayerLite;
+};
+
+type MatchLite = {
+  id: string;
+  setNumber: number;
+  isConfirmed: boolean;
+  status: "PENDING" | "SCHEDULED" | "PLAYED" | "CONFIRMED" | string;
+  proposer: { name: string } | null;
+};
+
+type GroupLite = {
+  id: string;
+  number: number;
+  level: number | null;
+  players: GroupPlayerLite[];
+  matches: MatchLite[];
+};
+
+type RoundData = {
+  id: string;
+  number: number;
+  startDate: Date;
+  endDate: Date;
+  isClosed: boolean;
+  tournament: { id: string; title: string };
+  groups: GroupLite[];
+};
+
+type EligiblePlayer = { playerId: string; name: string };
+
 type RoundDetailPageProps = {
-  params: {
-    id: string;
-  };
+  params: { id: string };
 };
 
 export const metadata = {
@@ -26,7 +60,7 @@ export const metadata = {
   description: "Vista detallada de la ronda con todos los partidos y programación",
 };
 
-async function getRoundData(roundId: string) {
+async function getRoundData(roundId: string): Promise<RoundData | null> {
   try {
     const round = await prisma.round.findUnique({
       where: { id: roundId },
@@ -47,7 +81,9 @@ async function getRoundData(roundId: string) {
         },
       },
     });
-    return round;
+
+    // Cast controlado al shape que usamos aquí
+    return round as unknown as RoundData | null;
   } catch (error) {
     console.error("Error fetching round data:", error);
     return null;
@@ -62,59 +98,62 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
   const round = await getRoundData(params.id);
   if (!round) notFound();
 
-  // NUEVO: Obtener jugadores elegibles para esta ronda
-  const eligiblePlayers = await getEligiblePlayersForRound(
-    round.tournament.id, 
+  // 1) Jugadores elegibles (toda la ronda)
+  const eligiblePlayers = (await getEligiblePlayersForRound(
+    round.tournament.id,
     round.number
+  )) as EligiblePlayer[];
+
+  // 2) SIN ASIGNAR = elegibles - ya asignados en grupos
+  const assignedIds = new Set<string>(
+    round.groups.flatMap((g: GroupLite) =>
+      g.players.map((gp: GroupPlayerLite) => gp.player.id)
+    )
   );
 
-  console.log('DEBUG - Round detail page:', {
-    roundId: params.id,
-    roundNumber: round.number,
-    tournamentId: round.tournament.id,
-    eligiblePlayersCount: eligiblePlayers.length,
-    eligiblePlayers: eligiblePlayers.map(p => ({ id: p.playerId, name: p.name, joinedRound: p.joinedRound }))
-  });
+  const unassigned = eligiblePlayers
+    .filter((p: EligiblePlayer) => !assignedIds.has(p.playerId))
+    .map((p: EligiblePlayer) => ({ id: p.playerId, name: p.name }));
 
   // Estadísticas
   const now = new Date();
   const daysToEnd = differenceInDays(round.endDate, now);
   const daysToStart = differenceInDays(round.startDate, now);
 
-  const status = round.isClosed
-    ? "closed"
-    : isBefore(now, round.startDate)
-    ? "upcoming"
-    : isAfter(now, round.endDate)
-    ? "overdue"
-    : "active";
+  const status: "closed" | "upcoming" | "overdue" | "active" =
+    round.isClosed
+      ? "closed"
+      : isBefore(now, round.startDate)
+      ? "upcoming"
+      : isAfter(now, round.endDate)
+      ? "overdue"
+      : "active";
 
-  const totalSets = round.groups.reduce((acc, group) => acc + group.matches.length, 0);
+  const totalSets = round.groups.reduce<number>(
+    (acc: number, group: GroupLite) => acc + group.matches.length,
+    0
+  );
   const totalPartidos = Math.ceil(totalSets / 3);
-  const completedSets = round.groups.reduce(
-    (acc, group) => acc + group.matches.filter((m) => m.isConfirmed).length,
-    0
-  );
-  const scheduledSets = round.groups.reduce(
-    (acc, group) => acc + group.matches.filter((m: any) => m.status === "SCHEDULED").length,
+
+  const completedSets = round.groups.reduce<number>(
+    (acc: number, group: GroupLite) =>
+      acc + group.matches.filter((m: MatchLite) => m.isConfirmed).length,
     0
   );
 
-  // Breadcrumbs
+  const scheduledSets = round.groups.reduce<number>(
+    (acc: number, group: GroupLite) =>
+      acc + group.matches.filter((m: MatchLite) => m.status === "SCHEDULED").length,
+    0
+  );
+
+  // Breadcrumbs - usar array mutable
   const breadcrumbItems = [
     { label: "Inicio", href: "/dashboard" },
     { label: "Admin", href: "/admin" },
     { label: "Rondas", href: "/admin/rounds" },
     { label: `Ronda ${round.number}`, current: true },
   ];
-
-  const getPlayerName = (playerId: string): string => {
-    for (const group of round.groups) {
-      const gp = group.players.find((p) => p.player.id === playerId);
-      if (gp) return gp.player.name;
-    }
-    return "Jugador desconocido";
-  };
 
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto space-y-6">
@@ -196,7 +235,7 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
         </CardContent>
       </Card>
 
-      {/* Debug info - temporal */}
+      {/* Aviso si no hay elegibles */}
       {eligiblePlayers.length === 0 && (
         <Card className="border-yellow-200 bg-yellow-50">
           <CardContent className="p-4">
@@ -218,35 +257,35 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
         tournament={{
           id: round.tournament.id,
           title: round.tournament.title,
-          totalPlayers: eligiblePlayers.length, // CORREGIDO: usar jugadores elegibles
+          totalPlayers: eligiblePlayers.length,
         }}
-        groups={round.groups.map((group) => ({
+        groups={round.groups.map((group: GroupLite) => ({
           id: group.id,
           number: group.number,
-          level: group.level,
-          players: group.players.map((gp) => ({
+          level: group.level ?? 0,
+          players: group.players.map((gp: GroupPlayerLite) => ({
             id: gp.player.id,
             name: gp.player.name,
             position: gp.position,
           })),
         }))}
-        availablePlayers={eligiblePlayers.length} // CORREGIDO: pasar count de elegibles
+        availablePlayers={eligiblePlayers.length}
         isAdmin={true}
       />
 
       {/* Panel de generación de partidos */}
       <MatchGenerationPanel
         roundId={params.id}
-        groups={round.groups.map((group) => ({
+        groups={round.groups.map((group: GroupLite) => ({
           id: group.id,
           number: group.number,
-          level: group.level,
-          players: group.players.map((gp) => ({
+          level: group.level ?? 0,
+          players: group.players.map((gp: GroupPlayerLite) => ({
             id: gp.player.id,
             name: gp.player.name,
             position: gp.position,
           })),
-          matches: group.matches.map((m) => ({
+          matches: group.matches.map((m: MatchLite) => ({
             id: m.id,
             setNumber: m.setNumber,
           })),
@@ -289,10 +328,6 @@ export default async function RoundDetailPage({ params }: RoundDetailPageProps) 
         </CardContent>
       </Card>
 
-      {/* Resto del código igual... (listado por grupo, etc.) */}
-      {/* (Mantengo solo los cambios importantes para no duplicar todo el código) */}
-
-      {/* Acciones de administración */}
       {!round.isClosed && (
         <Card>
           <CardHeader>

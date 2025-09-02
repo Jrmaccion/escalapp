@@ -20,8 +20,10 @@ import {
   Clock,
   Pencil,
   X,
+  Move
 } from "lucide-react";
 import MatchEditDialog from "@/components/MatchEditDialog";
+import ManualGroupManager from "@/components/ManualGroupManager";
 
 /* ----------------------------- Tipos de datos ----------------------------- */
 type Group = {
@@ -72,7 +74,7 @@ export default function GroupManagementPanel({
   tournament,
   groups,
   availablePlayers,
-  isAdmin = true,       // este panel se usa en Admin
+  isAdmin = true,
   isClosed = false,
 }: GroupManagementPanelProps) {
   const [isPending, startTransition] = useTransition();
@@ -111,7 +113,6 @@ export default function GroupManagementPanel({
 
   useEffect(() => {
     reloadMatches();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roundId]);
 
   /* -------------------------- Métricas y filtrado -------------------------- */
@@ -163,9 +164,6 @@ export default function GroupManagementPanel({
       alert("No hay resultado que confirmar.");
       return;
     }
-    // Con tu API:
-    // - Jugador: PATCH con action='confirm' y los juegos.
-    // - Admin: PATCH sin action -> fuerza confirmación.
     startTransition(async () => {
       setError(null);
       try {
@@ -241,6 +239,34 @@ export default function GroupManagementPanel({
     });
   };
 
+  // Nueva función para gestión manual
+  const handleManualSave = async (groupsData: Array<{
+    groupId?: string;
+    level: number;
+    playerIds: string[];
+  }>) => {
+    try {
+      const response = await fetch(`/api/rounds/${roundId}/manage-groups`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ groups: groupsData }),
+      });
+
+      const data = await response.json();
+      
+      if (response.ok) {
+        setMessage(data.message || "Grupos reorganizados correctamente.");
+        setTimeout(() => setMessage(null), 5000);
+        window.location.reload();
+      } else {
+        throw new Error(data.error || "Error guardando grupos");
+      }
+    } catch (error: any) {
+      setError(error.message);
+      throw error; // Re-throw para que ManualGroupManager pueda manejarlo
+    }
+  };
+
   /* --------------------------------- Render -------------------------------- */
   return (
     <div className="space-y-6">
@@ -276,27 +302,6 @@ export default function GroupManagementPanel({
             <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{error}</div>
           )}
 
-          {canCreateGroups ? (
-            <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
-              <div className="flex items-center gap-2 text-green-700">
-                <CheckCircle className="w-4 h-4" />
-                <span className="font-medium">Listo para crear grupos</span>
-              </div>
-            </div>
-          ) : (
-            <div className="p-3 bg-red-50 border border-red-200 rounded-lg mb-4">
-              <div className="flex items-center gap-2 text-red-700">
-                <AlertTriangle className="w-4 h-4" />
-                <span className="font-medium">
-                  No se pueden crear grupos: {availablePlayers} jugadores no es divisible por {playersPerGroup}
-                </span>
-              </div>
-              <p className="text-sm text-red-600 mt-1">
-                Necesitas añadir {playersPerGroup - (availablePlayers % playersPerGroup)} jugadores más o cambiar el tamaño de grupo.
-              </p>
-            </div>
-          )}
-
           {message && (
             <div className="mb-4 p-3 bg-green-50 border border-green-200 rounded-lg text-green-700 text-sm">
               <CheckCircle className="w-4 h-4 inline mr-1" />
@@ -308,8 +313,9 @@ export default function GroupManagementPanel({
 
       {/* Configuración y acciones */}
       <Tabs defaultValue="matches" className="w-full">
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="generate">Generar Grupos</TabsTrigger>
+        <TabsList className="grid w-full grid-cols-4">
+          <TabsTrigger value="generate">Generar Automático</TabsTrigger>
+          <TabsTrigger value="manual">Gestión Manual</TabsTrigger>
           <TabsTrigger value="view">Ver Grupos</TabsTrigger>
           <TabsTrigger value="matches">Gestionar Sets</TabsTrigger>
         </TabsList>
@@ -319,45 +325,68 @@ export default function GroupManagementPanel({
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Settings className="w-5 h-5" />
-                Configuración de Grupos
+                Generación Automática de Grupos
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Estrategia */}
-              <div>
-                <label className="block text-sm font-medium mb-2">Estrategia de distribución</label>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <button
-                    onClick={() => setStrategy("random")}
-                    className={`p-4 rounded-lg border text-left transition-colors ${
-                      strategy === "random" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Shuffle className="w-4 h-4" />
-                      <span className="font-medium">Aleatoria</span>
-                    </div>
-                    <p className="text-sm text-gray-600">Distribución completamente aleatoria.</p>
-                  </button>
-
-                  <button
-                    onClick={() => setStrategy("ranking")}
-                    className={`p-4 rounded-lg border text-left transition-colors ${
-                      strategy === "ranking" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"
-                    }`}
-                    disabled={roundNumber === 1}
-                  >
-                    <div className="flex items-center gap-2 mb-2">
-                      <Crown className="w-4 h-4" />
-                      <span className="font-medium">Por Ranking</span>
-                      {roundNumber === 1 && <Badge variant="outline" className="text-xs">No disponible</Badge>}
-                    </div>
-                    <p className="text-sm text-gray-600">
-                      {roundNumber === 1 ? "No hay ranking previo en la primera ronda." : "Equilibra según ranking previo."}
-                    </p>
-                  </button>
+              {/* Información específica por ronda */}
+              {roundNumber === 1 ? (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-blue-700 mb-2">
+                    <Info className="w-4 h-4" />
+                    <span className="font-medium">Primera ronda</span>
+                  </div>
+                  <p className="text-sm text-blue-600">
+                    Se creará una distribución inicial ordenada alfabéticamente. 
+                    Las estrategias "aleatoria" y "por ranking" tienen el mismo resultado en R1.
+                  </p>
                 </div>
-              </div>
+              ) : (
+                <div className="p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                  <div className="flex items-center gap-2 text-orange-700 mb-2">
+                    <Crown className="w-4 h-4" />
+                    <span className="font-medium">Ronda {roundNumber}</span>
+                  </div>
+                  <p className="text-sm text-orange-600">
+                    Los grupos se generan automáticamente basándose en los movimientos de escalera 
+                    de la ronda anterior. La ronda anterior debe estar cerrada.
+                  </p>
+                </div>
+              )}
+
+              {/* Estrategia - Solo para R1 */}
+              {roundNumber === 1 && (
+                <div>
+                  <label className="block text-sm font-medium mb-2">Estrategia de distribución</label>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <button
+                      onClick={() => setStrategy("random")}
+                      className={`p-4 rounded-lg border text-left transition-colors ${
+                        strategy === "random" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Shuffle className="w-4 h-4" />
+                        <span className="font-medium">Aleatoria</span>
+                      </div>
+                      <p className="text-sm text-gray-600">Distribución alfabética determinista.</p>
+                    </button>
+
+                    <button
+                      onClick={() => setStrategy("ranking")}
+                      className={`p-4 rounded-lg border text-left transition-colors ${
+                        strategy === "ranking" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:border-gray-300"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 mb-2">
+                        <Crown className="w-4 h-4" />
+                        <span className="font-medium">Por Ranking</span>
+                      </div>
+                      <p className="text-sm text-gray-600">Mismo resultado que aleatoria en R1 (no hay ranking previo).</p>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Jugadores por grupo */}
               <div>
@@ -388,23 +417,61 @@ export default function GroupManagementPanel({
                 </div>
               </div>
 
+              {/* Validación */}
+              {canCreateGroups ? (
+                <div className="p-3 bg-green-50 border border-green-200 rounded-lg mb-4">
+                  <div className="flex items-center gap-2 text-green-700">
+                    <CheckCircle className="w-4 h-4" />
+                    <span className="font-medium">Listo para crear grupos</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg mb-4">
+                  <div className="flex items-center gap-2 text-red-700">
+                    <AlertTriangle className="w-4 h-4" />
+                    <span className="font-medium">
+                      No se pueden crear grupos: {availablePlayers} jugadores no es divisible por {playersPerGroup}
+                    </span>
+                  </div>
+                  <p className="text-sm text-red-600 mt-1">
+                    Necesitas añadir {playersPerGroup - (availablePlayers % playersPerGroup)} jugadores más o cambiar el tamaño de grupo.
+                  </p>
+                </div>
+              )}
+
               {/* Botones */}
               {isAdmin && (
                 <div className="flex flex-wrap gap-3 pt-4">
-                  <Button onClick={() => generateGroups(false)} disabled={isPending || hasGroups} className="flex items-center gap-2">
+                  <Button onClick={() => generateGroups(false)} disabled={isPending || (hasGroups && !canCreateGroups)} className="flex items-center gap-2">
                     {isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Users className="w-4 h-4" />}
-                    Crear Grupos
+                    {hasGroups ? "Regenerar Grupos" : "Crear Grupos"}
                   </Button>
                   {hasGroups && (
                     <Button onClick={() => generateGroups(true)} disabled={isPending} variant="destructive" className="flex items-center gap-2">
                       {isPending ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                      Regenerar Grupos
+                      Forzar Regeneración
                     </Button>
                   )}
                 </div>
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Gestión Manual */}
+        <TabsContent value="manual" className="space-y-4">
+          <ManualGroupManager
+            roundId={roundId}
+            initialGroups={groups.map(g => ({
+              id: g.id,
+              level: g.level,
+              players: g.players.map(p => ({
+                id: p.id,
+                name: p.name
+              }))
+            }))}
+            onSave={handleManualSave}
+          />
         </TabsContent>
 
         {/* Vista de grupos */}
@@ -442,7 +509,7 @@ export default function GroupManagementPanel({
               <CardContent className="p-8 text-center">
                 <Users className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                 <p className="text-gray-600 mb-4">No hay grupos creados para esta ronda</p>
-                <p className="text-sm text-gray-500">Usa la pestaña "Generar Grupos".</p>
+                <p className="text-sm text-gray-500">Usa la pestaña "Generar Automático" o "Gestión Manual".</p>
               </CardContent>
             </Card>
           )}
@@ -621,11 +688,12 @@ export default function GroupManagementPanel({
         <div className="flex items-start gap-2">
           <Info className="w-5 h-5 text-blue-600 mt-0.5" />
           <div className="text-sm">
-            <p className="font-medium text-blue-900 mb-1">Reglas de sets:</p>
+            <p className="font-medium text-blue-900 mb-1">Flujo recomendado:</p>
             <ul className="text-blue-700 space-y-1">
-              <li>• Set a 4 juegos, diferencia de 2.</li>
-              <li>• Si 4–4 ⇒ tie-break a 7; se guarda TB real y el set computa 5–4.</li>
-              <li>• Admin puede forzar confirmación; para “desconfirmar” usa Borrar.</li>
+              <li>• <strong>R1:</strong> Generar automático → Opcional: ajustar manual → Crear partidos</li>
+              <li>• <strong>R2+:</strong> Cerrar ronda anterior (genera automático) → Opcional: ajustar manual → Crear partidos</li>
+              <li>• La gestión manual permite reorganizar antes de crear partidos</li>
+              <li>• Los partidos se eliminan al reorganizar manualmente</li>
             </ul>
           </div>
         </div>

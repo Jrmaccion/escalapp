@@ -1,4 +1,4 @@
-// app/api/tournaments/[id]/available-players/route.ts
+// app/api/tournaments/[id]/available-players/route.ts - NUEVO ARCHIVO
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -16,7 +16,7 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
     // Verificar que el torneo existe
     const tournament = await prisma.tournament.findUnique({
       where: { id: tournamentId },
-      select: { id: true },
+      select: { id: true }
     });
 
     if (!tournament) {
@@ -25,43 +25,42 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
 
     // Obtener todos los jugadores
     const allPlayers = await prisma.player.findMany({
-      select: {
-        id: true,
-        name: true,
-        user: {
-          select: {
-            email: true
-          }
-        }
+      include: {
+        user: { select: { email: true } }
       },
       orderBy: { name: 'asc' }
     });
 
     // Obtener jugadores ya inscritos en este torneo
-    const tournamentPlayers = await prisma.tournamentPlayer.findMany({
+    const inscribedPlayerIds = await prisma.tournamentPlayer.findMany({
       where: { tournamentId },
       select: { playerId: true }
-    });
-
-    const inscribedPlayerIds = new Set(tournamentPlayers.map(tp => tp.playerId));
+    }).then(results => results.map(tp => tp.playerId));
 
     // Filtrar jugadores disponibles (no inscritos)
     const availablePlayers = allPlayers
-      .filter(player => !inscribedPlayerIds.has(player.id))
+      .filter(player => !inscribedPlayerIds.includes(player.id))
       .map(player => ({
         id: player.id,
         name: player.name,
         email: player.user.email
       }));
 
-    return NextResponse.json({ 
-      ok: true, 
+    return NextResponse.json({
+      ok: true,
       availablePlayers,
-      total: availablePlayers.length
+      stats: {
+        total: allPlayers.length,
+        available: availablePlayers.length,
+        inscribed: inscribedPlayerIds.length
+      }
     });
 
-  } catch (err: any) {
-    console.error("GET /tournaments/:id/available-players error", err);
-    return NextResponse.json({ error: "Error interno" }, { status: 500 });
+  } catch (error) {
+    console.error("Error fetching available players:", error);
+    return NextResponse.json(
+      { error: "Error interno del servidor" },
+      { status: 500 }
+    );
   }
 }
