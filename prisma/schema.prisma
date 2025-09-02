@@ -45,6 +45,10 @@ model Tournament {
   rounds            Round[]
   players           TournamentPlayer[]
 
+  // NUEVO: configuración para créditos de suplente
+  substituteCreditFactor   Float   @default(0.5) // 50% del puntaje del titular
+  substituteMaxAppearances Int     @default(2)   // máximo de veces que alguien puede ser suplente por torneo
+
   @@map("tournaments")
 }
 
@@ -66,6 +70,10 @@ model TournamentPlayer {
   playerId      String
   joinedRound   Int        @default(1)
   comodinesUsed Int        @default(0)
+
+  // NUEVO: para limitar cuántas veces actúo de suplente en ese torneo
+  substituteAppearances Int @default(0)
+
   player        Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
   tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
 
@@ -102,15 +110,21 @@ model Group {
 }
 
 model GroupPlayer {
-  id          String  @id @default(cuid())
-  groupId     String
-  playerId    String
-  position    Int
-  points      Float   @default(0)
-  streak      Int     @default(0)
-  usedComodin Boolean @default(false)
-  group       Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  player      Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  id            String   @id @default(cuid())
+  groupId       String
+  playerId      String
+  position      Int
+  points        Float    @default(0)
+  streak        Int      @default(0)
+  usedComodin   Boolean  @default(false)
+  comodinReason String?  @db.Text
+  comodinAt     DateTime?
+
+  // NUEVO: si hubo comodín “suplente”, quién jugó por mí en esta ronda
+  substitutePlayerId String?
+
+  group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
 
   @@unique([groupId, playerId])
   @@unique([groupId, position])
@@ -136,11 +150,11 @@ model Match {
   photoUrl       String?
   
   // NUEVOS CAMPOS para gestión de fechas
-  proposedDate   DateTime?   // Fecha propuesta por jugadores
-  proposedById   String?     // Quién propuso la fecha
-  acceptedDate   DateTime?   // Fecha confirmada por todos
-  acceptedBy     String[]    // Array de IDs que han aceptado la fecha
-  status         MatchStatus @default(PENDING) // Estado actual
+  proposedDate   DateTime?   
+  proposedById   String?     
+  acceptedDate   DateTime?   
+  acceptedBy     String[]    
+  status         MatchStatus @default(PENDING)
   
   // Relaciones
   group          Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)

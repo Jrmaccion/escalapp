@@ -1,4 +1,4 @@
-/* lib/ranking.ts */
+// lib/ranking.ts
 export type PlayerRoundPoints = {
   playerId: string;
   roundId: string;
@@ -27,6 +27,24 @@ export type RankingRow = PlayerTotals;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** NUEVO:
+ * Forzar `played=false` cuando el jugador usó comodín.
+ * Llama a esta utilidad en el sitio donde mapeas los datos de DB -> PlayerRoundPoints[].
+ */
+export function toRoundPointsRespectingComodin(input: {
+  playerId: string;
+  roundId: string;
+  points: number;
+  usedComodin?: boolean;
+}): PlayerRoundPoints {
+  return {
+    playerId: input.playerId,
+    roundId: input.roundId,
+    points: input.points,
+    played: !input.usedComodin, // comodín => no cuenta como jugada
+  };
 }
 
 export function accumulateFromRoundPoints(
@@ -115,6 +133,6 @@ export async function recomputeRankingsTx(
   _roundId: string,
   _data: { roundPoints: PlayerRoundPoints[]; setStats?: PlayerSetStat[] },
 ): Promise<void> {
-  // Placeholder: implementar persistencia cuando nos pases los modelos exactos.
+  // TODO: persistir cuando definamos los modelos de ranking
   return;
 }

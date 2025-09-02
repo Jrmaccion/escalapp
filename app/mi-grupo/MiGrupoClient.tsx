@@ -1,7 +1,7 @@
-// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN MEJORADA CON VISTA JERÁRQUICA
+// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN MEJORADA CON BOTÓN DE COMODÍN
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useTransition } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,9 +26,12 @@ import {
 } from "lucide-react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 
-// Tipos existentes mantenidos...
+/* =========
+   Tipos
+   ========= */
 type GroupData = {
   hasGroup: boolean;
+  roundId?: string; // <— si el endpoint /api/player/group lo devuelve, activamos el botón de comodín
   message?: string;
   tournament?: {
     title: string;
@@ -91,7 +94,9 @@ type GroupData = {
   }>;
 };
 
-// Datos de preview
+/* =========
+   Datos de preview (fallback)
+   ========= */
 const PREVIEW_DATA: GroupData = {
   hasGroup: true,
   tournament: {
@@ -167,6 +172,70 @@ const PREVIEW_DATA: GroupData = {
   ],
 };
 
+/* =========
+   Botón Comodín (inlined para evitar crear otro archivo)
+   ========= */
+function round1(n: number) {
+  return Math.round(n * 10) / 10;
+}
+
+function UseComodinInline({ roundId }: { roundId?: string }) {
+  const [pending, startTransition] = useTransition();
+  const [used, setUsed] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const apply = () => {
+    if (!roundId) {
+      setErr("No se puede aplicar el comodín: falta roundId.");
+      return;
+    }
+    setErr(null);
+    setMsg(null);
+    startTransition(async () => {
+      try {
+        const res = await fetch("/api/comodin", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ roundId }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setErr(data?.error ?? "No se pudo aplicar el comodín.");
+          return;
+        }
+        setUsed(true);
+        setMsg(data?.message ?? "Comodín aplicado.");
+      } catch {
+        setErr("Error de conexión.");
+      }
+    });
+  };
+
+  return (
+    <div className="mt-4">
+      <Button onClick={apply} disabled={!roundId || pending || used} className="w-full">
+        {used ? "Comodín aplicado" : pending ? "Aplicando…" : "Usar comodín"}
+      </Button>
+      {msg && <p className="mt-2 text-sm text-green-700">{msg}</p>}
+      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+      {!used && !pending && (
+        <p className="mt-2 text-xs text-gray-500">
+          R1–R2: se asigna la media del grupo. Desde R3: tu media personal acumulada. No cuenta como ronda jugada.
+        </p>
+      )}
+      {!roundId && (
+        <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded">
+          No recibimos <code>roundId</code> desde el servidor. Pide a un admin que revise el endpoint <code>/api/player/group</code> para incluirlo.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* =========
+   Página
+   ========= */
 export default function MiGrupoClient() {
   const { data: session } = useSession();
   const [data, setData] = useState<GroupData | null>(null);
@@ -337,7 +406,7 @@ export default function MiGrupoClient() {
     <div className={`px-4 py-6 max-w-6xl mx-auto space-y-6 ${isPreviewMode ? 'opacity-75' : ''}`}>
       <Breadcrumbs />
 
-      {/* Header mejorado */}
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
@@ -360,7 +429,7 @@ export default function MiGrupoClient() {
         )}
       </div>
 
-      {/* Tarjeta de grupo con diseño jerárquico */}
+      {/* Tarjeta de grupo */}
       <Card className={`${groupInfo.color} border-2 bg-gradient-to-br ${groupInfo.gradient} shadow-lg`}>
         <CardHeader>
           <div className="flex items-center justify-between">
@@ -418,7 +487,7 @@ export default function MiGrupoClient() {
                       )}
                     </div>
                     <div className="text-sm text-gray-600">
-                      {player.points.toFixed(1)} puntos acumulados
+                      {round1(player.points)} puntos acumulados
                     </div>
                   </div>
                 </div>
@@ -446,10 +515,17 @@ export default function MiGrupoClient() {
               </div>
             ))}
           </div>
+
+          {/* Botón de comodín */}
+          {!isPreviewMode && (
+            <div className="mt-6">
+              <UseComodinInline roundId={data.roundId} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
-      {/* Información de movimientos */}
+      {/* Info de movimientos */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
@@ -483,7 +559,7 @@ export default function MiGrupoClient() {
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-green-600">{data.myStatus?.points}</div>
+            <div className="text-2xl font-bold text-green-600">{round1(data.myStatus?.points || 0)}</div>
             <div className="text-sm text-gray-600">Mis Puntos</div>
           </CardContent>
         </Card>
@@ -505,7 +581,7 @@ export default function MiGrupoClient() {
         </Card>
       </div>
 
-      {/* Sets del partido */}
+      {/* Sets */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -635,7 +711,7 @@ export default function MiGrupoClient() {
         </CardContent>
       </Card>
 
-      {/* Call to action para modo preview */}
+      {/* CTA para preview */}
       {isPreviewMode && (
         <Card className="border-dashed border-2 border-blue-300 bg-blue-50">
           <CardContent className="p-8 text-center">

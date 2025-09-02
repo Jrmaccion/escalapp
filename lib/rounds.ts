@@ -1,5 +1,7 @@
 // lib/rounds.ts - VERSIÓN CON TIPOS CORREGIDOS
 import { prisma } from "@/lib/prisma";
+// Import opcional solo de tipo (no requerido para compilar)
+// import type { PlayerRoundPoints } from "@/lib/ranking";
 
 export const GROUP_SIZE = 4 as const;
 
@@ -133,7 +135,14 @@ export async function buildGroupsForRound(
     });
 
     // Crear las asignaciones de jugadores
-    const groupPlayerInserts = [];
+    const groupPlayerInserts: Array<{
+      groupId: string;
+      playerId: string;
+      position: number;
+      points: number;
+      streak: number;
+      usedComodin: boolean;
+    }> = [];
     for (let i = 0; i < groupsData.length; i++) {
       const groupData = groupsData[i];
       const group = createdGroups.find(g => g.number === groupData.number);
@@ -278,4 +287,64 @@ export async function generateNextRoundFromMovements(
   });
 
   return created.id;
+}
+
+/* -------------------------------------------------------------------------- */
+/*                NUEVO: Créditos de suplente (solo Ironman)                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Genera créditos de suplente para Ironman:
+ * - Suma factor (%) * puntos del titular del grupo en esta ronda.
+ * - No cuenta como jugada (played=false), no afecta media ni racha.
+ * - Cap opcional por ronda (p. ej., 8 puntos) para evitar outliers.
+ * 
+ * NOTA: usa (gp as any).substitutePlayerId para no romper compilación
+ * si tu schema todavía no tiene el campo. Si no existe, no genera créditos.
+ */
+export async function computeSubstituteCreditsForRound(
+  roundId: string
+): Promise<
+  Array<{
+    playerId: string;
+    roundId: string;
+    points: number;
+    played: boolean;
+  }>
+> {
+  const round = await prisma.round.findUnique({
+    where: { id: roundId },
+    include: {
+      tournament: { select: { substituteCreditFactor: true } },
+      groups: { include: { players: true } },
+    },
+  });
+  if (!round) return [];
+
+  const factor = (round.tournament as any)?.substituteCreditFactor ?? 0.5;
+  const capPerRound = 8; // ajustable
+
+  const credits: Array<{ playerId: string; roundId: string; points: number; played: boolean }> = [];
+
+  for (const g of round.groups) {
+    for (const gp of g.players) {
+      // Acceso tolerante al esquema: si no existe, será undefined
+      const subId = (gp as any)?.substitutePlayerId as string | undefined;
+      if (!subId) continue;
+
+      const basePoints = gp.points ?? 0;
+      const credit = Math.min(basePoints * factor, capPerRound);
+
+      if (credit > 0) {
+        credits.push({
+          playerId: subId,
+          roundId,
+          points: credit,
+          played: false, // clave: no cuenta jugada
+        });
+      }
+    }
+  }
+
+  return credits;
 }
