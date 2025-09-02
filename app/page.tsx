@@ -1,24 +1,18 @@
 // app/page.tsx
-'use client';
+import { redirect } from "next/navigation";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import RegisterForm from "./auth/register/RegisterForm";
 
-import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+export default async function HomePage() {
+  const session = await getServerSession(authOptions);
 
-export default function RootPage() {
-  const router = useRouter();
+  if (session) {
+    // Redirige a la vista correspondiente si ya hay sesión
+    const isAdmin = (session.user as any)?.isAdmin;
+    redirect(isAdmin ? "/admin/dashboard" : "/dashboard");
+  }
 
-  useEffect(() => {
-    router.replace('/dashboard');
-  }, [router]);
-
-  return (
-    <main className="flex min-h-screen items-center justify-center">
-      <div className="text-center">
-        <div className="mb-4">
-          <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-        </div>
-        <p className="text-sm text-muted-foreground">Redirigiendo al dashboard...</p>
-      </div>
-    </main>
-  );
+  // Si NO hay sesión, mostramos el formulario de registro directamente en inicio
+  return <RegisterForm />;
 }
