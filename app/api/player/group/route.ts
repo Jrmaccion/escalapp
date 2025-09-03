@@ -1,4 +1,4 @@
-// app/api/player/group/route.ts
+// app/api/player/group/route.ts - VERSIÓN CORREGIDA PARA USAR PUNTOS REALES
 
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
@@ -26,22 +26,6 @@ function pickCurrentRound(
   if (anyOpen) return anyOpen;
 
   return byNumberAsc[byNumberAsc.length - 1]; // última como fallback
-}
-
-// --- Puntuación por jugador en un set (juegos +1 por set ganado) ---
-function pointsForPlayerInMatch(m: any, playerId: string) {
-  const t1 = typeof m.team1Games === "number" ? m.team1Games : null;
-  const t2 = typeof m.team2Games === "number" ? m.team2Games : null;
-  if (t1 == null || t2 == null) return 0;
-
-  const inT1 = [m.team1Player1Id, m.team1Player2Id].includes(playerId);
-  const inT2 = [m.team2Player1Id, m.team2Player2Id].includes(playerId);
-  if (!inT1 && !inT2) return 0;
-
-  let pts = inT1 ? t1 : t2; // juegos ganados
-  const won = (inT1 && t1 > t2) || (inT2 && t2 > t1);
-  if (won) pts += 1; // bonus set ganado
-  return pts;
 }
 
 // --- Vista de partido (set) para la UI ---
@@ -181,7 +165,11 @@ export async function GET() {
       where: { roundId: current.id, players: { some: { playerId } } },
       include: {
         round: { include: { tournament: { select: { title: true } } } },
-        players: { include: { player: true }, orderBy: { position: "asc" } },
+        // CAMBIO CRÍTICO: Ordenar por puntos descendentes en lugar de por posición
+        players: { 
+          include: { player: true }, 
+          orderBy: { points: 'desc' }  // <- ESTO ES CLAVE
+        },
         matches: true,
       },
     });
@@ -192,7 +180,10 @@ export async function GET() {
         where: { round: { tournamentId }, players: { some: { playerId } } },
         include: {
           round: { include: { tournament: { select: { title: true } } } },
-          players: { include: { player: true }, orderBy: { position: "asc" } },
+          players: { 
+            include: { player: true }, 
+            orderBy: { points: 'desc' }  // <- También aquí
+          },
           matches: true,
         },
         orderBy: { id: "desc" }, // último grupo que lo contenga
@@ -214,22 +205,33 @@ export async function GET() {
     const nameById = new Map<string, string>();
     group.players.forEach((gp) => nameById.set(gp.playerId, gp.player?.name ?? "Jugador"));
 
-    // 6) Puntos por jugador (sumando sets del grupo)
+    // 6) CAMBIO CRÍTICO: Usar puntos reales de la base de datos en lugar de calcular
+    // Los puntos ya están calculados correctamente por recalculateGroupPointsWithSubstituteSupport
     const pointsMap = new Map<string, number>();
-    group.players.forEach((gp) => pointsMap.set(gp.playerId, 0));
-    (group.matches ?? []).forEach((m) => {
-      group.players.forEach((gp) => {
-        pointsMap.set(
-          gp.playerId,
-          (pointsMap.get(gp.playerId) || 0) + pointsForPlayerInMatch(m, gp.playerId)
-        );
-      });
-    });
+    group.players.forEach((gp) => pointsMap.set(gp.playerId, gp.points || 0));
 
     // 7) Sets en los que participa el jugador (para allMatches/nextMatches)
-    const myMatches = (group.matches ?? []).filter((m) =>
-      [m.team1Player1Id, m.team1Player2Id, m.team2Player1Id, m.team2Player2Id].includes(playerId!)
-    );
+    const myMatches = (group.matches ?? []).filter((m) => {
+      // NUEVO: Considerar tanto jugador directo como sustituto
+      const directParticipation = [
+        m.team1Player1Id, 
+        m.team1Player2Id, 
+        m.team2Player1Id, 
+        m.team2Player2Id
+      ].includes(playerId!);
+
+      // Verificar si algún jugador del grupo usó este jugador como sustituto
+      const asSubstitute = group!.players.some(gp => 
+        gp.substitutePlayerId === playerId && [
+          m.team1Player1Id, 
+          m.team1Player2Id, 
+          m.team2Player1Id, 
+          m.team2Player2Id
+        ].includes(gp.substitutePlayerId)
+      );
+
+      return directParticipation || asSubstitute;
+    });
 
     // Completar nombres de jugadores externos (por seguridad)
     const extIds = new Set<string>();
@@ -253,9 +255,14 @@ export async function GET() {
 
     const currentGp = group.players.find((gp) => gp.playerId === playerId);
 
+    // NUEVO: Calcular posiciones dinámicamente basadas en puntos reales
+    const sortedByPoints = group.players
+      .slice()
+      .sort((a, b) => (b.points || 0) - (a.points || 0)); // Descendente por puntos
+
     return NextResponse.json({
       hasGroup: true,
-      roundId: group.round.id, // AGREGADO: roundId necesario para el botón de comodín
+      roundId: group.round.id, // roundId necesario para el botón de comodín
       tournament: {
         title: group.round.tournament.title,
         currentRound: group.round.number,
@@ -266,15 +273,17 @@ export async function GET() {
         totalPlayers: group.players.length,
       },
       myStatus: {
-        position: currentGp?.position ?? 0,
+        // CORREGIDO: Usar posición real basada en puntos
+        position: sortedByPoints.findIndex(gp => gp.playerId === playerId) + 1,
         points: pointsMap.get(playerId!) ?? 0,
-        streak: 0, // si luego quieres racha real, la sacamos de ranking.ts
+        streak: currentGp?.streak || 0,
       },
-      players: group.players.map((gp) => ({
+      // CORREGIDO: Jugadores ordenados por puntos con posiciones correctas
+      players: sortedByPoints.map((gp, index) => ({
         id: gp.playerId,
         name: gp.player?.name ?? "Jugador",
-        points: pointsMap.get(gp.playerId) ?? 0,
-        position: gp.position,
+        points: gp.points || 0,
+        position: index + 1, // Posición basada en el orden real por puntos
         isCurrentUser: gp.playerId === playerId,
       })),
       allMatches,

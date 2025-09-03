@@ -1,7 +1,7 @@
-// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN CON MOVIMIENTOS CORREGIDOS
+// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN CORREGIDA CON NUEVO COMODÍN
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,13 +25,14 @@ import {
   Flame
 } from "lucide-react";
 import Breadcrumbs from "@/components/Breadcrumbs";
+import UseComodinButton from "@/components/player/UseComodinButton";
 
 /* =========
    Tipos
    ========= */
 type GroupData = {
   hasGroup: boolean;
-  roundId?: string; // <- si el endpoint /api/player/group lo devuelve, activamos el botón de comodín
+  roundId?: string;
   message?: string;
   tournament?: {
     title: string;
@@ -172,70 +173,10 @@ const PREVIEW_DATA: GroupData = {
   ],
 };
 
-/* =========
-   Botón Comodín (inlined para evitar crear otro archivo)
-   ========= */
 function round1(n: number) {
   return Math.round(n * 10) / 10;
 }
 
-function UseComodinInline({ roundId }: { roundId?: string }) {
-  const [pending, startTransition] = useTransition();
-  const [used, setUsed] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  const apply = () => {
-    if (!roundId) {
-      setErr("No se puede aplicar el comodín: falta roundId.");
-      return;
-    }
-    setErr(null);
-    setMsg(null);
-    startTransition(async () => {
-      try {
-        const res = await fetch("/api/comodin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ roundId }),
-        });
-        const data = await res.json();
-        if (!res.ok) {
-          setErr(data?.error ?? "No se pudo aplicar el comodín.");
-          return;
-        }
-        setUsed(true);
-        setMsg(data?.message ?? "Comodín aplicado.");
-      } catch {
-        setErr("Error de conexión.");
-      }
-    });
-  };
-
-  return (
-    <div className="mt-4">
-      <Button onClick={apply} disabled={!roundId || pending || used} className="w-full">
-        {used ? "Comodín aplicado" : pending ? "Aplicando…" : "Usar comodín"}
-      </Button>
-      {msg && <p className="mt-2 text-sm text-green-700">{msg}</p>}
-      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
-      {!used && !pending && (
-        <p className="mt-2 text-xs text-gray-500">
-          R1–R2: se asigna la media del grupo. Desde R3: tu media personal acumulada. No cuenta como ronda jugada.
-        </p>
-      )}
-      {!roundId && (
-        <p className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded">
-          No recibimos <code>roundId</code> desde el servidor. Pide a un admin que revise el endpoint <code>/api/player/group</code> para incluirlo.
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* =========
-   Página
-   ========= */
 export default function MiGrupoClient() {
   const { data: session } = useSession();
   const [data, setData] = useState<GroupData | null>(null);
@@ -530,10 +471,23 @@ export default function MiGrupoClient() {
             ))}
           </div>
 
-          {/* Botón de comodín */}
-          {!isPreviewMode && (
+          {/* NUEVO SISTEMA DE COMODÍN */}
+          {!isPreviewMode && data.roundId && (
             <div className="mt-6">
-              <UseComodinInline roundId={data.roundId} />
+              <UseComodinButton 
+                roundId={data.roundId}
+                className="w-full"
+              />
+            </div>
+          )}
+
+          {/* Mensaje si no hay roundId */}
+          {!isPreviewMode && !data.roundId && (
+            <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+              <p className="text-sm text-amber-800">
+                <strong>Comodín no disponible:</strong> No se pudo obtener la información de la ronda actual.
+                Contacta con el administrador si necesitas usar el comodín.
+              </p>
             </div>
           )}
         </CardContent>

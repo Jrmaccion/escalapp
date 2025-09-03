@@ -58,6 +58,8 @@
 \app\api\comodin\eligible-substitutes\route.ts
 \app\api\comodin\revoke
 \app\api\comodin\revoke\route.ts
+\app\api\comodin\round-stats
+\app\api\comodin\round-stats\route.ts
 \app\api\comodin\route.ts
 \app\api\comodin\status
 \app\api\comodin\status\route.ts
@@ -199,6 +201,8 @@
 \hooks\useComodin.ts
 \hooks\useNavigation.ts
 \lib
+\lib\api
+\lib\api\comodin.ts
 \lib\auth.ts
 \lib\match-validator.ts
 \lib\matches.ts

@@ -1,3 +1,4 @@
+// app/api/matches/[id]/route.ts - VERSIÓN CORREGIDA CON SISTEMA DE SUSTITUTOS
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -199,7 +200,7 @@ export async function PATCH(
 
     // Si el resultado está confirmado, recalcular puntos del grupo
     if (updateData.isConfirmed) {
-      await recalculateGroupPointsWithProperRules(match.group.id);
+      await recalculateGroupPointsWithSubstituteSupport(match.group.id);
     }
 
     return NextResponse.json(updatedMatch);
@@ -209,8 +210,8 @@ export async function PATCH(
   }
 }
 
-// NUEVA FUNCIÓN: Recalcular puntos con las reglas exactas del torneo escalera de pádel
-async function recalculateGroupPointsWithProperRules(groupId: string) {
+// FUNCIÓN CORREGIDA: Recalcular puntos considerando el sistema de sustitutos
+async function recalculateGroupPointsWithSubstituteSupport(groupId: string) {
   try {
     // Obtener todos los matches confirmados del grupo
     const matches = await prisma.match.findMany({
@@ -221,7 +222,7 @@ async function recalculateGroupPointsWithProperRules(groupId: string) {
       orderBy: { setNumber: 'asc' }
     });
 
-    // Obtener jugadores del grupo con información de racha
+    // Obtener jugadores del grupo con información completa
     const groupPlayers = await prisma.groupPlayer.findMany({
       where: { groupId },
       include: {
@@ -238,30 +239,53 @@ async function recalculateGroupPointsWithProperRules(groupId: string) {
       }
     });
 
-    // Calcular rachas consecutivas para cada jugador
+    // Crear mapa de sustitutos: quien juega físicamente -> quien recibe puntos
+    const substituteMap = new Map<string, string>();
+    for (const gp of groupPlayers) {
+      if (gp.substitutePlayerId) {
+        // gp.playerId es el sustituido, gp.substitutePlayerId es quien juega
+        substituteMap.set(gp.substitutePlayerId, gp.playerId);
+      }
+    }
+
+    // Calcular rachas consecutivas
     const playerStreaks = await calculateConsecutiveStreaks(groupId);
 
     // Recalcular puntos para cada jugador
     for (const groupPlayer of groupPlayers) {
       let totalPoints = 0;
-      
-      for (const match of matches) {
-        const playerPoints = calculatePlayerPointsInMatch(match, groupPlayer.playerId);
-        totalPoints += playerPoints;
+
+      // Si el jugador usó comodín de "media", mantener esos puntos
+      if (groupPlayer.usedComodin && !groupPlayer.substitutePlayerId) {
+        totalPoints = groupPlayer.points || 0; // Mantener puntos de media
+      } else {
+        // Calcular puntos desde matches
+        for (const match of matches) {
+          // Determinar quien recibe puntos por este match
+          const pointRecipientId = getPointRecipientForMatch(match, groupPlayer.playerId, substituteMap);
+          if (pointRecipientId) {
+            const playerPoints = calculatePlayerPointsInMatch(match, pointRecipientId);
+            totalPoints += playerPoints;
+          }
+        }
       }
 
       // Aplicar bonus de racha consecutiva (+2 puntos por match si tiene racha >= 1)
       const playerStreak = playerStreaks[groupPlayer.playerId] || 0;
-      if (playerStreak >= 1) {
-        // +2 puntos por cada match jugado si está en racha
-        const matchesPlayed = matches.filter(match => 
-          match.team1Player1Id === groupPlayer.playerId || 
-          match.team1Player2Id === groupPlayer.playerId ||
-          match.team2Player1Id === groupPlayer.playerId || 
-          match.team2Player2Id === groupPlayer.playerId
-        ).length;
+      if (playerStreak >= 1 && !groupPlayer.usedComodin) {
+        // Solo aplicar racha si jugó realmente (no usó comodín)
+        const matchesPlayedByThisPlayer = matches.filter(match => {
+          // Verificar si este jugador (o su sustituto) participó físicamente
+          const physicalPlayerId = groupPlayer.substitutePlayerId || groupPlayer.playerId;
+          return [
+            match.team1Player1Id,
+            match.team1Player2Id,
+            match.team2Player1Id,
+            match.team2Player2Id
+          ].includes(physicalPlayerId);
+        }).length;
         
-        totalPoints += matchesPlayed * 2;
+        totalPoints += matchesPlayedByThisPlayer * 2;
       }
 
       // Actualizar puntos y racha del jugador
@@ -274,13 +298,46 @@ async function recalculateGroupPointsWithProperRules(groupId: string) {
       });
     }
 
-    console.log(`Puntos recalculados para grupo ${groupId} con reglas completas`);
+    // NUEVO: Actualizar posiciones basadas en puntos
+    await updateGroupPositions(groupId);
+
+    console.log(`Puntos y posiciones recalculados para grupo ${groupId} con soporte de sustitutos`);
   } catch (error) {
     console.error("Error recalculando puntos del grupo:", error);
   }
 }
 
-// NUEVA FUNCIÓN: Calcular puntos de un jugador en un match específico según las reglas
+// NUEVA FUNCIÓN: Determina quién recibe los puntos de un match considerando sustitutos
+function getPointRecipientForMatch(
+  match: any, 
+  groupPlayerId: string, 
+  substituteMap: Map<string, string>
+): string | null {
+  const matchPlayerIds = [
+    match.team1Player1Id,
+    match.team1Player2Id,
+    match.team2Player1Id,
+    match.team2Player2Id
+  ];
+
+  // Caso 1: El jugador del grupo jugó físicamente
+  if (matchPlayerIds.includes(groupPlayerId)) {
+    return groupPlayerId;
+  }
+
+  // Caso 2: El jugador usó sustituto - verificar si su sustituto jugó
+  const substituteId = Array.from(substituteMap.keys()).find(
+    subId => substituteMap.get(subId) === groupPlayerId
+  );
+  
+  if (substituteId && matchPlayerIds.includes(substituteId)) {
+    return substituteId; // Devolver el ID del sustituto para calcular puntos
+  }
+
+  return null; // Este jugador no participó en este match
+}
+
+// FUNCIÓN EXISTENTE: Calcular puntos de un jugador en un match específico
 function calculatePlayerPointsInMatch(match: any, playerId: string): number {
   let points = 0;
 
@@ -301,11 +358,8 @@ function calculatePlayerPointsInMatch(match: any, playerId: string): number {
   let team1Won = false;
   
   if (match.team1Games === 4 && match.team2Games === 4 && match.tiebreakScore) {
-    // En caso de tie-break, el ganador se determina por el tie-break
-    // El resultado se registra como 5-4 para el ganador del tie-break
-    team1Won = match.team1Games === 5; // Si team1Games es 5, ganó el team1
+    team1Won = match.team1Games === 5;
   } else {
-    // Caso normal: gana quien tiene más juegos
     team1Won = (match.team1Games || 0) > (match.team2Games || 0);
   }
   
@@ -316,10 +370,32 @@ function calculatePlayerPointsInMatch(match: any, playerId: string): number {
   return points;
 }
 
-// NUEVA FUNCIÓN: Calcular rachas consecutivas de cada jugador
+// NUEVA FUNCIÓN: Actualizar posiciones basadas en puntos reales
+async function updateGroupPositions(groupId: string) {
+  try {
+    // Obtener jugadores ordenados por puntos descendentes
+    const groupPlayers = await prisma.groupPlayer.findMany({
+      where: { groupId },
+      orderBy: { points: 'desc' }
+    });
+
+    // Actualizar posiciones
+    for (let i = 0; i < groupPlayers.length; i++) {
+      await prisma.groupPlayer.update({
+        where: { id: groupPlayers[i].id },
+        data: { position: i + 1 }
+      });
+    }
+
+    console.log(`Posiciones actualizadas para grupo ${groupId}`);
+  } catch (error) {
+    console.error("Error actualizando posiciones del grupo:", error);
+  }
+}
+
+// FUNCIÓN EXISTENTE: Calcular rachas consecutivas
 async function calculateConsecutiveStreaks(groupId: string): Promise<Record<string, number>> {
   try {
-    // Obtener información del grupo y torneo
     const group = await prisma.group.findUnique({
       where: { id: groupId },
       include: {
@@ -336,11 +412,9 @@ async function calculateConsecutiveStreaks(groupId: string): Promise<Record<stri
 
     const streaks: Record<string, number> = {};
     
-    // Para cada jugador del grupo actual
     for (const groupPlayer of group.players) {
       const playerId = groupPlayer.playerId;
       
-      // Obtener todas las participaciones del jugador en rondas anteriores del mismo torneo
       const playerRounds = await prisma.groupPlayer.findMany({
         where: {
           playerId,
@@ -348,7 +422,7 @@ async function calculateConsecutiveStreaks(groupId: string): Promise<Record<stri
             round: {
               tournamentId: group.round.tournament.id,
               number: { lte: group.round.number },
-              isClosed: true // Solo contar rondas cerradas
+              isClosed: true
             }
           }
         },
@@ -362,26 +436,24 @@ async function calculateConsecutiveStreaks(groupId: string): Promise<Record<stri
         orderBy: {
           group: {
             round: {
-              number: 'desc' // Orden descendente para contar desde la más reciente
+              number: 'desc'
             }
           }
         }
       });
 
-      // Calcular racha consecutiva
       let consecutiveRounds = 0;
-      let expectedRound = group.round.number - 1; // Empezar desde la ronda anterior
+      let expectedRound = group.round.number - 1;
 
       for (const playerRound of playerRounds) {
         if (playerRound.group.round.number === expectedRound && !playerRound.usedComodin) {
           consecutiveRounds++;
           expectedRound--;
         } else {
-          break; // Se rompió la racha
+          break;
         }
       }
 
-      // La racha aplica desde la segunda ronda consecutiva
       streaks[playerId] = Math.max(0, consecutiveRounds - 1);
     }
 
@@ -436,7 +508,7 @@ export async function DELETE(
     });
 
     // Recalcular puntos del grupo
-    await recalculateGroupPointsWithProperRules(match.group.id);
+    await recalculateGroupPointsWithSubstituteSupport(match.group.id);
 
     return NextResponse.json(updatedMatch);
   } catch (error) {

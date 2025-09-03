@@ -1,11 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
-import { redirect, notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
-import { getEligiblePlayersForRound } from "@/lib/rounds";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import MatchGenerationPanel from "@/components/MatchGenerationPanel";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
@@ -18,12 +13,7 @@ import { format, differenceInDays, isAfter, isBefore } from "date-fns";
 import { es } from "date-fns/locale";
 import Link from "next/link";
 
-type RoundDetailPageProps = {
-  params: {
-    id: string;
-  };
-};
-
+/** Tipos UI */
 type Match = {
   id: string;
   setNumber: number;
@@ -35,20 +25,20 @@ type Match = {
   team2Games: number | null;
   tiebreakScore: string | null;
   isConfirmed: boolean;
+  status?: string | null;
   groupNumber: number;
 };
 
-// Convertir a Client Component para manejar el estado del filtro
-export default function RoundDetailClient({ 
-  round, 
-  eligiblePlayers 
-}: { 
-  round: any; 
-  eligiblePlayers: any[] 
+export default function RoundDetailClient({
+  round,
+  eligiblePlayers,
+}: {
+  round: any;
+  eligiblePlayers: any[];
 }) {
-  const [selectedFilter, setSelectedFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [selectedFilter, setSelectedFilter] = useState<"all" | "pending" | "completed">("all");
 
-  // Preparar todos los matches con información del grupo
+  // Aplanar sets con nº de grupo para la lista compacta
   const allMatches: Match[] = round.groups.flatMap((group: any) =>
     group.matches.map((match: any) => ({
       ...match,
@@ -56,39 +46,36 @@ export default function RoundDetailClient({
     }))
   );
 
-  // Estadísticas
+  // Estadísticas de estado
   const now = new Date();
-  const daysToEnd = differenceInDays(round.endDate, now);
-  const daysToStart = differenceInDays(round.startDate, now);
+  const daysToEnd = differenceInDays(new Date(round.endDate), now);
+  const daysToStart = differenceInDays(new Date(round.startDate), now);
 
-  const status = round.isClosed
-    ? "closed"
-    : isBefore(now, round.startDate)
-    ? "upcoming"
-    : isAfter(now, round.endDate)
-    ? "overdue"
-    : "active";
+  const status =
+    round.isClosed
+      ? "closed"
+      : isBefore(now, new Date(round.startDate))
+      ? "upcoming"
+      : isAfter(now, new Date(round.endDate))
+      ? "overdue"
+      : "active";
 
   const totalSets = allMatches.length;
   const totalPartidos = Math.ceil(totalSets / 3);
-  const completedSets = allMatches.filter(m => m.isConfirmed).length;
-  const scheduledSets = allMatches.filter((m: any) => m.status === "SCHEDULED").length;
+  const completedSets = allMatches.filter((m) => m.isConfirmed).length;
+  const scheduledSets = allMatches.filter((m) => m.status === "SCHEDULED").length;
 
-  // Filtrar matches según el filtro seleccionado
-  const filteredMatches = allMatches.filter(match => {
-    const hasResult = match.team1Games !== null && match.team2Games !== null;
-    
+  const filteredMatches = allMatches.filter((match) => {
     switch (selectedFilter) {
-      case 'pending':
+      case "pending":
         return !match.isConfirmed;
-      case 'completed':
+      case "completed":
         return match.isConfirmed;
       default:
         return true;
     }
   });
 
-  // Breadcrumbs
   const breadcrumbItems = [
     { label: "Inicio", href: "/dashboard" },
     { label: "Admin", href: "/admin" },
@@ -115,8 +102,8 @@ export default function RoundDetailClient({
             Ronda {round.number} - {round.tournament.title}
           </h1>
           <p className="text-gray-600">
-            {format(round.startDate, "d 'de' MMMM", { locale: es })} -{" "}
-            {format(round.endDate, "d 'de' MMMM 'de' yyyy", { locale: es })}
+            {format(new Date(round.startDate), "d 'de' MMMM", { locale: es })} -{" "}
+            {format(new Date(round.endDate), "d 'de' MMMM 'de' yyyy", { locale: es })}
           </p>
         </div>
 
@@ -184,7 +171,7 @@ export default function RoundDetailClient({
         </CardContent>
       </Card>
 
-      {/* Debug info - temporal */}
+      {/* Debug info temporal */}
       {eligiblePlayers.length === 0 && (
         <Card className="border-yellow-200 bg-yellow-50">
           <CardContent className="p-4">
@@ -199,7 +186,7 @@ export default function RoundDetailClient({
         </Card>
       )}
 
-      {/* Panel de gestión de grupos */}
+      {/* Gestión de grupos */}
       <GroupManagementPanel
         roundId={round.id}
         roundNumber={round.number}
@@ -211,7 +198,7 @@ export default function RoundDetailClient({
         groups={round.groups.map((group: any) => ({
           id: group.id,
           number: group.number,
-          level: group.level,
+          level: group.level ?? 0,
           players: group.players.map((gp: any) => ({
             id: gp.player.id,
             name: gp.player.name,
@@ -222,13 +209,13 @@ export default function RoundDetailClient({
         isAdmin={true}
       />
 
-      {/* Panel de generación de partidos */}
+      {/* Generación de partidos */}
       <MatchGenerationPanel
         roundId={round.id}
         groups={round.groups.map((group: any) => ({
           id: group.id,
           number: group.number,
-          level: group.level,
+          level: group.level ?? 0,
           players: group.players.map((gp: any) => ({
             id: gp.player.id,
             name: gp.player.name,
@@ -242,7 +229,7 @@ export default function RoundDetailClient({
         isAdmin={true}
       />
 
-      {/* Panel de gestión de resultados - NUEVO */}
+      {/* Gestión de resultados (lista compacta con filtro) */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -252,7 +239,7 @@ export default function RoundDetailClient({
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Resumen de estado */}
+            {/* Resumen */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-gray-50 rounded-lg">
               <div className="text-center">
                 <div className="text-2xl font-bold text-gray-900">{totalSets}</div>
@@ -277,34 +264,32 @@ export default function RoundDetailClient({
             {/* Filtros */}
             <div className="flex flex-wrap gap-2 items-center justify-between">
               <div className="flex flex-wrap gap-2">
-                <Button 
-                  variant={selectedFilter === 'all' ? 'default' : 'outline'} 
+                <Button
+                  variant={selectedFilter === "all" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setSelectedFilter('all')}
+                  onClick={() => setSelectedFilter("all")}
                 >
                   Todos ({totalSets})
                 </Button>
-                <Button 
-                  variant={selectedFilter === 'pending' ? 'default' : 'outline'} 
+                <Button
+                  variant={selectedFilter === "pending" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setSelectedFilter('pending')}
+                  onClick={() => setSelectedFilter("pending")}
                 >
                   Pendientes ({totalSets - completedSets})
                 </Button>
-                <Button 
-                  variant={selectedFilter === 'completed' ? 'default' : 'outline'} 
+                <Button
+                  variant={selectedFilter === "completed" ? "default" : "outline"}
                   size="sm"
-                  onClick={() => setSelectedFilter('completed')}
+                  onClick={() => setSelectedFilter("completed")}
                 >
                   Completados ({completedSets})
                 </Button>
               </div>
-              <div className="text-sm text-gray-500">
-                {filteredMatches.length} sets mostrados
-              </div>
+              <div className="text-sm text-gray-500">{filteredMatches.length} sets mostrados</div>
             </div>
 
-            {/* Lista compacta de todos los sets */}
+            {/* Lista de sets */}
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {filteredMatches.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
@@ -316,7 +301,7 @@ export default function RoundDetailClient({
                   const hasResult = match.team1Games !== null && match.team2Games !== null;
                   const team1Score = match.team1Games ?? "-";
                   const team2Score = match.team2Games ?? "-";
-                  
+
                   return (
                     <div
                       key={match.id}
@@ -355,9 +340,9 @@ export default function RoundDetailClient({
                               </span>
                               <span className="font-bold text-lg ml-2">{team1Score}</span>
                             </div>
-                            
+
                             <div className="text-center text-xs text-gray-400">vs</div>
-                            
+
                             <div className="flex items-center justify-between">
                               <span className="truncate">
                                 {getPlayerName(match.team2Player1Id)} + {getPlayerName(match.team2Player2Id)}
@@ -367,9 +352,7 @@ export default function RoundDetailClient({
                           </div>
 
                           {match.tiebreakScore && (
-                            <div className="text-xs text-blue-600 mt-1">
-                              Tie-break: {match.tiebreakScore}
-                            </div>
+                            <div className="text-xs text-blue-600 mt-1">Tie-break: {match.tiebreakScore}</div>
                           )}
                         </div>
 
@@ -406,18 +389,18 @@ export default function RoundDetailClient({
                     Validar Resultados
                   </Link>
                 </Button>
-                
+
                 {totalSets - completedSets > 0 && (
                   <Button variant="outline" size="sm">
                     <Clock className="w-4 h-4 mr-2" />
                     Enviar recordatorios ({totalSets - completedSets} pendientes)
                   </Button>
                 )}
-                
+
                 {completedSets === totalSets && (
                   <div className="flex items-center gap-2 text-green-600 text-sm">
-                    <CheckCircle className="w-4 w-4" />
-                    Todos los sets completados - Lista para cerrar
+                    <CheckCircle className="w-4 h-4" />
+                    Todos los sets completados — Lista para cerrar
                   </div>
                 )}
               </div>
@@ -442,6 +425,11 @@ export default function RoundDetailClient({
 
               <Button variant="outline" asChild>
                 <Link href="/admin/players">Gestionar Jugadores</Link>
+              </Button>
+
+              {/* Acceso directo a Comodines */}
+              <Button variant="outline" asChild>
+                <Link href={`/admin/rounds/${round.id}/comodines`}>Gestionar Comodines</Link>
               </Button>
             </div>
           </CardContent>
