@@ -1,3 +1,6 @@
+-- CreateEnum
+CREATE TYPE "MatchStatus" AS ENUM ('PENDING', 'DATE_PROPOSED', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED');
+
 -- CreateTable
 CREATE TABLE "users" (
     "id" TEXT NOT NULL,
@@ -23,6 +26,8 @@ CREATE TABLE "tournaments" (
     "isPublic" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
+    "substituteCreditFactor" DOUBLE PRECISION NOT NULL DEFAULT 0.5,
+    "substituteMaxAppearances" INTEGER NOT NULL DEFAULT 2,
 
     CONSTRAINT "tournaments_pkey" PRIMARY KEY ("id")
 );
@@ -43,6 +48,7 @@ CREATE TABLE "tournament_players" (
     "playerId" TEXT NOT NULL,
     "joinedRound" INTEGER NOT NULL DEFAULT 1,
     "comodinesUsed" INTEGER NOT NULL DEFAULT 0,
+    "substituteAppearances" INTEGER NOT NULL DEFAULT 0,
 
     CONSTRAINT "tournament_players_pkey" PRIMARY KEY ("id")
 );
@@ -79,6 +85,9 @@ CREATE TABLE "group_players" (
     "points" DOUBLE PRECISION NOT NULL DEFAULT 0,
     "streak" INTEGER NOT NULL DEFAULT 0,
     "usedComodin" BOOLEAN NOT NULL DEFAULT false,
+    "comodinReason" TEXT,
+    "comodinAt" TIMESTAMP(3),
+    "substitutePlayerId" TEXT,
 
     CONSTRAINT "group_players_pkey" PRIMARY KEY ("id")
 );
@@ -99,6 +108,13 @@ CREATE TABLE "matches" (
     "reportedById" TEXT,
     "confirmedById" TEXT,
     "photoUrl" TEXT,
+    "proposedDate" TIMESTAMP(3),
+    "proposedById" TEXT,
+    "acceptedDate" TIMESTAMP(3),
+    "acceptedBy" TEXT[],
+    "status" "MatchStatus" NOT NULL DEFAULT 'PENDING',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     CONSTRAINT "matches_pkey" PRIMARY KEY ("id")
 );
@@ -166,10 +182,10 @@ CREATE UNIQUE INDEX "rankings_tournamentId_playerId_roundNumber_key" ON "ranking
 ALTER TABLE "players" ADD CONSTRAINT "players_userId_fkey" FOREIGN KEY ("userId") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "tournament_players" ADD CONSTRAINT "tournament_players_tournamentId_fkey" FOREIGN KEY ("tournamentId") REFERENCES "tournaments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "tournament_players" ADD CONSTRAINT "tournament_players_playerId_fkey" FOREIGN KEY ("playerId") REFERENCES "players"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
-ALTER TABLE "tournament_players" ADD CONSTRAINT "tournament_players_playerId_fkey" FOREIGN KEY ("playerId") REFERENCES "players"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "tournament_players" ADD CONSTRAINT "tournament_players_tournamentId_fkey" FOREIGN KEY ("tournamentId") REFERENCES "tournaments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "rounds" ADD CONSTRAINT "rounds_tournamentId_fkey" FOREIGN KEY ("tournamentId") REFERENCES "tournaments"("id") ON DELETE CASCADE ON UPDATE CASCADE;
@@ -185,6 +201,9 @@ ALTER TABLE "group_players" ADD CONSTRAINT "group_players_playerId_fkey" FOREIGN
 
 -- AddForeignKey
 ALTER TABLE "matches" ADD CONSTRAINT "matches_groupId_fkey" FOREIGN KEY ("groupId") REFERENCES "groups"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "matches" ADD CONSTRAINT "matches_proposedById_fkey" FOREIGN KEY ("proposedById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "match_results" ADD CONSTRAINT "match_results_playerId_fkey" FOREIGN KEY ("playerId") REFERENCES "players"("id") ON DELETE CASCADE ON UPDATE CASCADE;

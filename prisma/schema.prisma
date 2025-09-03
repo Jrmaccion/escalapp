@@ -9,12 +9,12 @@ datasource db {
 
 // Definir ENUM primero
 enum MatchStatus {
-  PENDING      // Esperando fecha
+  PENDING // Esperando fecha
   DATE_PROPOSED // Fecha propuesta, esperando confirmación  
-  SCHEDULED    // Fecha confirmada
-  IN_PROGRESS  // En juego
-  COMPLETED    // Terminado
-  CANCELLED    // Cancelado
+  SCHEDULED // Fecha confirmada
+  IN_PROGRESS // En juego
+  COMPLETED // Terminado
+  CANCELLED // Cancelado
 }
 
 model User {
@@ -45,9 +45,9 @@ model Tournament {
   rounds            Round[]
   players           TournamentPlayer[]
 
-  // NUEVO: configuración para créditos de suplente
-  substituteCreditFactor   Float   @default(0.5) // 50% del puntaje del titular
-  substituteMaxAppearances Int     @default(2)   // máximo de veces que alguien puede ser suplente por torneo
+  // CAMPOS AÑADIDOS: configuración para créditos de suplente
+  substituteCreditFactor   Float @default(0.5) // 50% del puntaje del titular
+  substituteMaxAppearances Int   @default(2)   // máximo de veces que alguien puede ser suplente por torneo
 
   @@map("tournaments")
 }
@@ -65,17 +65,17 @@ model Player {
 }
 
 model TournamentPlayer {
-  id            String     @id @default(cuid())
+  id            String @id @default(cuid())
   tournamentId  String
   playerId      String
-  joinedRound   Int        @default(1)
-  comodinesUsed Int        @default(0)
+  joinedRound   Int    @default(1)
+  comodinesUsed Int    @default(0)
 
-  // NUEVO: para limitar cuántas veces actúo de suplente en ese torneo
+  // CAMPO AÑADIDO: para limitar cuántas veces actuó de suplente en ese torneo
   substituteAppearances Int @default(0)
 
-  player        Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  tournament    Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  player     Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
 
   @@unique([tournamentId, playerId])
   @@map("tournament_players")
@@ -110,17 +110,17 @@ model Group {
 }
 
 model GroupPlayer {
-  id            String   @id @default(cuid())
+  id            String    @id @default(cuid())
   groupId       String
   playerId      String
   position      Int
-  points        Float    @default(0)
-  streak        Int      @default(0)
-  usedComodin   Boolean  @default(false)
-  comodinReason String?  @db.Text
+  points        Float     @default(0)
+  streak        Int       @default(0)
+  usedComodin   Boolean   @default(false)
+  comodinReason String?   @db.Text
   comodinAt     DateTime?
 
-  // NUEVO: si hubo comodín “suplente”, quién jugó por mí en esta ronda
+  // CAMPO AÑADIDO: si hubo comodín "suplente", quién jugó por mí en esta ronda
   substitutePlayerId String?
 
   group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -132,36 +132,36 @@ model GroupPlayer {
 }
 
 model Match {
-  id             String      @id @default(cuid())
+  id             String @id @default(cuid())
   groupId        String
   setNumber      Int
   team1Player1Id String
   team1Player2Id String
   team2Player1Id String
   team2Player2Id String
-  
+
   // Campos existentes de resultados
-  team1Games     Int?
-  team2Games     Int?
-  tiebreakScore  String?
-  isConfirmed    Boolean     @default(false)
-  reportedById   String?
-  confirmedById  String?
-  photoUrl       String?
-  
-  // NUEVOS CAMPOS para gestión de fechas
-  proposedDate   DateTime?   
-  proposedById   String?     
-  acceptedDate   DateTime?   
-  acceptedBy     String[]    
-  status         MatchStatus @default(PENDING)
-  
+  team1Games    Int?
+  team2Games    Int?
+  tiebreakScore String?
+  isConfirmed   Boolean @default(false)
+  reportedById  String?
+  confirmedById String?
+  photoUrl      String?
+
+  // CAMPOS para gestión de fechas
+  proposedDate DateTime?
+  proposedById String?
+  acceptedDate DateTime?
+  acceptedBy   String[]
+  status       MatchStatus @default(PENDING)
+
   // Relaciones
-  group          Group       @relation(fields: [groupId], references: [id], onDelete: Cascade)
-  proposer       User?       @relation("MatchProposer", fields: [proposedById], references: [id])
-  
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @default(now()) @updatedAt
+  group    Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  proposer User? @relation("MatchProposer", fields: [proposedById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
 
   @@unique([groupId, setNumber])
   @@map("matches")

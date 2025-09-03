@@ -255,6 +255,7 @@ export async function GET() {
 
     return NextResponse.json({
       hasGroup: true,
+      roundId: group.round.id, // AGREGADO: roundId necesario para el botón de comodín
       tournament: {
         title: group.round.tournament.title,
         currentRound: group.round.number,

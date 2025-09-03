@@ -1,4 +1,4 @@
-// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN MEJORADA CON BOTÓN DE COMODÍN
+// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN CON MOVIMIENTOS CORREGIDOS
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
@@ -31,7 +31,7 @@ import Breadcrumbs from "@/components/Breadcrumbs";
    ========= */
 type GroupData = {
   hasGroup: boolean;
-  roundId?: string; // <— si el endpoint /api/player/group lo devuelve, activamos el botón de comodín
+  roundId?: string; // <- si el endpoint /api/player/group lo devuelve, activamos el botón de comodín
   message?: string;
   tournament?: {
     title: string;
@@ -326,13 +326,17 @@ export default function MiGrupoClient() {
 
   const getMovementIcon = (position: number) => {
     if (position === 1) return <ArrowUp className="w-4 h-4 text-green-600" />;
+    if (position === 2) return <ArrowUp className="w-4 h-4 text-green-600" />;
+    if (position === 3) return <ArrowDown className="w-4 h-4 text-red-600" />;
     if (position === 4) return <ArrowDown className="w-4 h-4 text-red-600" />;
     return <Minus className="w-4 h-4 text-blue-600" />;
   };
 
   const getMovementText = (position: number) => {
-    if (position === 1) return "Sube de grupo";
-    if (position === 4) return "Baja de grupo";
+    if (position === 1) return "Sube 2 grupos";
+    if (position === 2) return "Sube 1 grupo";
+    if (position === 3) return "Baja 1 grupo";
+    if (position === 4) return "Baja 2 grupos";
     return "Se mantiene";
   };
 
@@ -495,20 +499,30 @@ export default function MiGrupoClient() {
                   <div className="flex items-center gap-2 mb-1">
                     {getMovementIcon(player.position)}
                     <span className={`text-sm font-medium ${
-                      player.position === 1 ? 'text-green-600' :
-                      player.position === 4 ? 'text-red-600' : 'text-blue-600'
+                      player.position === 1 || player.position === 2 ? 'text-green-600' :
+                      player.position === 3 || player.position === 4 ? 'text-red-600' : 'text-blue-600'
                     }`}>
                       {getMovementText(player.position)}
                     </span>
                   </div>
                   {player.position === 1 && (
                     <Badge className="bg-green-100 text-green-700 text-xs">
-                      ¡Subes al Grupo {(data.group?.number || 2) - 1}!
+                      ¡Subes 2 grupos!
+                    </Badge>
+                  )}
+                  {player.position === 2 && (
+                    <Badge className="bg-green-100 text-green-700 text-xs">
+                      ¡Subes 1 grupo!
+                    </Badge>
+                  )}
+                  {player.position === 3 && (
+                    <Badge className="bg-red-100 text-red-700 text-xs">
+                      Bajas 1 grupo
                     </Badge>
                   )}
                   {player.position === 4 && (
                     <Badge className="bg-red-100 text-red-700 text-xs">
-                      Bajas al Grupo {(data.group?.number || 2) + 1}
+                      Bajas 2 grupos
                     </Badge>
                   )}
                 </div>
@@ -525,25 +539,29 @@ export default function MiGrupoClient() {
         </CardContent>
       </Card>
 
-      {/* Info de movimientos */}
+      {/* Info de movimientos - CORREGIDA */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
             <ArrowUp className="w-4 h-4" />
             Sistema de Escalera
           </h4>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm text-blue-700">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm text-blue-700">
             <div className="flex items-center gap-2">
               <ArrowUp className="w-4 h-4 text-green-600" />
-              <span><strong>1º lugar:</strong> Sube de grupo</span>
+              <span><strong>1º lugar:</strong> Sube 2 grupos</span>
             </div>
             <div className="flex items-center gap-2">
-              <Minus className="w-4 h-4 text-blue-600" />
-              <span><strong>2º y 3º:</strong> Se mantienen</span>
+              <ArrowUp className="w-4 h-4 text-green-600" />
+              <span><strong>2º lugar:</strong> Sube 1 grupo</span>
             </div>
             <div className="flex items-center gap-2">
               <ArrowDown className="w-4 h-4 text-red-600" />
-              <span><strong>4º lugar:</strong> Baja de grupo</span>
+              <span><strong>3º lugar:</strong> Baja 1 grupo</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <ArrowDown className="w-4 h-4 text-red-600" />
+              <span><strong>4º lugar:</strong> Baja 2 grupos</span>
             </div>
           </div>
         </CardContent>

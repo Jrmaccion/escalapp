@@ -1,6 +1,9 @@
 \app
 \app\admin
 \app\admin\AdminDashboardClient.tsx
+\app\admin\comodines
+\app\admin\comodines\status
+\app\admin\comodines\status\route.ts
 \app\admin\dashboard
 \app\admin\dashboard\page.tsx
 \app\admin\page.tsx
@@ -18,6 +21,8 @@
 \app\admin\results\page.tsx
 \app\admin\rounds
 \app\admin\rounds\[id]
+\app\admin\rounds\[id]\comodines
+\app\admin\rounds\[id]\comodines\page.tsx
 \app\admin\rounds\[id]\eligible-players
 \app\admin\rounds\[id]\eligible-players\route.ts
 \app\admin\rounds\[id]\page.tsx
@@ -49,7 +54,13 @@
 \app\api\auth\register
 \app\api\auth\register\route.ts
 \app\api\comodin
+\app\api\comodin\eligible-substitutes
+\app\api\comodin\eligible-substitutes\route.ts
+\app\api\comodin\revoke
+\app\api\comodin\revoke\route.ts
 \app\api\comodin\route.ts
+\app\api\comodin\status
+\app\api\comodin\status\route.ts
 \app\api\diag
 \app\api\diag\route.ts
 \app\api\health
@@ -151,6 +162,8 @@
 \app\tournaments\[id]\page.tsx
 \app\tournaments\page.tsx
 \components
+\components\admin
+\components\admin\ComodinManagement.tsx
 \components\Breadcrumbs.tsx
 \components\CloseRoundButton.tsx
 \components\GroupManagementPanel.tsx
@@ -162,6 +175,8 @@
 \components\modals\DeleteConfirmationModal.tsx
 \components\Navigation.tsx
 \components\PartyScheduling.tsx
+\components\player
+\components\player\UseComodinButton.tsx
 \components\PlayerTabbar.tsx
 \components\RoundsMatchesOverview.tsx
 \components\tournament
@@ -181,6 +196,7 @@
 \estructura-clave.txt
 \fix-classname.ps1
 \hooks
+\hooks\useComodin.ts
 \hooks\useNavigation.ts
 \lib
 \lib\auth.ts
@@ -200,10 +216,8 @@
 \postcss.config.js
 \prisma
 \prisma\migrations
-\prisma\migrations\20250828090122_init
-\prisma\migrations\20250828090122_init\migration.sql
-\prisma\migrations\20250829101827_add_match_scheduling_system
-\prisma\migrations\20250829101827_add_match_scheduling_system\migration.sql
+\prisma\migrations\20250903102800_add_substitute_system
+\prisma\migrations\20250903102800_add_substitute_system\migration.sql
 \prisma\migrations\migration_lock.toml
 \prisma\prisma
 \prisma\prisma\dev.db

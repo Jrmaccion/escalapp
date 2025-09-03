@@ -6,8 +6,6 @@ import {
   Trophy, 
   CheckCircle, 
   Clock, 
-  AlertCircle,
-  Settings,
   FileText,
   BarChart3,
   Play
@@ -15,6 +13,7 @@ import {
 import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
+import { Button } from "@/components/ui/button";
 
 type SerializedTournament = {
   id: string;
@@ -43,6 +42,10 @@ type Stats = {
   totalMatches: number;
   pendingMatches: number;
   confirmedMatches: number;
+  comodinesUsados: number;
+  suplentesActivos: number;
+  revocables: number;
+  mediaUsados: number;
 };
 
 type AdminDashboardClientProps = {
@@ -208,24 +211,24 @@ export default function AdminDashboardClient({ tournament, rounds, stats }: Admi
                 </tr>
               </thead>
               <tbody>
-                {rounds?.map((round) => (
-                  <tr key={round.id} className="border-b">
-                    <td className="py-3 font-medium">Ronda {round.number}</td>
+                {rounds?.map((r) => (
+                  <tr key={r.id} className="border-b">
+                    <td className="py-3 font-medium">Ronda {r.number}</td>
                     <td className="py-3">
                       <span className={`inline-block px-2 py-1 rounded text-xs font-medium ${
-                        round.isClosed 
+                        r.isClosed 
                           ? 'bg-gray-100 text-gray-700' 
                           : 'bg-blue-100 text-blue-700'
                       }`}>
-                        {round.isClosed ? "Cerrada" : "Activa"}
+                        {r.isClosed ? "Cerrada" : "Activa"}
                       </span>
                     </td>
-                    <td className="py-3">{round.groupsCount}</td>
-                    <td className="py-3">{round.matchesCount}</td>
+                    <td className="py-3">{r.groupsCount}</td>
+                    <td className="py-3">{r.matchesCount}</td>
                     <td className="py-3">
-                      {round.pendingMatches > 0 ? (
+                      {r.pendingMatches > 0 ? (
                         <span className="inline-block px-2 py-1 bg-orange-100 text-orange-700 rounded text-xs font-medium">
-                          {round.pendingMatches}
+                          {r.pendingMatches}
                         </span>
                       ) : (
                         <CheckCircle className="h-4 w-4 text-green-600" />
@@ -245,6 +248,69 @@ export default function AdminDashboardClient({ tournament, rounds, stats }: Admi
             </table>
           </div>
         </div>
+
+        {/* Sección de gestión de comodines */}
+        {currentRound && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+            {/* Panel existente de acciones de ronda */}
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">⚙️ Gestión de Ronda {currentRound.number}</h3>
+              </div>
+              <div className="p-6 space-y-4">
+                <Link href={`/admin/rounds/${currentRound.id}/comodines`}>
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-between text-left"
+                  >
+                    <span className="flex items-center gap-2">
+                      🔄
+                      Gestionar Comodines
+                    </span>
+                    <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
+                      {stats.comodinesUsados || 0} activos
+                    </span>
+                  </Button>
+                </Link>
+              </div>
+            </div>
+
+            {/* Panel de estadísticas de comodines */}
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">📊 Estado de Comodines</h3>
+              </div>
+              <div className="p-6">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <div className="text-2xl font-bold text-orange-600">{stats.comodinesUsados}</div>
+                    <div className="text-gray-600">Comodines activos</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-blue-600">{stats.suplentesActivos}</div>
+                    <div className="text-gray-600">Con sustituto</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-green-600">{stats.revocables}</div>
+                    <div className="text-gray-600">Revocables</div>
+                  </div>
+                  <div>
+                    <div className="text-2xl font-bold text-gray-600">{stats.mediaUsados}</div>
+                    <div className="text-gray-600">Usando media</div>
+                  </div>
+                </div>
+                
+                <div className="mt-4">
+                  <Link href={`/admin/rounds/${currentRound.id}/comodines`}>
+                    <Button size="sm" className="w-full">
+                      Gestionar todos los comodines
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

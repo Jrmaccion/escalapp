@@ -1,7 +1,5 @@
-// lib/rounds.ts - VERSIÓN CON TIPOS CORREGIDOS
+// lib/rounds.ts - VERSIÓN COMPLETA SIN ERRORES TYPESCRIPT
 import { prisma } from "@/lib/prisma";
-// Import opcional solo de tipo (no requerido para compilar)
-// import type { PlayerRoundPoints } from "@/lib/ranking";
 
 export const GROUP_SIZE = 4 as const;
 
@@ -202,7 +200,7 @@ export function buildGroupsForFirstRound(
   }));
 }
 
-/* -------------------- OTRAS FUNCIONES EXISTENTES -------------------- */
+/* -------------------- FUNCIÓN CERRAR RONDA -------------------- */
 export async function closeRound(roundId: string) {
   const round = await prisma.round.update({
     where: { id: roundId },
@@ -231,14 +229,22 @@ type RoundWithGroups = {
     level: number;
     players: Array<{
       position: number;
+      points: number;
       playerId: string;
-      player?: { id: string };
+      usedComodin: boolean;
+      substitutePlayerId: string | null;
+      player?: { id: string; name: string };
     }>;
     matches: Array<{ id: string }>;
   }>;
   tournament: any;
 };
 
+/**
+ * FUNCIÓN CORREGIDA: Aplica movimientos de escalera correctos
+ * 1° lugar: sube 2 grupos, 2° lugar: sube 1 grupo
+ * 3° lugar: baja 1 grupo, 4° lugar: baja 2 grupos
+ */
 export async function generateNextRoundFromMovements(
   roundId: string,
   groupSize: number = GROUP_SIZE
@@ -248,10 +254,13 @@ export async function generateNextRoundFromMovements(
     include: {
       groups: { 
         include: { 
-          players: true, 
+          players: { 
+            include: { player: { select: { id: true, name: true } } },
+            orderBy: { points: 'desc' } // Ordenar por puntos descendente
+          }, 
           matches: true 
         }, 
-        orderBy: { number: "asc" } 
+        orderBy: { level: "asc" } // Ordenar grupos por nivel
       },
       tournament: true,
     },
@@ -263,6 +272,79 @@ export async function generateNextRoundFromMovements(
   const end = new Date(start);
   end.setDate(end.getDate() + 14);
 
+  // Calcular movimientos para cada jugador
+  const allPlayerMovements: Array<{
+    playerId: string;
+    currentGroupLevel: number;
+    currentPosition: number;
+    targetGroupLevel: number;
+    points: number;
+    usedComodin: boolean;
+    substitutePlayerId: string | null;
+  }> = [];
+
+  current.groups.forEach((group, groupIndex) => {
+    group.players.forEach((player, positionIndex) => {
+      const currentPosition = positionIndex + 1;
+      const currentLevel = group.level;
+      let targetLevel = currentLevel;
+
+      // Aplicar movimientos según posición
+      switch (currentPosition) {
+        case 1: // 1° sube 2 grupos (si es posible)
+          if (currentLevel > 2) {
+            targetLevel = currentLevel - 2;
+          } else if (currentLevel > 1) {
+            targetLevel = currentLevel - 1;
+          }
+          break;
+        case 2: // 2° sube 1 grupo (si es posible)
+          if (currentLevel > 1) {
+            targetLevel = currentLevel - 1;
+          }
+          break;
+        case 3: // 3° baja 1 grupo (si es posible)
+          if (currentLevel < current.groups.length) {
+            targetLevel = currentLevel + 1;
+          }
+          break;
+        case 4: // 4° baja 2 grupos (si es posible)
+          if (currentLevel <= current.groups.length - 2) {
+            targetLevel = currentLevel + 2;
+          } else if (currentLevel < current.groups.length) {
+            targetLevel = currentLevel + 1;
+          }
+          break;
+      }
+
+      allPlayerMovements.push({
+        playerId: player.playerId,
+        currentGroupLevel: currentLevel,
+        currentPosition,
+        targetGroupLevel: targetLevel,
+        points: player.points,
+        usedComodin: player.usedComodin,
+        substitutePlayerId: player.substitutePlayerId
+      });
+    });
+  });
+
+  // Agrupar jugadores por grupo destino
+  const newGroupDistribution: Map<number, typeof allPlayerMovements> = new Map();
+  
+  allPlayerMovements.forEach(movement => {
+    if (!newGroupDistribution.has(movement.targetGroupLevel)) {
+      newGroupDistribution.set(movement.targetGroupLevel, []);
+    }
+    newGroupDistribution.get(movement.targetGroupLevel)!.push(movement);
+  });
+
+  // Ordenar jugadores dentro de cada grupo por puntos (descendente)
+  newGroupDistribution.forEach(players => {
+    players.sort((a, b) => b.points - a.points);
+  });
+
+  // Crear nueva ronda
   const created = await prisma.round.create({
     data: {
       tournamentId: current.tournamentId,
@@ -270,23 +352,118 @@ export async function generateNextRoundFromMovements(
       startDate: start,
       endDate: end,
       isClosed: false,
-      groups: {
-        create: current.groups.map((g) => ({
-          number: g.number,
-          level: g.level ?? 0,
-          players: {
-            create: (g.players ?? []).map((p) => ({
-              position: p.position ?? 1,
-              playerId: p.playerId ?? p.player?.id,
-            })),
-          },
-        })),
-      },
     },
-    select: { id: true },
   });
 
+  // Crear grupos en la nueva ronda
+  const sortedGroupLevels = Array.from(newGroupDistribution.keys()).sort((a, b) => a - b);
+  
+  for (let i = 0; i < sortedGroupLevels.length; i++) {
+    const groupLevel = sortedGroupLevels[i];
+    const playersInGroup = newGroupDistribution.get(groupLevel) || [];
+    
+    if (playersInGroup.length === 0) continue;
+
+    const group = await prisma.group.create({
+      data: {
+        roundId: created.id,
+        number: i + 1,
+        level: i + 1, // Renumerar niveles secuencialmente
+      }
+    });
+
+    // Crear asignaciones de jugadores
+    for (let j = 0; j < playersInGroup.length; j++) {
+      const playerMovement = playersInGroup[j];
+      await prisma.groupPlayer.create({
+        data: {
+          groupId: group.id,
+          playerId: playerMovement.playerId,
+          position: j + 1,
+          points: 0, // Reiniciar puntos para nueva ronda
+          streak: calculateStreak(playerMovement.currentPosition), // Calcular racha
+          usedComodin: false, // Reiniciar comodín
+          substitutePlayerId: null, // Reiniciar suplente
+        }
+      });
+    }
+
+    // Generar matches automáticamente para el grupo si tiene exactamente 4 jugadores
+    if (playersInGroup.length === GROUP_SIZE) {
+      await generateMatchesForGroup(group.id);
+    }
+  }
+
   return created.id;
+}
+
+/**
+ * Calcula la racha basada en la posición en el grupo anterior
+ */
+function calculateStreak(previousPosition: number): number {
+  switch (previousPosition) {
+    case 1: return 3; // Ganador del grupo
+    case 2: return 2; // Segundo lugar
+    case 3: return 1; // Tercer lugar
+    case 4: return 0; // Cuarto lugar
+    default: return 1;
+  }
+}
+
+/**
+ * Genera los 3 matches para un grupo de 4 jugadores
+ */
+async function generateMatchesForGroup(groupId: string) {
+  const players = await prisma.groupPlayer.findMany({
+    where: { groupId },
+    orderBy: { position: 'asc' },
+    select: { playerId: true, position: true }
+  });
+
+  if (players.length !== 4) {
+    console.warn(`Grupo ${groupId} no tiene exactamente 4 jugadores. Matches no generados.`);
+    return;
+  }
+
+  const matchConfigurations = [
+    {
+      setNumber: 1,
+      team1: [players[0], players[3]], // #1 + #4
+      team2: [players[1], players[2]]  // #2 + #3
+    },
+    {
+      setNumber: 2,
+      team1: [players[0], players[2]], // #1 + #3
+      team2: [players[1], players[3]]  // #2 + #4
+    },
+    {
+      setNumber: 3,
+      team1: [players[0], players[1]], // #1 + #2
+      team2: [players[2], players[3]]  // #3 + #4
+    }
+  ];
+
+  for (const config of matchConfigurations) {
+    await prisma.match.create({
+      data: {
+        groupId,
+        setNumber: config.setNumber,
+        team1Player1Id: config.team1[0].playerId,
+        team1Player2Id: config.team1[1].playerId,
+        team2Player1Id: config.team2[0].playerId,
+        team2Player2Id: config.team2[1].playerId,
+        team1Games: null,
+        team2Games: null,
+        tiebreakScore: null,
+        isConfirmed: false,
+        reportedById: null,
+        confirmedById: null,
+        status: 'PENDING'
+      }
+    });
+  }
+
+  console.log(`Generados 3 matches para grupo ${groupId}`);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -298,9 +475,6 @@ export async function generateNextRoundFromMovements(
  * - Suma factor (%) * puntos del titular del grupo en esta ronda.
  * - No cuenta como jugada (played=false), no afecta media ni racha.
  * - Cap opcional por ronda (p. ej., 8 puntos) para evitar outliers.
- * 
- * NOTA: usa (gp as any).substitutePlayerId para no romper compilación
- * si tu schema todavía no tiene el campo. Si no existe, no genera créditos.
  */
 export async function computeSubstituteCreditsForRound(
   roundId: string
@@ -310,26 +484,42 @@ export async function computeSubstituteCreditsForRound(
     roundId: string;
     points: number;
     played: boolean;
+    substituteFor: string;
   }>
 > {
   const round = await prisma.round.findUnique({
     where: { id: roundId },
     include: {
       tournament: { select: { substituteCreditFactor: true } },
-      groups: { include: { players: true } },
+      groups: { 
+        include: { 
+          players: { 
+            include: { 
+              player: { select: { name: true } } 
+            } 
+          } 
+        } 
+      },
     },
   });
+  
   if (!round) return [];
 
-  const factor = (round.tournament as any)?.substituteCreditFactor ?? 0.5;
+  const factor = round.tournament?.substituteCreditFactor ?? 0.5;
   const capPerRound = 8; // ajustable
 
-  const credits: Array<{ playerId: string; roundId: string; points: number; played: boolean }> = [];
+  const credits: Array<{ 
+    playerId: string; 
+    roundId: string; 
+    points: number; 
+    played: boolean;
+    substituteFor: string;
+  }> = [];
 
   for (const g of round.groups) {
     for (const gp of g.players) {
-      // Acceso tolerante al esquema: si no existe, será undefined
-      const subId = (gp as any)?.substitutePlayerId as string | undefined;
+      // Verificar si hay un suplente asignado
+      const subId = gp.substitutePlayerId;
       if (!subId) continue;
 
       const basePoints = gp.points ?? 0;
@@ -341,6 +531,7 @@ export async function computeSubstituteCreditsForRound(
           roundId,
           points: credit,
           played: false, // clave: no cuenta jugada
+          substituteFor: gp.player.name
         });
       }
     }
