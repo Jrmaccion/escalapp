@@ -1,4 +1,4 @@
-// app/admin/tournaments/[id]/TournamentDetailClient.tsx - VERSIÓN CORREGIDA
+// app/admin/tournaments/[id]/TournamentDetailClient.tsx - CON CONFIGURACIÓN DE COMODINES
 "use client";
 
 import { useState, useTransition } from "react";
@@ -13,20 +13,19 @@ import {
   Calendar,
   Trophy,
   Settings,
-  CheckCircle,
-  Clock,
   Play,
-  ArrowLeft,
   Power,
   Trash2,
   AlertTriangle,
-  BarChart3,
   Target,
+  Clock,
+  Zap, // Para comodines
 } from "lucide-react";
 import TournamentPlayersManager from "./TournamentPlayersManager";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
+import ComodinSettings from "@/components/admin/ComodinSettings";
 
-/* ========================= Tipos que llegan del server ========================= */
+/* ========================= Tipos ========================= */
 type SerializedTournament = {
   id: string;
   title: string;
@@ -62,7 +61,7 @@ type SerializedRound = {
   playersCount: number;
   matchesCount: number;
   pendingMatches: number;
-  groups?: Group[]; // ✅ AHORA SÍ LLEGAN LOS GRUPOS
+  groups?: Group[];
 };
 
 type SerializedPlayer = {
@@ -101,8 +100,8 @@ export default function TournamentDetailClient({
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   
-  // Pestañas de alto nivel
-  type TabId = "overview" | "rounds" | "players" | "settings";
+  // Pestañas principales - AGREGAMOS "comodines"
+  type TabId = "overview" | "rounds" | "players" | "comodines" | "settings";
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   // Ronda seleccionada para gestión
@@ -250,10 +249,12 @@ export default function TournamentDetailClient({
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
-            <TabsList className="grid w-full grid-cols-4">
+            {/* ACTUALIZADO: Agregamos pestaña de comodines */}
+            <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="overview">Resumen</TabsTrigger>
               <TabsTrigger value="rounds">Rondas</TabsTrigger>
               <TabsTrigger value="players">Jugadores</TabsTrigger>
+              <TabsTrigger value="comodines">Comodines</TabsTrigger>
               <TabsTrigger value="settings">Configuración</TabsTrigger>
             </TabsList>
 
@@ -404,7 +405,7 @@ export default function TournamentDetailClient({
                     title: tournament.title,
                     totalPlayers: tournament.totalPlayers,
                   }}
-                  groups={selectedRound.groups || []} // ✅ AHORA SÍ TENEMOS LOS GRUPOS
+                  groups={selectedRound.groups || []}
                   availablePlayers={selectedRound.playersCount}
                   isAdmin={true}
                   isClosed={selectedRound.isClosed}
@@ -477,6 +478,90 @@ export default function TournamentDetailClient({
                 currentPlayers={players}
                 onPlayersUpdated={handlePlayersUpdated}
               />
+            </TabsContent>
+
+            {/* =================== PESTAÑA: COMODINES =================== */}
+            <TabsContent value="comodines" className="space-y-6 mt-6">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Configuración de comodines */}
+                <div>
+                  <ComodinSettings
+                    tournamentId={tournament.id}
+                    tournamentName={tournament.title}
+                  />
+                </div>
+                
+                {/* Vista rápida por ronda */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Zap className="w-5 h-5" />
+                      Comodines por Ronda
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-3">
+                      {rounds.map((round) => (
+                        <div key={round.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
+                          <div>
+                            <div className="font-medium">Ronda {round.number}</div>
+                            <div className="text-sm text-gray-600">
+                              {formatDate(round.startDate)} - {formatDate(round.endDate)}
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge variant={getRoundStatus(round).variant} className="mb-1">
+                              {getRoundStatus(round).label}
+                            </Badge>
+                            <div className="text-xs text-gray-500">
+                              {round.playersCount} jugadores
+                            </div>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            asChild
+                            className="ml-3"
+                          >
+                            <Link href={`/admin/rounds/${round.id}/comodines`}>
+                              Ver Comodines
+                            </Link>
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+              
+              {/* Información sobre comodines */}
+              <Card className="bg-blue-50 border-blue-200">
+                <CardHeader>
+                  <CardTitle className="text-blue-900">Sistema de Comodines</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm text-blue-800">
+                    <div>
+                      <h4 className="font-medium mb-2">Comodín de Media</h4>
+                      <ul className="space-y-1 text-xs">
+                        <li>• Calcula automáticamente la puntuación promedio</li>
+                        <li>• Rondas 1-2: Media del grupo actual</li>
+                        <li>• Rondas 3+: Media personal histórica</li>
+                        <li>• No cuenta como ronda jugada para ranking oficial</li>
+                      </ul>
+                    </div>
+                    <div>
+                      <h4 className="font-medium mb-2">Comodín de Sustituto</h4>
+                      <ul className="space-y-1 text-xs">
+                        <li>• Otro jugador de grupo inferior juega por ti</li>
+                        <li>• Los puntos se asignan al titular</li>
+                        <li>• El sustituto recibe crédito Ironman proporcional</li>
+                        <li>• Revocable hasta 24h antes del partido</li>
+                      </ul>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* =================== PESTAÑA: CONFIGURACIÓN =================== */}

@@ -1,39 +1,11 @@
-// hooks/useComodin.ts
+// hooks/useComodin.ts - ACTUALIZADO PARA USAR LA API EXISTENTE
 import { useState, useEffect, useCallback } from 'react';
-
-export type ComodinStatus = {
-  used: boolean;
-  mode?: 'mean' | 'substitute';
-  substitutePlayer?: string;
-  points?: number;
-  canRevoke?: boolean;
-  canUse?: boolean;
-  reason?: string;
-  appliedAt?: string;
-  restrictionReason?: string;
-  tournamentInfo?: {
-    comodinesUsed: number;
-    maxComodines: number;
-    comodinesRemaining: number;
-  };
-  groupInfo?: {
-    groupNumber: number;
-    points: number;
-  };
-  restrictions?: {
-    hasConfirmedMatches: boolean;
-    hasUpcomingMatches: boolean;
-    roundClosed: boolean;
-    nextMatchDate?: string;
-  };
-};
+import { comodinApi, ComodinStatus } from '@/lib/api/comodin';
 
 export type EligiblePlayer = {
-  playerId: string;
+  id: string;
   name: string;
   groupNumber: number;
-  groupLevel: number;
-  points: number;
 };
 
 export function useComodin(roundId: string) {
@@ -49,17 +21,10 @@ export function useComodin(roundId: string) {
       setLoading(true);
       setError(null);
       
-      const response = await fetch(`/api/comodin/status?roundId=${roundId}`);
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        setStatus(data);
-      } else {
-        setError(data.error || 'Error al cargar estado del comodín');
-        setStatus(null);
-      }
-    } catch (err) {
-      setError('Error de conexión');
+      const data = await comodinApi.getStatus(roundId);
+      setStatus(data);
+    } catch (err: any) {
+      setError(err.message || 'Error al cargar estado del comodín');
       setStatus(null);
     } finally {
       setLoading(false);
@@ -69,17 +34,10 @@ export function useComodin(roundId: string) {
   // Cargar jugadores elegibles
   const loadEligiblePlayers = useCallback(async () => {
     try {
-      const response = await fetch(`/api/comodin/eligible-substitutes?roundId=${roundId}`);
-      const data = await response.json();
-      
-      if (response.ok && data.success) {
-        setEligiblePlayers(data.players || []);
-      } else {
-        console.warn('No se pudieron cargar jugadores elegibles:', data.error);
-        setEligiblePlayers([]);
-      }
-    } catch (err) {
-      console.warn('Error cargando jugadores elegibles:', err);
+      const data = await comodinApi.eligibleSubstitutes(roundId);
+      setEligiblePlayers(data.players || []);
+    } catch (err: any) {
+      console.warn('Error cargando jugadores elegibles:', err.message);
       setEligiblePlayers([]);
     }
   }, [roundId]);
@@ -94,30 +52,21 @@ export function useComodin(roundId: string) {
       setError(null);
       setMessage(null);
 
-      const payload: any = { roundId, mode };
-      if (mode === 'substitute' && substitutePlayerId) {
-        payload.substitutePlayerId = substitutePlayerId;
-      }
-
-      const response = await fetch('/api/comodin', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setMessage(data.message || 'Comodín aplicado exitosamente');
-        // Recargar estado
-        await loadStatus();
-        return { success: true, data };
+      let result;
+      if (mode === 'mean') {
+        result = await comodinApi.applyMean(roundId);
+      } else if (mode === 'substitute' && substitutePlayerId) {
+        result = await comodinApi.applySubstitute(roundId, substitutePlayerId);
       } else {
-        setError(data.error || 'Error al aplicar comodín');
-        return { success: false, error: data.error };
+        throw new Error('Datos incompletos para aplicar comodín');
       }
-    } catch (err) {
-      const errorMsg = 'Error de conexión';
+
+      setMessage(result.message || 'Comodín aplicado exitosamente');
+      // Recargar estado
+      await loadStatus();
+      return { success: true, data: result };
+    } catch (err: any) {
+      const errorMsg = err.message || 'Error al aplicar comodín';
       setError(errorMsg);
       return { success: false, error: errorMsg };
     } finally {
@@ -132,31 +81,57 @@ export function useComodin(roundId: string) {
       setError(null);
       setMessage(null);
 
-      const response = await fetch('/api/comodin/revoke', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roundId }),
-      });
-
-      const data = await response.json();
-
-      if (response.ok && data.success) {
-        setMessage(data.message || 'Comodín revocado exitosamente');
-        // Recargar estado
-        await loadStatus();
-        return { success: true, data };
-      } else {
-        setError(data.error || 'Error al revocar comodín');
-        return { success: false, error: data.error };
-      }
-    } catch (err) {
-      const errorMsg = 'Error de conexión';
+      const result = await comodinApi.revoke(roundId);
+      setMessage(result.message || 'Comodín revocado exitosamente');
+      // Recargar estado
+      await loadStatus();
+      return { success: true, data: result };
+    } catch (err: any) {
+      const errorMsg = err.message || 'Error al revocar comodín';
       setError(errorMsg);
       return { success: false, error: errorMsg };
     } finally {
       setLoading(false);
     }
   }, [roundId, loadStatus]);
+
+  // Validar si puede usar un tipo específico de comodín
+  const canUseMode = useCallback((mode: 'mean' | 'substitute') => {
+    if (!status?.canUse) return false;
+    
+    // Si no hay tournamentInfo extendida, asumir que ambos están habilitados (compatibilidad)
+    if (!status.tournamentInfo) return true;
+    
+    // Verificar configuración específica si está disponible
+    const tournamentInfo = status.tournamentInfo as any;
+    
+    if (mode === 'mean') {
+      return tournamentInfo.enableMeanComodin !== false;
+    }
+    
+    if (mode === 'substitute') {
+      return tournamentInfo.enableSubstituteComodin !== false;
+    }
+    
+    return true;
+  }, [status]);
+
+  // Obtener mensaje explicativo para modo deshabilitado
+  const getModeDisabledReason = useCallback((mode: 'mean' | 'substitute') => {
+    if (!status?.tournamentInfo) return 'Configuración no disponible';
+    
+    const tournamentInfo = status.tournamentInfo as any;
+    
+    if (mode === 'mean' && tournamentInfo.enableMeanComodin === false) {
+      return 'El comodín de media está deshabilitado en este torneo';
+    }
+    
+    if (mode === 'substitute' && tournamentInfo.enableSubstituteComodin === false) {
+      return 'El comodín de sustituto está deshabilitado en este torneo';
+    }
+    
+    return null;
+  }, [status]);
 
   // Efectos
   useEffect(() => {
@@ -186,9 +161,22 @@ export function useComodin(roundId: string) {
     loadEligiblePlayers,
     applyComodin,
     revokeComodin,
+    canUseMode,
+    getModeDisabledReason,
     clearMessages: () => {
       setError(null);
       setMessage(null);
-    }
+    },
+    // Utilidades adicionales
+    hasComodinesRemaining: status?.tournamentInfo ? 
+      status.tournamentInfo.comodinesRemaining > 0 : false,
+    comodinesConfig: status?.tournamentInfo ? {
+      maxComodines: status.tournamentInfo.maxComodines,
+      comodinesUsed: status.tournamentInfo.comodinesUsed,
+      comodinesRemaining: status.tournamentInfo.comodinesRemaining,
+      // Propiedades extendidas (cuando estén disponibles)
+      meanEnabled: (status.tournamentInfo as any).enableMeanComodin !== false,
+      substituteEnabled: (status.tournamentInfo as any).enableSubstituteComodin !== false,
+    } : null,
   };
 }

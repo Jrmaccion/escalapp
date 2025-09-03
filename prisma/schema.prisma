@@ -44,7 +44,10 @@ model Tournament {
   updatedAt         DateTime           @updatedAt
   rounds            Round[]
   players           TournamentPlayer[]
-
+  maxComodinesPerPlayer    Int   @default(1)
+  enableMeanComodin       Boolean @default(true)
+  enableSubstituteComodin Boolean @default(true)
+  
   // CAMPOS AÑADIDOS: configuración para créditos de suplente
   substituteCreditFactor   Float @default(0.5) // 50% del puntaje del titular
   substituteMaxAppearances Int   @default(2)   // máximo de veces que alguien puede ser suplente por torneo

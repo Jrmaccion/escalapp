@@ -16,7 +16,6 @@ export default async function AdminDashboardPage() {
   if (!session) redirect("/auth/login");
   if (!session.user?.isAdmin) redirect("/dashboard");
 
-  // Obtener torneo activo con relaciones necesarias
   const tournament = await prisma.tournament.findFirst({
     where: { isActive: true },
     include: {
@@ -34,7 +33,6 @@ export default async function AdminDashboardPage() {
     },
   });
 
-  // Estado sin torneo
   if (!tournament) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50">
@@ -102,7 +100,7 @@ export default async function AdminDashboardPage() {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               strokeWidth={2}
-                              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
+                              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"
                             />
                           </svg>
                         </div>
@@ -200,7 +198,6 @@ export default async function AdminDashboardPage() {
     );
   }
 
-  // ---- Cálculo de estadísticas (tipos inline, sin Prisma helpers) ----
   type MatchLite = { isConfirmed?: boolean | null };
   type GroupLite = { matches: MatchLite[] };
   type RoundLite = {
@@ -220,30 +217,69 @@ export default async function AdminDashboardPage() {
   );
 
   const confirmedMatches = roundsArr.reduce(
-    (acc, round) =>
-      acc +
-      round.groups.reduce((gAcc, g) => gAcc + g.matches.filter((m) => !!m?.isConfirmed).length, 0),
+    (acc, round) => acc + round.groups.reduce((gAcc, g) => gAcc + g.matches.filter((m) => !!m?.isConfirmed).length, 0),
     0
   );
 
   const pendingMatches = totalMatches - confirmedMatches;
 
-  // ✅ CORRECCIÓN: Agregar las propiedades faltantes
-  const stats = {
-    totalPlayers: tournament.players.length,
-    totalRounds: roundsArr.length,
-    activeRounds: roundsArr.filter((r) => !r.isClosed).length,
-    totalMatches,
-    confirmedMatches,
-    pendingMatches,
-    // Agregar las propiedades faltantes:
-    comodinesUsados: 0, // TODO: implementar lógica real cuando esté lista
-    suplentesActivos: 0, // TODO: implementar lógica real cuando esté lista
-    revocables: 0, // TODO: implementar lógica real cuando esté lista
-    mediaUsados: 0 // TODO: implementar lógica real cuando esté lista
-  };
+  // ---- Estadísticas avanzadas ----
+  const now = new Date();
+  const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-  // ---- Serialización (endDate string vacía si falta) ----
+  // 1) Comodines usados (suma en el torneo)
+  const comodinesAgg = await prisma.tournamentPlayer.aggregate({
+    where: { tournamentId: tournament.id },
+    _sum: { comodinesUsed: true },
+  });
+  const comodinesUsados = comodinesAgg._sum.comodinesUsed || 0;
+
+  // 2) Suplentes activos en rondas abiertas
+  const suplentesActivos = await prisma.groupPlayer.count({
+    where: {
+      substitutePlayerId: { not: null },
+      group: { round: { tournamentId: tournament.id, isClosed: false } },
+    },
+  });
+
+  // 3) Comodines revocables: NO tener partidos confirmados ni aceptados <=24h (por jugador)
+  const gpsWithComodin = await prisma.groupPlayer.findMany({
+    where: {
+      usedComodin: true,
+      group: { round: { tournamentId: tournament.id, isClosed: false } },
+    },
+    select: { id: true, playerId: true, group: { select: { roundId: true } } },
+  });
+
+  const revocableChecks = await Promise.all(
+    gpsWithComodin.map(async (gp) => {
+      const blockingMatch = await prisma.match.findFirst({
+        where: {
+          group: { roundId: gp.group.roundId },
+          AND: [
+            {
+              OR: [
+                { team1Player1Id: gp.playerId },
+                { team1Player2Id: gp.playerId },
+                { team2Player1Id: gp.playerId },
+                { team2Player2Id: gp.playerId },
+              ],
+            },
+            {
+              OR: [{ isConfirmed: true }, { acceptedDate: { lte: twentyFourHoursFromNow } }],
+            },
+          ],
+        },
+        select: { id: true },
+      });
+      return !blockingMatch;
+    })
+  );
+  const revocables = revocableChecks.filter(Boolean).length;
+
+  // 4) Media de comodines usados por jugador
+  const mediaUsados = Math.round((comodinesUsados / Math.max(tournament.players.length, 1)) * 100) / 100;
+
   const serializedTournament = {
     id: tournament.id,
     title: tournament.title,
@@ -261,17 +297,21 @@ export default async function AdminDashboardPage() {
     isClosed: round.isClosed,
     groupsCount: round.groups.length,
     matchesCount: round.groups.reduce((acc, g) => acc + (g.matches?.length ?? 0), 0),
-    pendingMatches: round.groups.reduce(
-      (acc, g) => acc + g.matches.filter((m) => !m.isConfirmed).length,
-      0
-    ),
+    pendingMatches: round.groups.reduce((acc, g) => acc + g.matches.filter((m) => !m.isConfirmed).length, 0),
   }));
 
-  return (
-    <AdminDashboardClient
-      tournament={serializedTournament}
-      rounds={serializedRounds}
-      stats={stats}
-    />
-  );
+  const stats = {
+    totalPlayers: tournament.players.length,
+    totalRounds: roundsArr.length,
+    activeRounds: roundsArr.filter((r) => !r.isClosed).length,
+    totalMatches,
+    confirmedMatches,
+    pendingMatches,
+    comodinesUsados,
+    suplentesActivos,
+    revocables,
+    mediaUsados,
+  };
+
+  return <AdminDashboardClient tournament={serializedTournament} rounds={serializedRounds} stats={stats} />;
 }
