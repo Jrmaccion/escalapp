@@ -228,6 +228,7 @@ export default async function AdminDashboardPage() {
 
   const pendingMatches = totalMatches - confirmedMatches;
 
+  // ✅ CORRECCIÓN: Agregar las propiedades faltantes
   const stats = {
     totalPlayers: tournament.players.length,
     totalRounds: roundsArr.length,
@@ -235,6 +236,11 @@ export default async function AdminDashboardPage() {
     totalMatches,
     confirmedMatches,
     pendingMatches,
+    // Agregar las propiedades faltantes:
+    comodinesUsados: 0, // TODO: implementar lógica real cuando esté lista
+    suplentesActivos: 0, // TODO: implementar lógica real cuando esté lista
+    revocables: 0, // TODO: implementar lógica real cuando esté lista
+    mediaUsados: 0 // TODO: implementar lógica real cuando esté lista
   };
 
   // ---- Serialización (endDate string vacía si falta) ----

@@ -220,8 +220,6 @@
 \postcss.config.js
 \prisma
 \prisma\migrations
-\prisma\migrations\20250903102800_add_substitute_system
-\prisma\migrations\20250903102800_add_substitute_system\migration.sql
 \prisma\migrations\migration_lock.toml
 \prisma\prisma
 \prisma\prisma\dev.db
