@@ -1,49 +1,31 @@
-# --- deps ---
-/node_modules
-
-# --- Next build output ---
-/.next
-/.next/cache
-/out
-
-# --- Environment files (no subir secretos) ---
-.env
-.env.local
-.env.*.local
-.env.*        # <-- ignora .env.production, .env.staging, etc.
-!.env.example
-!env.example
-!.env.sample
-!env.sample
-# Asegura que los ejemplos SÍ se suben
-!.env.example
-!env.example
-!.env.sample
-!env.sample
-
-# --- Prisma ---
-# Mantén migrations en el repo (NO ignores prisma/migrations)
-# Ignora la vieja DB local de SQLite si aún existe
-prisma/dev.db
-
-# --- Vercel ---
-.vercel
-
-# --- Logs ---
+# === Node / Next.js ===
+node_modules/
+.next/
+out/
+dist/
+*.log
 npm-debug.log*
 yarn-debug.log*
-yarn-error.log*
 pnpm-debug.log*
+.eslintcache
 
-# --- Editor / OS ---
+# === SO / IDE ===
 .DS_Store
 Thumbs.db
-.idea
-.vscode/*
-!.vscode/settings.json
+.idea/
+.vscode/
+*.swp
 
-# --- Miscelánea útil ---
-.eslintcache
-coverage
-*.tsbuildinfo
+# === Env (nunca subir secretos) ===
+.env
+.env.*
+!.env.example            # mantener SOLO el ejemplo en Git
+!.env.sample             # por si usas sample
 
+# === Prisma / DB local ===
+prisma/*.db
+prisma/*.sqlite
+prisma/*-journal
+
+# === Vercel / Build (opcional ignorar .vercel) ===
+.vercel/
