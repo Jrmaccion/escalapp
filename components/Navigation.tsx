@@ -6,7 +6,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Home, Users, Trophy, Calendar, Settings, LogOut, Menu, X, ChevronDown, Target } from "lucide-react";
+import {
+  Home,
+  Users,
+  Trophy,
+  Calendar,
+  Settings,
+  LogOut,
+  Menu,
+  X,
+  ChevronDown,
+  Target,
+  BookOpen, // 👈 añadido para Guía rápida
+} from "lucide-react";
 import { useState, useEffect } from "react";
 
 export default function Navigation() {
@@ -16,13 +28,12 @@ export default function Navigation() {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // TODOS LOS HOOKS ANTES DE CUALQUIER RETURN - ORDEN CORRECTO
   // Evitar hidratación inconsistente
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  // Cerrar menús al hacer click fuera - MOVIDO ANTES DEL RETURN
+  // Cerrar menús al hacer click fuera
   useEffect(() => {
     const handleClickOutside = () => {
       setAdminMenuOpen(false);
@@ -30,12 +41,12 @@ export default function Navigation() {
     };
 
     if (adminMenuOpen || mobileMenuOpen) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
+      document.addEventListener("click", handleClickOutside);
+      return () => document.removeEventListener("click", handleClickOutside);
     }
   }, [adminMenuOpen, mobileMenuOpen]);
 
-  // AHORA SÍ: Return condicional DESPUÉS de todos los hooks
+  // Carga esquelética mientras session/hidratación
   if (!mounted || status === "loading") {
     return (
       <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
@@ -60,26 +71,28 @@ export default function Navigation() {
   const isAdmin = session?.user?.isAdmin;
 
   const playerRoutes = [
-    { href: "/dashboard",   label: "Inicio",      icon: Home },
-    { href: "/tournaments", label: "Torneo",      icon: Target },
-    { href: "/mi-grupo",    label: "Mi Grupo",    icon: Users },
+    { href: "/dashboard", label: "Inicio", icon: Home },
+    { href: "/tournaments", label: "Torneo", icon: Target },
+    { href: "/mi-grupo", label: "Mi Grupo", icon: Users },
     { href: "/clasificaciones", label: "Rankings", icon: Trophy },
-    { href: "/historial",   label: "Historial",   icon: Calendar },
-  ];
+    { href: "/historial", label: "Historial", icon: Calendar },
+    // 👇 Nueva entrada de ayuda / guía
+    { href: "/guia-rapida", label: "Guía rápida", icon: BookOpen },
+  ] as const;
 
   const adminRoutes = [
-    { href: "/admin",             label: "Dashboard Admin", icon: Home },
-    { href: "/admin/tournaments", label: "Torneos",         icon: Trophy },
-    { href: "/admin/rounds",      label: "Rondas",          icon: Calendar },
-    { href: "/admin/players",     label: "Jugadores",       icon: Users },
-    { href: "/admin/results",     label: "Resultados",      icon: Settings },
-    { href: "/admin/rankings",    label: "Rankings",        icon: Trophy },
-  ];
+    { href: "/admin", label: "Dashboard Admin", icon: Home },
+    { href: "/admin/tournaments", label: "Torneos", icon: Trophy },
+    { href: "/admin/rounds", label: "Rondas", icon: Calendar },
+    { href: "/admin/players", label: "Jugadores", icon: Users },
+    { href: "/admin/results", label: "Resultados", icon: Settings },
+    { href: "/admin/rankings", label: "Rankings", icon: Trophy },
+  ] as const;
 
   const isActiveRoute = (href: string) => {
-    if (href === "/dashboard")    return pathname === "/dashboard";
-    if (href === "/admin")        return pathname === "/admin" || pathname.startsWith("/admin/");
-    if (href === "/tournaments")  return pathname === "/tournaments" || pathname.startsWith("/tournaments/");
+    if (href === "/dashboard") return pathname === "/dashboard";
+    if (href === "/admin") return pathname === "/admin" || pathname.startsWith("/admin/");
+    if (href === "/tournaments") return pathname === "/tournaments" || pathname.startsWith("/tournaments/");
     return pathname.startsWith(href);
   };
 
@@ -143,7 +156,9 @@ export default function Navigation() {
                           key={route.href}
                           href={route.href}
                           className={`block px-4 py-2 text-sm transition-colors flex items-center gap-2 ${
-                            isActiveRoute(route.href) ? "bg-purple-50 text-purple-700" : "text-gray-700 hover:bg-gray-50"
+                            isActiveRoute(route.href)
+                              ? "bg-purple-50 text-purple-700"
+                              : "text-gray-700 hover:bg-gray-50"
                           }`}
                           onClick={() => setAdminMenuOpen(false)}
                         >
@@ -166,7 +181,12 @@ export default function Navigation() {
               </span>
               {isAdmin && <Badge variant="outline" className="text-xs">Admin</Badge>}
             </div>
-            <Button variant="ghost" size="sm" onClick={() => signOut({ callbackUrl: "/auth/login" })} className="text-gray-600 hover:text-gray-900">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => signOut({ callbackUrl: "/auth/login" })}
+              className="text-gray-600 hover:text-gray-900"
+            >
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline ml-2">Salir</span>
             </Button>
@@ -216,7 +236,9 @@ export default function Navigation() {
                         key={route.href}
                         href={route.href}
                         className={`block px-3 py-2 rounded-md text-base font-medium transition-colors flex items-center gap-3 ${
-                          isActiveRoute(route.href) ? "bg-purple-50 text-purple-700" : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+                          isActiveRoute(route.href)
+                            ? "bg-purple-50 text-purple-700"
+                            : "text-gray-600 hover:text-gray-900 hover:bg-gray-50"
                         }`}
                         onClick={() => setMobileMenuOpen(false)}
                       >

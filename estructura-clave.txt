@@ -150,6 +150,8 @@
 \app\diag
 \app\diag\page.tsx
 \app\globals.css
+\app\guia-rapida
+\app\guia-rapida\page.tsx
 \app\historial
 \app\historial\HistorialClient.tsx
 \app\historial\page.tsx

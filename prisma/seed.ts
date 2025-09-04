@@ -1,11 +1,162 @@
 /* prisma/seed.ts */
 import { PrismaClient } from "@prisma/client";
+import bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
 
+// ---- Config ----
+const TZ = "Europe/Madrid";
+const USERS_COUNT = 40;      // jugadores
+const GROUP_SIZE = 4;        // jugadores por grupo
+const LEVELS_PER_ROUND = 5;  // nº grupos por ronda
+const ROUNDS_T1 = 6;         // torneo activo
+const ROUNDS_T2 = 4;         // torneo pasado
+
+// Rotación fija por posición 1..4 en el grupo
+const ROTATIONS = [
+  (ids: string[]) => [ids[0], ids[3], ids[1], ids[2]], // set 1: #1 + #4 vs #2 + #3
+  (ids: string[]) => [ids[0], ids[2], ids[1], ids[3]], // set 2: #1 + #3 vs #2 + #4
+  (ids: string[]) => [ids[0], ids[1], ids[2], ids[3]], // set 3: #1 + #2 vs #3 + #4
+];
+
+function addDays(base: Date, days: number) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+function today() {
+  // Mantener coherencia visual — fecha actual
+  return new Date();
+}
+
+async function createThreeSetMatches(groupId: string, orderedPlayerIds: string[], dayOffset: number) {
+  // orderedPlayerIds = posiciones 1..4 dentro del grupo
+  const base = today();
+  const proposed = addDays(base, dayOffset);
+
+  for (let setNumber = 1; setNumber <= 3; setNumber++) {
+    const rotate = ROTATIONS[setNumber - 1];
+    const [a, b, c, d] = rotate(orderedPlayerIds);
+
+    // Sembrar variedad realista
+    const acceptedDate = Math.random() < 0.55 ? addDays(proposed, 1) : null;
+    const isConfirmed = Math.random() < 0.45;
+
+    // Resultados demo (algunos 4–4 con TB)
+    let games1 = Math.floor(Math.random() * 5); // 0..4
+    let games2 = Math.floor(Math.random() * 5);
+    let tiebreakScore: string | null = null;
+
+    // Evitar 4-4 sin TB
+    if (games1 === 4 && games2 === 4) {
+      // Si ambos 4, forzamos un TB válido y computable como 5-4
+      tiebreakScore = Math.random() < 0.5 ? "7-5" : "8-6";
+      // Mantén 4-4 para que la UI/validators lo interpreten como TB presente
+    } else if (games1 === games2) {
+      // Evita demasiados empates no-TB
+      if (games1 < 4) games1 = 4; // fuerza un ganador
+    }
+
+    await prisma.match.create({
+      data: {
+        groupId,
+        setNumber,
+        team1Player1Id: a,
+        team1Player2Id: b,
+        team2Player1Id: c,
+        team2Player2Id: d,
+        proposedDate: proposed,
+        acceptedDate,
+        isConfirmed,
+        // Campos opcionales frecuentes en tu dominio:
+        // status: omitimos (deja default del schema)
+        // gamesTeam1: games1, gamesTeam2: games2,  <-- descomenta si existen en tu schema
+        // tiebreakScore,
+        // photoUrl: isConfirmed ? "https://picsum.photos/seed/escalapp/640/480" : null,
+      },
+    });
+  }
+}
+
+async function createRoundWithGroups(
+  tournamentId: string,
+  roundNumber: number,
+  enrolledPlayers: { id: string; name: string }[],
+  startDayOffset: number,
+  isClosed: boolean
+) {
+  const start = addDays(today(), startDayOffset);
+  const end = addDays(start, 6);
+
+  const round = await prisma.round.create({
+    data: {
+      tournamentId,
+      number: roundNumber,
+      startDate: start,
+      endDate: end,
+      isClosed,
+    },
+    select: { id: true },
+  });
+
+  // Pool — garantizar múltiplos de 4
+  const perLevel = GROUP_SIZE;
+  const totalNeeded = LEVELS_PER_ROUND * perLevel;
+  const pool = [...enrolledPlayers];
+
+  if (pool.length < totalNeeded) {
+    const extra = allPlayers
+      .filter((p) => !enrolledPlayers.some((e) => e.id === p.id))
+      .slice(0, totalNeeded - pool.length);
+    pool.push(...extra);
+  }
+  // Orden determinista (para UI consistente)
+  pool.sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+  for (let level = 1; level <= LEVELS_PER_ROUND; level++) {
+    const startIdx = (level - 1) * perLevel;
+    const groupPlayers = pool.slice(startIdx, startIdx + perLevel);
+    if (groupPlayers.length < perLevel) break;
+
+    const group = await prisma.group.create({
+      data: {
+        roundId: round.id,
+        number: level,
+        level, // 1 = superior
+      },
+      select: { id: true },
+    });
+
+    // Crear GroupPlayers (positions 1..4)
+    const orderedIds: string[] = [];
+    for (let i = 0; i < groupPlayers.length; i++) {
+      const gp = groupPlayers[i];
+      await prisma.groupPlayer.create({
+        data: {
+          groupId: group.id,
+          playerId: gp.id,
+          position: i + 1,
+          points: isClosed ? Math.round(Math.random() * 12) : 0,
+          usedComodin: false,
+          comodinReason: null,
+          comodinAt: null,
+        },
+      });
+      orderedIds.push(gp.id);
+    }
+
+    // 3 partidos (sets) por grupo con la rotación fija
+    await createThreeSetMatches(group.id, orderedIds, level);
+  }
+  return round.id;
+}
+
+// ---- Seed principal ----
+let allPlayers: { id: string; name: string }[] = [];
+
 async function main() {
   console.log("🧹 Cleaning DB…");
-  // Orden de borrado por FK
   await prisma.match.deleteMany({});
   await prisma.groupPlayer.deleteMany({});
   await prisma.group.deleteMany({});
@@ -15,159 +166,43 @@ async function main() {
   await prisma.player.deleteMany({});
   await prisma.user.deleteMany({});
 
-  // -------- Config de volumen --------
-  const USERS_COUNT = 40;          // usuarios/jugadores
-  const GROUP_SIZE = 4;            // jugadores por grupo
-  const LEVELS_PER_ROUND = 5;      // nº de grupos por ronda (niveles 1..N)
-  const ROUNDS_T1 = 6;             // rondas torneo 1 (activo)
-  const ROUNDS_T2 = 4;             // rondas torneo 2 (finalizado)
+  console.log("🔐 Creating users (bcrypt)…");
+  const adminHash = await bcrypt.hash("admin123", 10);
+  await prisma.user.create({
+    data: {
+      email: "admin@test.com",
+      name: "Administrador",
+      password: adminHash,           // <-- HASH
+      isAdmin: true,
+    },
+  });
 
-  // -------- Helpers --------
-  const chunk = <T,>(arr: T[], size: number) =>
-    Array.from({ length: Math.ceil(arr.length / size) }, (_, i) => arr.slice(i * size, i * size + size));
-
-  function addDays(base: Date, days: number) {
-    const d = new Date(base);
-    d.setDate(d.getDate() + days);
-    return d;
-  }
-
-  // Crea 1 partido por grupo (4 jugadores -> (p1,p2) vs (p3,p4))
-  async function createGroupMatches(
-    groupId: string,
-    playerIds: string[],    // IDs de Player (no GroupPlayer)
-    dayOffset: number
-  ) {
-    if (playerIds.length < 4) return;
-    const [p1, p2, p3, p4] = playerIds;
-
-    const today = new Date();
-    const proposedDate = addDays(today, dayOffset);
-    const acceptedDate = Math.random() < 0.6 ? addDays(today, dayOffset + 1) : null;
-    const isConfirmed = Math.random() < 0.35;
-
-    await prisma.match.create({
-      data: {
-        groupId,
-        proposedDate,
-        acceptedDate,
-        isConfirmed,
-        setNumber: 1, // ← requerido por tu schema
-        // status:  (no lo ponemos: usa el default del schema)
-        team1Player1Id: p1,
-        team1Player2Id: p2,
-        team2Player1Id: p3,
-        team2Player2Id: p4,
-      },
-    });
-  }
-
-  async function createRoundWithGroups(
-    tournamentId: string,
-    roundNumber: number,
-    enrolledPlayers: { id: string; name: string }[],
-    startDayOffset: number,
-    isClosed: boolean
-  ) {
-    const start = addDays(new Date(), startDayOffset);
-    const end = addDays(start, 6);
-
-    const round = await prisma.round.create({
-      data: {
-        tournamentId,
-        number: roundNumber,
-        startDate: start,
-        endDate: end,
-        isClosed,
-      },
-      select: { id: true },
-    });
-
-    // pool de jugadores (rellena si faltan para completar grupos)
-    const perLevel = GROUP_SIZE;
-    const totalNeeded = LEVELS_PER_ROUND * perLevel;
-    const pool = [...enrolledPlayers];
-
-    if (pool.length < totalNeeded) {
-      const extra = allPlayers
-        .filter((p) => !enrolledPlayers.some((e) => e.id === p.id))
-        .slice(0, totalNeeded - pool.length);
-      pool.push(...extra);
-    }
-
-    pool.sort((a, b) => a.name.localeCompare(b.name));
-
-    for (let level = 1; level <= LEVELS_PER_ROUND; level++) {
-      const groupPlayers = pool.slice((level - 1) * perLevel, level * perLevel);
-      if (groupPlayers.length === 0) break;
-
-      const group = await prisma.group.create({
-        data: {
-          roundId: round.id,
-          number: level, // misma numeración que el nivel
-          level,         // 1 es superior, mayor = inferior
-        },
-        select: { id: true },
-      });
-
-      // Crear GroupPlayers (con position obligatorio)
-      await Promise.all(
-        groupPlayers.map((p, idx) =>
-          prisma.groupPlayer.create({
-            data: {
-              groupId: group.id,
-              playerId: p.id,
-              position: idx + 1,
-              points: isClosed ? Math.round(Math.random() * 12) : 0,
-              usedComodin: false,
-              comodinReason: null,
-              comodinAt: null,
-            },
-          })
-        )
-      );
-
-      // Crear un partido del grupo (usa IDs de Player)
-      await createGroupMatches(
-        group.id,
-        groupPlayers.map((gp) => gp.id),
-        level // offset para variar fechas entre grupos
-      );
-    }
-
-    return round.id;
-  }
-
-  // -------- 1) Users + Players --------
-  console.log("👤 Creating users & players…");
-  const allUsers = await Promise.all(
-    Array.from({ length: USERS_COUNT }).map((_, i) =>
-      prisma.user.create({
+  const users = await Promise.all(
+    Array.from({ length: USERS_COUNT }).map(async (_v, i) => {
+      const hash = await bcrypt.hash("password123", 10);
+      return prisma.user.create({
         data: {
           email: `jugador${i + 1}@test.com`,
           name: `Jugador ${String(i + 1).padStart(2, "0")}`,
-          password: "password123", // ← requerido por tu schema
+          password: hash,            // <-- HASH
+          isAdmin: false,
         },
         select: { id: true, name: true },
-      })
-    )
+      });
+    })
   );
 
-  // si tu Player NO tiene userId en el schema, elimina userId: ...
-  const allPlayers = await Promise.all(
-    allUsers.map((u) =>
+  console.log("🎾 Creating players…");
+  allPlayers = await Promise.all(
+    users.map((u) =>
       prisma.player.create({
-        data: {
-          name: u.name ?? "Sin nombre",
-          userId: u.id,
-        },
+        data: { name: u.name ?? "Sin nombre", userId: u.id },
         select: { id: true, name: true },
       })
     )
   );
 
-  // -------- 2) Tournaments (con config comodines) --------
-  console.log("🏆 Creating tournaments…");
+  console.log("🏆 Creating tournaments with comodín settings…");
   const [t1, t2] = await Promise.all([
     prisma.tournament.create({
       data: {
@@ -176,17 +211,16 @@ async function main() {
         isPublic: true,
         totalRounds: ROUNDS_T1,
         roundDurationDays: 7,
-        startDate: new Date(),
-        endDate: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7 * ROUNDS_T1),
-
-        // Config de comodines
+        startDate: today(),
+        endDate: addDays(today(), 7 * ROUNDS_T1),
+        // settings de comodín (ajusta a tu schema exacto)
         maxComodinesPerPlayer: 3,
         enableMeanComodin: true,
         enableSubstituteComodin: true,
         substituteCreditFactor: 0.5,
         substituteMaxAppearances: 3,
       },
-      select: { id: true, totalRounds: true, roundDurationDays: true },
+      select: { id: true, totalRounds: true },
     }),
     prisma.tournament.create({
       data: {
@@ -195,23 +229,22 @@ async function main() {
         isPublic: true,
         totalRounds: ROUNDS_T2,
         roundDurationDays: 7,
-        startDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7 * (ROUNDS_T2 + 2)),
-        endDate: new Date(Date.now() - 1000 * 60 * 60 * 24 * 7 * 2),
-
+        startDate: addDays(today(), -7 * (ROUNDS_T2 + 2)),
+        endDate: addDays(today(), -14),
         maxComodinesPerPlayer: 2,
         enableMeanComodin: true,
         enableSubstituteComodin: true,
         substituteCreditFactor: 0.4,
         substituteMaxAppearances: 2,
       },
-      select: { id: true, totalRounds: true, roundDurationDays: true },
+      select: { id: true, totalRounds: true },
     }),
   ]);
 
-  // -------- 3) TournamentPlayer (inscripciones) --------
-  console.log("📝 Enrolling players…");
-  const t1Players = allPlayers.slice(0, 28);
-  const t2Players = allPlayers.slice(0, 20);
+  console.log("📝 Enrolling players (multiplo de 4)…");
+  // Asegura múltiplos de 4 para no dejar grupos cojos
+  const t1Players = allPlayers.slice(0, LEVELS_PER_ROUND * GROUP_SIZE); // 5*4 = 20
+  const t2Players = allPlayers.slice(20, 20 + LEVELS_PER_ROUND * GROUP_SIZE); // otros 20
 
   await prisma.$transaction([
     ...t1Players.map((p) =>
@@ -236,22 +269,21 @@ async function main() {
     ),
   ]);
 
-  // -------- 4) Rounds + Groups + Matches --------
   console.log("📅 Creating rounds, groups and matches…");
-  // Torneo 1 (activo): primeras 2 cerradas, resto abiertas
-  for (let n = 1; n <= t1.totalRounds; n++) {
+  // Torneo 1 (activo): deja 2 cerradas para probar rankings/historial
+  for (let n = 1; n <= (t1.totalRounds ?? ROUNDS_T1); n++) {
     const isClosed = n <= 2;
     await createRoundWithGroups(t1.id, n, t1Players, (n - 1) * 7, isClosed);
   }
-  // Torneo 2 (finalizado): todas cerradas en el pasado
-  for (let n = 1; n <= t2.totalRounds; n++) {
+  // Torneo 2 (cerrado): todas en el pasado y cerradas
+  for (let n = 1; n <= (t2.totalRounds ?? ROUNDS_T2); n++) {
     await createRoundWithGroups(t2.id, n, t2Players, -7 * (t2.totalRounds - n + 2), true);
   }
 
-  // -------- 5) Marcar algunos comodines usados --------
-  console.log("🪄 Marking sample comodines…");
+  console.log("🪄 Marking sample comodines & points…");
+  // Marca algunos comodines ‘media’ en grupos de T1 ronda 1
   const someGp = await prisma.groupPlayer.findMany({
-    take: 5,
+    take: 6,
     include: { group: { include: { round: true } } },
   });
 
@@ -261,7 +293,7 @@ async function main() {
       data: {
         usedComodin: true,
         comodinReason: "Comodín (media): 6.5 puntos",
-        comodinAt: new Date(),
+        comodinAt: today(),
         points: 6.5,
       },
     });
