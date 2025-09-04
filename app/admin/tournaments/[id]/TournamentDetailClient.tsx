@@ -1,4 +1,4 @@
-// app/admin/tournaments/[id]/TournamentDetailClient.tsx - CON CONFIGURACIÓN DE COMODINES
+// app/admin/tournaments/[id]/TournamentDetailClient.tsx - CORREGIDO + GUARD CLAUSE SSR
 "use client";
 
 import { useState, useTransition } from "react";
@@ -19,8 +19,10 @@ import {
   AlertTriangle,
   Target,
   Clock,
-  Zap, // Para comodines
+  Zap,
+  RefreshCw,
 } from "lucide-react";
+// CORRECCIÓN: Importación correcta del TournamentPlayersManager
 import TournamentPlayersManager from "./TournamentPlayersManager";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
 import ComodinSettings from "@/components/admin/ComodinSettings";
@@ -84,7 +86,7 @@ type Stats = {
 };
 
 /* =============================================================================
- * Componente principal
+ * Componente principal CON VALIDACIÓN DEFENSIVA
  * =========================================================================== */
 export default function TournamentDetailClient({
   tournament,
@@ -92,40 +94,76 @@ export default function TournamentDetailClient({
   players,
   stats,
 }: {
-  tournament: SerializedTournament;
-  rounds: SerializedRound[];
-  players: SerializedPlayer[];
-  stats: Stats;
+  tournament?: SerializedTournament;
+  rounds?: SerializedRound[];
+  players?: SerializedPlayer[];
+  stats?: Stats;
 }) {
+  // Agrega estas validaciones al inicio de componentes problemáticos
+  if (typeof window === "undefined") {
+    return null; // No renderizar en servidor para componentes puramente cliente
+  }
+
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  
-  // Pestañas principales - AGREGAMOS "comodines"
+
+  // VALIDACIÓN DEFENSIVA: Si no hay datos esenciales, mostrar loading
+  if (!tournament) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardContent className="p-8 text-center">
+            <RefreshCw className="w-8 h-8 animate-spin text-gray-400 mx-auto mb-4" />
+            <p className="text-gray-500">Cargando datos del torneo...</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Valores por defecto seguros
+  const safeRounds = rounds || [];
+  const safePlayers = players || [];
+  const safeStats = stats || {
+    totalPlayers: 0,
+    totalRounds: 0,
+    activeRounds: 0,
+    totalMatches: 0,
+    confirmedMatches: 0,
+    pendingMatches: 0,
+    completionPercentage: 0,
+    averagePlayersPerRound: 0,
+  };
+
+  // Pestañas principales
   type TabId = "overview" | "rounds" | "players" | "comodines" | "settings";
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
-  // Ronda seleccionada para gestión
-  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(
-    rounds.find(r => !r.isClosed)?.id || rounds[0]?.id || null
-  );
+  // Ronda seleccionada para gestión (versión defensiva)
+  const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() => {
+    if (!safeRounds || safeRounds.length === 0) return null;
+    return safeRounds.find((r) => !r.isClosed)?.id ?? safeRounds[0]?.id ?? null;
+  });
 
-  const selectedRound = rounds.find(r => r.id === selectedRoundId);
-  const currentRound = rounds.find(r => !r.isClosed) || rounds[rounds.length - 1];
+  const selectedRound = safeRounds?.find((r) => r.id === selectedRoundId) || null;
+  const currentRound =
+    safeRounds?.find((r) => !r.isClosed) ||
+    (safeRounds && safeRounds.length > 0 ? safeRounds[safeRounds.length - 1] : undefined);
 
   const handlePlayersUpdated = () => {
     router.refresh();
   };
 
   const toggleTournamentStatus = () => {
-    const action = tournament.isActive ? 'desactivar' : 'activar';
+    const action = tournament.isActive ? "desactivar" : "activar";
     if (!confirm(`¿Seguro que quieres ${action} este torneo?`)) return;
 
     startTransition(async () => {
       try {
-        const endpoint = tournament.isActive 
-          ? `/api/tournaments/${tournament.id}/deactivate` 
+        const endpoint = tournament.isActive
+          ? `/api/tournaments/${tournament.id}/deactivate`
           : `/api/tournaments/${tournament.id}/activate`;
-        
+
         const res = await fetch(endpoint, { method: "PATCH" });
         if (res.ok) {
           router.refresh();
@@ -139,16 +177,16 @@ export default function TournamentDetailClient({
   };
 
   const deleteTournament = () => {
-    if (!confirm('¿SEGURO que quieres eliminar este torneo? Esta acción es irreversible.')) return;
-    
+    if (!confirm("¿SEGURO que quieres eliminar este torneo? Esta acción es irreversible.")) return;
+
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/tournaments/${tournament.id}`, { 
-          method: "DELETE" 
+        const res = await fetch(`/api/tournaments/${tournament.id}`, {
+          method: "DELETE",
         });
-        
+
         if (res.ok) {
-          router.push('/admin/tournaments');
+          router.push("/admin/tournaments");
         } else {
           const data = await res.json();
           alert(data.error || "Error al eliminar torneo");
@@ -161,19 +199,20 @@ export default function TournamentDetailClient({
   };
 
   // Formatear fechas
-  const formatDate = (dateStr: string) => new Date(dateStr).toLocaleDateString('es-ES', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric'
-  });
+  const formatDate = (dateStr: string) =>
+    new Date(dateStr).toLocaleDateString("es-ES", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    });
 
   const getRoundStatus = (round: SerializedRound) => {
     if (round.isClosed) return { label: "Cerrada", variant: "secondary" as const };
-    
+
     const now = new Date();
     const start = new Date(round.startDate);
     const end = new Date(round.endDate);
-    
+
     if (now >= start && now <= end) return { label: "En curso", variant: "default" as const };
     if (now < start) return { label: "Próxima", variant: "outline" as const };
     return { label: "Fuera de plazo", variant: "destructive" as const };
@@ -181,14 +220,14 @@ export default function TournamentDetailClient({
 
   return (
     <div className="space-y-6">
-      {/* Header con estadísticas principales */}
+      {/* Header con estadísticas principales - VERSIÓN DEFENSIVA */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
             <div className="flex items-center gap-3">
               <Users className="w-8 h-8 text-blue-600" />
               <div>
-                <div className="text-2xl font-bold">{stats.totalPlayers}</div>
+                <div className="text-2xl font-bold">{safeStats.totalPlayers}</div>
                 <div className="text-sm text-gray-600">Jugadores</div>
               </div>
             </div>
@@ -200,7 +239,7 @@ export default function TournamentDetailClient({
             <div className="flex items-center gap-3">
               <Calendar className="w-8 h-8 text-green-600" />
               <div>
-                <div className="text-2xl font-bold">{stats.activeRounds}</div>
+                <div className="text-2xl font-bold">{safeStats.activeRounds}</div>
                 <div className="text-sm text-gray-600">Rondas activas</div>
               </div>
             </div>
@@ -212,7 +251,7 @@ export default function TournamentDetailClient({
             <div className="flex items-center gap-3">
               <Target className="w-8 h-8 text-purple-600" />
               <div>
-                <div className="text-2xl font-bold">{Math.round(stats.completionPercentage)}%</div>
+                <div className="text-2xl font-bold">{Math.round(safeStats.completionPercentage)}%</div>
                 <div className="text-sm text-gray-600">Progreso</div>
               </div>
             </div>
@@ -224,7 +263,7 @@ export default function TournamentDetailClient({
             <div className="flex items-center gap-3">
               <Clock className="w-8 h-8 text-orange-600" />
               <div>
-                <div className="text-2xl font-bold">{stats.pendingMatches}</div>
+                <div className="text-2xl font-bold">{safeStats.pendingMatches}</div>
                 <div className="text-sm text-gray-600">Pendientes</div>
               </div>
             </div>
@@ -249,7 +288,6 @@ export default function TournamentDetailClient({
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
-            {/* ACTUALIZADO: Agregamos pestaña de comodines */}
             <TabsList className="grid w-full grid-cols-5">
               <TabsTrigger value="overview">Resumen</TabsTrigger>
               <TabsTrigger value="rounds">Rondas</TabsTrigger>
@@ -260,7 +298,7 @@ export default function TournamentDetailClient({
 
             {/* ===================== PESTAÑA: RESUMEN ===================== */}
             <TabsContent value="overview" className="space-y-6 mt-6">
-              {currentRound && (
+              {currentRound ? (
                 <Card className="bg-gradient-to-r from-blue-50 to-green-50 border-blue-200">
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -289,11 +327,19 @@ export default function TournamentDetailClient({
                     </div>
                     <div className="mt-4">
                       <Button asChild>
-                        <Link href={`/admin/rounds/${currentRound.id}`}>
-                          Gestionar Ronda Actual
-                        </Link>
+                        <Link href={`/admin/rounds/${currentRound.id}`}>Gestionar Ronda Actual</Link>
                       </Button>
                     </div>
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card className="bg-amber-50 border-amber-200">
+                  <CardContent className="p-6 text-center">
+                    <AlertTriangle className="w-8 h-8 text-amber-600 mx-auto mb-2" />
+                    <p className="text-amber-800 font-medium">No hay rondas configuradas</p>
+                    <p className="text-sm text-amber-700 mt-1">
+                      Configure las rondas del torneo para comenzar
+                    </p>
                   </CardContent>
                 </Card>
               )}
@@ -327,7 +373,9 @@ export default function TournamentDetailClient({
                     </div>
                     <div>
                       <span className="text-gray-600">Progreso total:</span>
-                      <div className="font-medium">{stats.confirmedMatches} / {stats.totalMatches} partidos</div>
+                      <div className="font-medium">
+                        {safeStats.confirmedMatches} / {safeStats.totalMatches} partidos
+                      </div>
                     </div>
                   </div>
                 </CardContent>
@@ -336,30 +384,33 @@ export default function TournamentDetailClient({
 
             {/* =================== PESTAÑA: RONDAS =================== */}
             <TabsContent value="rounds" className="space-y-6 mt-6">
-              {/* Selector de ronda */}
               <Card>
                 <CardHeader>
                   <CardTitle>Seleccionar Ronda para Gestionar</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="flex flex-wrap gap-2 mb-4">
-                    {rounds.map((round) => {
-                      const status = getRoundStatus(round);
-                      return (
-                        <Button
-                          key={round.id}
-                          variant={round.id === selectedRoundId ? "default" : "outline"}
-                          size="sm"
-                          onClick={() => setSelectedRoundId(round.id)}
-                          className="flex items-center gap-2"
-                        >
-                          Ronda {round.number}
-                          <Badge variant={status.variant} className="ml-1 text-xs">
-                            {status.label}
-                          </Badge>
-                        </Button>
-                      );
-                    })}
+                    {safeRounds.length > 0 ? (
+                      safeRounds.map((round) => {
+                        const status = getRoundStatus(round);
+                        return (
+                          <Button
+                            key={round.id}
+                            variant={round.id === selectedRoundId ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => setSelectedRoundId(round.id)}
+                            className="flex items-center gap-2"
+                          >
+                            Ronda {round.number}
+                            <Badge variant={status.variant} className="ml-1 text-xs">
+                              {status.label}
+                            </Badge>
+                          </Button>
+                        );
+                      })
+                    ) : (
+                      <div className="text-sm text-gray-500">No hay rondas disponibles.</div>
+                    )}
                   </div>
 
                   {selectedRound && (
@@ -367,15 +418,15 @@ export default function TournamentDetailClient({
                       <div className="flex items-center justify-between mb-2">
                         <h4 className="font-medium">Ronda {selectedRound.number}</h4>
                         <Button size="sm" asChild>
-                          <Link href={`/admin/rounds/${selectedRound.id}`}>
-                            Abrir Vista Completa
-                          </Link>
+                          <Link href={`/admin/rounds/${selectedRound.id}`}>Abrir Vista Completa</Link>
                         </Button>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div>
                           <span className="text-gray-600">Fechas:</span>
-                          <div>{formatDate(selectedRound.startDate)} - {formatDate(selectedRound.endDate)}</div>
+                          <div>
+                            {formatDate(selectedRound.startDate)} - {formatDate(selectedRound.endDate)}
+                          </div>
                         </div>
                         <div>
                           <span className="text-gray-600">Grupos:</span>
@@ -432,36 +483,42 @@ export default function TournamentDetailClient({
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {rounds.map((round) => {
-                          const status = getRoundStatus(round);
-                          return (
-                            <tr key={round.id} className="hover:bg-gray-50">
-                              <td className="px-3 py-3 font-medium">#{round.number}</td>
-                              <td className="px-3 py-3 text-xs">
-                                {formatDate(round.startDate)} - {formatDate(round.endDate)}
-                              </td>
-                              <td className="px-3 py-3">
-                                <Badge variant={status.variant} className="text-xs">
-                                  {status.label}
-                                </Badge>
-                              </td>
-                              <td className="px-3 py-3 text-center">{round.groupsCount}</td>
-                              <td className="px-3 py-3 text-center">{round.matchesCount}</td>
-                              <td className="px-3 py-3 text-center">
-                                <span className={round.pendingMatches > 0 ? "text-orange-600 font-medium" : ""}>
-                                  {round.pendingMatches}
-                                </span>
-                              </td>
-                              <td className="px-3 py-3 text-center">
-                                <Button size="sm" variant="outline" asChild>
-                                  <Link href={`/admin/rounds/${round.id}`}>
-                                    Gestionar
-                                  </Link>
-                                </Button>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {safeRounds.length > 0 ? (
+                          safeRounds.map((round) => {
+                            const status = getRoundStatus(round);
+                            return (
+                              <tr key={round.id} className="hover:bg-gray-50">
+                                <td className="px-3 py-3 font-medium">#{round.number}</td>
+                                <td className="px-3 py-3 text-xs">
+                                  {formatDate(round.startDate)} - {formatDate(round.endDate)}
+                                </td>
+                                <td className="px-3 py-3">
+                                  <Badge variant={status.variant} className="text-xs">
+                                    {status.label}
+                                  </Badge>
+                                </td>
+                                <td className="px-3 py-3 text-center">{round.groupsCount}</td>
+                                <td className="px-3 py-3 text-center">{round.matchesCount}</td>
+                                <td className="px-3 py-3 text-center">
+                                  <span className={round.pendingMatches > 0 ? "text-orange-600 font-medium" : ""}>
+                                    {round.pendingMatches}
+                                  </span>
+                                </td>
+                                <td className="px-3 py-3 text-center">
+                                  <Button size="sm" variant="outline" asChild>
+                                    <Link href={`/admin/rounds/${round.id}`}>Gestionar</Link>
+                                  </Button>
+                                </td>
+                              </tr>
+                            );
+                          })
+                        ) : (
+                          <tr>
+                            <td className="px-3 py-3 text-sm text-gray-500" colSpan={7}>
+                              No hay rondas registradas.
+                            </td>
+                          </tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
@@ -475,7 +532,7 @@ export default function TournamentDetailClient({
                 tournamentId={tournament.id}
                 tournamentTitle={tournament.title}
                 totalRounds={tournament.totalRounds}
-                currentPlayers={players}
+                currentPlayers={safePlayers}
                 onPlayersUpdated={handlePlayersUpdated}
               />
             </TabsContent>
@@ -483,15 +540,16 @@ export default function TournamentDetailClient({
             {/* =================== PESTAÑA: COMODINES =================== */}
             <TabsContent value="comodines" className="space-y-6 mt-6">
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Configuración de comodines */}
                 <div>
                   <ComodinSettings
                     tournamentId={tournament.id}
                     tournamentName={tournament.title}
+                    onSettingsChanged={() => {
+                      router.refresh();
+                    }}
                   />
                 </div>
-                
-                {/* Vista rápida por ronda */}
+
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -501,39 +559,37 @@ export default function TournamentDetailClient({
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {rounds.map((round) => (
-                        <div key={round.id} className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50">
-                          <div>
-                            <div className="font-medium">Ronda {round.number}</div>
-                            <div className="text-sm text-gray-600">
-                              {formatDate(round.startDate)} - {formatDate(round.endDate)}
-                            </div>
-                          </div>
-                          <div className="text-right">
-                            <Badge variant={getRoundStatus(round).variant} className="mb-1">
-                              {getRoundStatus(round).label}
-                            </Badge>
-                            <div className="text-xs text-gray-500">
-                              {round.playersCount} jugadores
-                            </div>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            asChild
-                            className="ml-3"
+                      {safeRounds.length > 0 ? (
+                        safeRounds.map((round) => (
+                          <div
+                            key={round.id}
+                            className="flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50"
                           >
-                            <Link href={`/admin/rounds/${round.id}/comodines`}>
-                              Ver Comodines
-                            </Link>
-                          </Button>
-                        </div>
-                      ))}
+                            <div>
+                              <div className="font-medium">Ronda {round.number}</div>
+                              <div className="text-sm text-gray-600">
+                                {formatDate(round.startDate)} - {formatDate(round.endDate)}
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <Badge variant={getRoundStatus(round).variant} className="mb-1">
+                                {getRoundStatus(round).label}
+                              </Badge>
+                              <div className="text-xs text-gray-500">{round.playersCount} jugadores</div>
+                            </div>
+                            <Button size="sm" variant="outline" asChild className="ml-3">
+                              <Link href={`/admin/rounds/${round.id}/comodines`}>Ver Comodines</Link>
+                            </Button>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-sm text-gray-500">No hay rondas para listar comodines.</div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
               </div>
-              
+
               {/* Información sobre comodines */}
               <Card className="bg-blue-50 border-blue-200">
                 <CardHeader>
@@ -578,7 +634,7 @@ export default function TournamentDetailClient({
                     <div>
                       <div className="font-medium">Estado del torneo</div>
                       <div className="text-sm text-gray-600">
-                        {tournament.isActive ? 'El torneo está activo y visible' : 'El torneo está pausado'}
+                        {tournament.isActive ? "El torneo está activo y visible" : "El torneo está pausado"}
                       </div>
                     </div>
                     <Button
@@ -587,7 +643,7 @@ export default function TournamentDetailClient({
                       variant={tournament.isActive ? "outline" : "default"}
                     >
                       <Power className="w-4 h-4 mr-2" />
-                      {tournament.isActive ? 'Desactivar' : 'Activar'}
+                      {tournament.isActive ? "Desactivar" : "Activar"}
                     </Button>
                   </div>
 
@@ -598,11 +654,7 @@ export default function TournamentDetailClient({
                         Esta acción es irreversible y eliminará todos los datos asociados
                       </div>
                     </div>
-                    <Button
-                      onClick={deleteTournament}
-                      disabled={isPending || tournament.isActive}
-                      variant="destructive"
-                    >
+                    <Button onClick={deleteTournament} disabled={isPending || tournament.isActive} variant="destructive">
                       <Trash2 className="w-4 h-4 mr-2" />
                       Eliminar
                     </Button>

@@ -12,6 +12,8 @@ import { Settings, Save, RefreshCw, AlertTriangle } from "lucide-react";
 interface ComodinSettingsProps {
   tournamentId: string;
   tournamentName: string;
+  /** Nuevo: notifica al padre para refrescar tras guardar con éxito */
+  onSettingsChanged?: () => void;
 }
 
 interface TournamentComodinConfig {
@@ -24,7 +26,11 @@ interface TournamentComodinConfig {
   substituteMaxAppearances: number;
 }
 
-export default function ComodinSettings({ tournamentId, tournamentName }: ComodinSettingsProps) {
+export default function ComodinSettings({
+  tournamentId,
+  tournamentName,
+  onSettingsChanged,
+}: ComodinSettingsProps) {
   const [config, setConfig] = useState<TournamentComodinConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -36,17 +42,17 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
     try {
       setLoading(true);
       setError(null);
-      
+
       const response = await fetch(`/api/tournaments/${tournamentId}/comodin-settings`);
       const data = await response.json();
-      
+
       if (response.ok && data.success) {
-        setConfig(data.tournament);
+        setConfig(data.tournament as TournamentComodinConfig);
       } else {
-        setError(data.error || 'Error al cargar configuración');
+        setError(data.error || "Error al cargar configuración");
       }
     } catch (err) {
-      setError('Error de conexión');
+      setError("Error de conexión");
     } finally {
       setLoading(false);
     }
@@ -62,8 +68,8 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
       setSuccess(null);
 
       const response = await fetch(`/api/tournaments/${tournamentId}/comodin-settings`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           maxComodinesPerPlayer: config.maxComodinesPerPlayer,
           enableMeanComodin: config.enableMeanComodin,
@@ -76,13 +82,15 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
       const data = await response.json();
 
       if (response.ok && data.success) {
-        setConfig(data.tournament);
-        setSuccess('Configuración guardada correctamente');
+        setConfig(data.tournament as TournamentComodinConfig);
+        setSuccess("Configuración guardada correctamente");
+        // 🔔 Notificar al padre para refrescar (router.refresh())
+        onSettingsChanged?.();
       } else {
-        setError(data.error || 'Error al guardar configuración');
+        setError(data.error || "Error al guardar configuración");
       }
     } catch (err) {
-      setError('Error de conexión');
+      setError("Error de conexión");
     } finally {
       setSaving(false);
     }
@@ -97,7 +105,7 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
   // Validaciones
   const isValidConfig = () => {
     if (!config) return false;
-    
+
     return (
       config.maxComodinesPerPlayer >= 0 &&
       config.maxComodinesPerPlayer <= 10 &&
@@ -109,13 +117,14 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
   };
 
   const hasUnsavedChanges = () => {
-    // Aquí podrías comparar con un estado inicial guardado
-    return true; // Simplificado para este ejemplo
+    // TODO: compara con estado inicial si quieres precisión.
+    return true; // Simplificado
   };
 
-  // Cargar al montar
+  // Cargar al montar / cambiar de torneo
   useEffect(() => {
     loadConfig();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tournamentId]);
 
   // Auto-limpiar mensajes
@@ -169,7 +178,7 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
         </CardTitle>
         <p className="text-sm text-gray-600">{tournamentName}</p>
       </CardHeader>
-      
+
       <CardContent className="space-y-6">
         {/* Límite por jugador */}
         <div>
@@ -181,9 +190,11 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
             min="0"
             max="10"
             value={config.maxComodinesPerPlayer}
-            onChange={(e) => updateConfig({
-              maxComodinesPerPlayer: Math.max(0, Math.min(10, parseInt(e.target.value) || 0))
-            })}
+            onChange={(e) =>
+              updateConfig({
+                maxComodinesPerPlayer: Math.max(0, Math.min(10, parseInt(e.target.value) || 0)),
+              })
+            }
             className="w-32"
           />
           <p className="text-xs text-gray-500 mt-1">
@@ -194,7 +205,7 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
         {/* Tipos de comodines habilitados */}
         <div className="space-y-4">
           <h4 className="font-medium text-gray-900">Tipos de comodines habilitados</h4>
-          
+
           <div className="space-y-4">
             <div className="flex items-center justify-between p-3 border rounded-lg">
               <div className="flex-1">
@@ -238,7 +249,7 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
         {config.enableSubstituteComodin && (
           <div className="space-y-4 p-4 bg-gray-50 rounded-lg border">
             <h5 className="font-medium text-gray-900">Configuración avanzada de sustitutos</h5>
-            
+
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Factor de crédito Ironman
@@ -250,9 +261,11 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
                   max="1"
                   step="0.1"
                   value={config.substituteCreditFactor}
-                  onChange={(e) => updateConfig({
-                    substituteCreditFactor: Math.max(0, Math.min(1, parseFloat(e.target.value) || 0))
-                  })}
+                  onChange={(e) =>
+                    updateConfig({
+                      substituteCreditFactor: Math.max(0, Math.min(1, parseFloat(e.target.value) || 0)),
+                    })
+                  }
                   className="w-24"
                 />
                 <span className="text-sm text-gray-600">
@@ -273,9 +286,11 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
                 min="1"
                 max="10"
                 value={config.substituteMaxAppearances}
-                onChange={(e) => updateConfig({
-                  substituteMaxAppearances: Math.max(1, Math.min(10, parseInt(e.target.value) || 1))
-                })}
+                onChange={(e) =>
+                  updateConfig({
+                    substituteMaxAppearances: Math.max(1, Math.min(10, parseInt(e.target.value) || 1)),
+                  })
+                }
                 className="w-24"
               />
               <p className="text-xs text-gray-500 mt-1">
@@ -300,24 +315,15 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
 
         {/* Botones de acción */}
         <div className="flex justify-between items-center pt-4 border-t">
-          <Button
-            onClick={loadConfig}
-            variant="outline"
-            disabled={loading}
-            className="flex items-center gap-2"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <Button onClick={loadConfig} variant="outline" disabled={loading} className="flex items-center gap-2">
+            <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
             Recargar
           </Button>
-          
+
           <div className="flex gap-2">
-            <Button
-              onClick={saveConfig}
-              disabled={saving || !isValidConfig()}
-              className="flex items-center gap-2"
-            >
+            <Button onClick={saveConfig} disabled={saving || !isValidConfig()} className="flex items-center gap-2">
               <Save className="w-4 h-4" />
-              {saving ? 'Guardando...' : 'Guardar Cambios'}
+              {saving ? "Guardando..." : "Guardar Cambios"}
             </Button>
           </div>
         </div>
@@ -328,7 +334,7 @@ export default function ComodinSettings({ tournamentId, tournamentName }: Comodi
             <p className="text-sm text-green-700">{success}</p>
           </div>
         )}
-        
+
         {error && (
           <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
             <p className="text-sm text-red-600">{error}</p>

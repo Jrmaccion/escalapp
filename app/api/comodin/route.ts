@@ -1,4 +1,4 @@
-// app/api/comodin/route.ts - VERSIÓN COMPLETA CON VALIDACIONES CONFIGURABLES
+// app/api/comodin/route.ts - VERSIÓN COMPLETA CON REGLA DEL ÚLTIMO GRUPO (solo inmediato superior)
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -56,7 +56,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No se puede usar comodín en una ronda cerrada" }, { status: 400 });
     }
 
-    // Cargar configuración del torneo (límite y flags)
+    // Config del torneo
     const tournament = await prisma.tournament.findUnique({
       where: { id: round.tournamentId },
       select: {
@@ -68,18 +68,16 @@ export async function POST(request: NextRequest) {
         substituteMaxAppearances: true,
       },
     });
-    if (!tournament) {
-      return NextResponse.json({ error: "Torneo no encontrado" }, { status: 404 });
-    }
+    if (!tournament) return NextResponse.json({ error: "Torneo no encontrado" }, { status: 404 });
 
-    // Inscripción del solicitante
+    // Inscripción solicitante
     const tp = await prisma.tournamentPlayer.findFirst({
       where: { playerId, tournamentId: round.tournamentId },
       select: { tournamentId: true, playerId: true, comodinesUsed: true },
     });
     if (!tp) return NextResponse.json({ error: "No estás inscrito en este torneo" }, { status: 400 });
 
-    // Límite configurable de comodines
+    // Límite de comodines por torneo
     if ((tp.comodinesUsed ?? 0) >= tournament.maxComodinesPerPlayer) {
       return NextResponse.json(
         { error: `Ya has usado tus ${tournament.maxComodinesPerPlayer} comodines disponibles en este torneo` },
@@ -87,21 +85,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // El solicitante debe estar en un grupo de esta ronda
+    // Solicitanter debe estar en grupo de la ronda (con nivel)
     const gp = await prisma.groupPlayer.findFirst({
       where: { playerId, group: { roundId } },
-      include: { group: { select: { id: true, number: true, roundId: true } } },
+      include: { group: { select: { id: true, number: true, roundId: true, level: true } } },
     });
     if (!gp) return NextResponse.json({ error: "No estás asignado a un grupo en esta ronda" }, { status: 400 });
     if (gp.usedComodin) return NextResponse.json({ error: "Ya has usado comodín en esta ronda" }, { status: 400 });
 
-    // VALIDACIÓN: partidos confirmados o en <24h
+    // Restricción temporal: confirmados o <24h
     const now = new Date();
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-    const playerMatches = round.groups.flatMap((group) => group.matches).filter((m) => m !== null);
-
-    const confirmedMatches = playerMatches.filter((match) => match.isConfirmed);
+    const playerMatches = round.groups.flatMap((g) => g.matches).filter(Boolean);
+    const confirmedMatches = playerMatches.filter((m) => m.isConfirmed);
     if (confirmedMatches.length > 0) {
       return NextResponse.json(
         { error: "No se puede usar comodín: ya tienes partidos con resultados confirmados en esta ronda" },
@@ -110,7 +107,7 @@ export async function POST(request: NextRequest) {
     }
 
     const upcomingMatches = playerMatches.filter(
-      (match) => match.acceptedDate && new Date(match.acceptedDate) <= twentyFourHoursFromNow
+      (m) => m.acceptedDate && new Date(m.acceptedDate) <= twentyFourHoursFromNow
     );
     if (upcomingMatches.length > 0) {
       const nextMatch = upcomingMatches[0]!;
@@ -128,7 +125,7 @@ export async function POST(request: NextRequest) {
 
     const mode = (body as any).mode ?? "mean";
 
-    // Verificar si el tipo de comodín está habilitado por torneo
+    // Tipos de comodín habilitados
     if (mode === "mean" && !tournament.enableMeanComodin) {
       return NextResponse.json({ error: "El comodín de media está deshabilitado en este torneo" }, { status: 400 });
     }
@@ -227,7 +224,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "No puedes ser tu propio suplente" }, { status: 400 });
     }
 
-    // Verificar que el suplente existe y está inscrito en el torneo
+    // Suplente inscrito en torneo
     const tpSub = await prisma.tournamentPlayer.findFirst({
       where: { playerId: substitutePlayerId, tournamentId: round.tournamentId },
       include: { player: { select: { name: true } } },
@@ -236,7 +233,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "El suplente no está inscrito en este torneo" }, { status: 400 });
     }
 
-    // El suplente no puede haber usado su comodín (comparado con límite del torneo)
+    // Suplente no debe haber alcanzado su propio límite de comodines del torneo
     if ((tpSub.comodinesUsed ?? 0) >= tournament.maxComodinesPerPlayer) {
       return NextResponse.json(
         { error: `${tpSub.player.name} ya ha usado su comodín en este torneo y no puede ser suplente` },
@@ -244,36 +241,64 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Suplente debe estar en la misma ronda, en grupo inferior
+    // Suplente debe pertenecer a esta ronda (con nivel)
     const gpSub = await prisma.groupPlayer.findFirst({
       where: { playerId: substitutePlayerId, group: { roundId } },
       include: {
-        group: { select: { number: true, round: { select: { tournamentId: true } } } },
+        group: { select: { id: true, number: true, level: true } },
         player: { select: { name: true } },
       },
     });
-    if (!gpSub) {
-      return NextResponse.json({ error: "El suplente debe estar en esta misma ronda" }, { status: 400 });
-    }
+    if (!gpSub) return NextResponse.json({ error: "El suplente debe estar en esta misma ronda" }, { status: 400 });
     if (gpSub.usedComodin) {
       return NextResponse.json(
         { error: `${gpSub.player.name} ya ha usado comodín en esta ronda y no puede ser suplente` },
         { status: 400 }
       );
     }
-    if (!gp.group?.number || !gpSub.group?.number) {
-      return NextResponse.json({ error: "No se pudo determinar el número de grupo" }, { status: 400 });
+    if (
+      gp.group?.number == null ||
+      gp.group?.level == null ||
+      gpSub.group?.number == null ||
+      gpSub.group?.level == null
+    ) {
+      return NextResponse.json({ error: "No se pudo determinar número o nivel de grupo" }, { status: 400 });
     }
-    if (!(gpSub.group.number > gp.group.number)) {
+
+    // === REGLA DE NIVELES ===
+    // ¿El solicitante está en el último grupo? (nivel máximo)
+    const maxGroupLevel = await prisma.group.findFirst({
+      where: { roundId },
+      orderBy: { level: "desc" },
+      select: { level: true },
+    });
+    const isLastGroup = !!maxGroupLevel && gp.group.level === maxGroupLevel.level;
+
+    // Validación:
+    //  - Último grupo: SOLO grupo inmediatamente superior -> level === myLevel - 1
+    //  - Resto: suplente de grupo inferior -> level > myLevel
+    let isValidSubstitution = false;
+    if (isLastGroup) {
+      isValidSubstitution = gpSub.group.level === gp.group.level - 1;
+    } else {
+      isValidSubstitution = gpSub.group.level > gp.group.level;
+    }
+
+    if (!isValidSubstitution) {
+      const direction = isLastGroup ? "superior inmediato" : "inferior";
+      const explanation = isLastGroup
+        ? `${gpSub.player.name} debe estar en el grupo inmediatamente superior al tuyo`
+        : `${gpSub.player.name} debe estar en un grupo inferior al tuyo`;
+
       return NextResponse.json(
         {
-          error: `El suplente debe provenir de un grupo inferior. ${gpSub.player.name} está en grupo ${gpSub.group.number}, tú estás en grupo ${gp.group.number}`,
+          error: `El suplente debe provenir de un grupo ${direction}. ${explanation}. ${gpSub.player.name} está en grupo ${gpSub.group.number}, tú estás en grupo ${gp.group.number}`,
         },
         { status: 400 }
       );
     }
 
-    // Evitar suplente duplicado en la misma ronda
+    // Evitar que ya esté actuando de suplente en esta ronda
     const alreadySubbing = await prisma.groupPlayer.findFirst({
       where: { group: { roundId }, substitutePlayerId },
       include: { player: { select: { name: true } } },
@@ -285,7 +310,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Límite de apariciones del suplente (configurable)
+    // Límite de apariciones del suplente
     const maxApp = tournament.substituteMaxAppearances ?? 2;
     if ((tpSub.substituteAppearances ?? 0) >= maxApp) {
       return NextResponse.json(
@@ -294,7 +319,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // TX: marcar comodín + registrar suplente + limitar apariciones
+    // Transacción: marcar comodín, registrar suplente, contar apariciones
     const subResult = await prisma.$transaction(async (tx) => {
       const tpNow = await tx.tournamentPlayer.findUnique({
         where: { tournamentId_playerId: { tournamentId: round.tournamentId, playerId } },
@@ -308,12 +333,8 @@ export async function POST(request: NextRequest) {
         where: { tournamentId_playerId: { tournamentId: round.tournamentId, playerId: substitutePlayerId } },
         select: { substituteAppearances: true, comodinesUsed: true },
       });
-      if (!tpSubNow) {
-        return { ok: false as const, reason: "SUB_NOT_IN_TOURNAMENT" as const };
-      }
-      if ((tpSubNow.substituteAppearances ?? 0) >= maxApp) {
-        return { ok: false as const, reason: "SUB_LIMIT_REACHED" as const };
-      }
+      if (!tpSubNow) return { ok: false as const, reason: "SUB_NOT_IN_TOURNAMENT" as const };
+      if ((tpSubNow.substituteAppearances ?? 0) >= maxApp) return { ok: false as const, reason: "SUB_LIMIT_REACHED" as const };
       if ((tpSubNow.comodinesUsed ?? 0) >= tournament.maxComodinesPerPlayer) {
         return { ok: false as const, reason: "SUB_USED_COMODIN" as const };
       }
@@ -388,26 +409,18 @@ export async function GET(request: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const playerId = (session?.user as any)?.playerId as string | undefined;
-
-    if (!playerId) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    if (!playerId) return NextResponse.json({ error: "No autorizado" }, { status: 401 });
 
     const { searchParams } = new URL(request.url);
     const roundId = searchParams.get("roundId");
-
-    if (!roundId) {
-      return NextResponse.json({ error: "Falta roundId" }, { status: 400 });
-    }
+    if (!roundId) return NextResponse.json({ error: "Falta roundId" }, { status: 400 });
 
     const groupPlayer = await prisma.groupPlayer.findFirst({
       where: { playerId, group: { roundId } },
       include: {
         group: {
           include: {
-            round: {
-              select: { id: true, isClosed: true, tournamentId: true },
-            },
+            round: { select: { id: true, isClosed: true, tournamentId: true } },
             matches: {
               where: {
                 OR: [
@@ -417,12 +430,7 @@ export async function GET(request: NextRequest) {
                   { team2Player2Id: playerId },
                 ],
               },
-              select: {
-                proposedDate: true,
-                acceptedDate: true,
-                status: true,
-                isConfirmed: true,
-              },
+              select: { proposedDate: true, acceptedDate: true, status: true, isConfirmed: true },
             },
           },
         },
@@ -446,17 +454,15 @@ export async function GET(request: NextRequest) {
         enableSubstituteComodin: true,
       },
     });
-    if (!tournament) {
-      return NextResponse.json({ success: false, error: "Torneo no encontrado" }, { status: 404 });
-    }
+    if (!tournament) return NextResponse.json({ success: false, error: "Torneo no encontrado" }, { status: 404 });
 
     const now = new Date();
     const twentyFourHoursFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
     const upcomingMatches = groupPlayer.group.matches.filter(
-      (match) => match.acceptedDate && new Date(match.acceptedDate) <= twentyFourHoursFromNow
+      (m) => m.acceptedDate && new Date(m.acceptedDate) <= twentyFourHoursFromNow
     );
-    const confirmedMatches = groupPlayer.group.matches.filter((match) => match.isConfirmed);
+    const confirmedMatches = groupPlayer.group.matches.filter((m) => m.isConfirmed);
 
     const canRevoke =
       groupPlayer.usedComodin &&
@@ -466,10 +472,7 @@ export async function GET(request: NextRequest) {
 
     if (groupPlayer.usedComodin) {
       const substitutePlayer = groupPlayer.substitutePlayerId
-        ? await prisma.player.findUnique({
-            where: { id: groupPlayer.substitutePlayerId },
-            select: { name: true },
-          })
+        ? await prisma.player.findUnique({ where: { id: groupPlayer.substitutePlayerId }, select: { name: true } })
         : null;
 
       return NextResponse.json({

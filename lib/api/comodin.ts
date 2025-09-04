@@ -1,4 +1,4 @@
-// lib/api/comodin.ts
+// lib/api/comodin.ts - CORRECCIÓN: Usar el endpoint correcto
 // SDK cliente tipado para operaciones de Comodín
 
 export type ComodinMode = "mean" | "substitute";
@@ -24,6 +24,9 @@ export type ComodinStatus = {
     comodinesUsed: number;
     maxComodines: number;
     comodinesRemaining: number;
+    // NUEVOS: configuración del torneo
+    enableMeanComodin?: boolean;
+    enableSubstituteComodin?: boolean;
   };
   groupInfo?: {
     groupNumber: number;
@@ -70,7 +73,8 @@ async function handle<T>(res: Response): Promise<T> {
 
 export const comodinApi = {
   async getStatus(roundId: string): Promise<ComodinStatus> {
-    const res = await fetch(`/api/comodin/status?roundId=${encodeURIComponent(roundId)}`, {
+    // 🔥 CAMBIO CRÍTICO: Usar /api/comodin en lugar de /api/comodin/status
+    const res = await fetch(`/api/comodin?roundId=${encodeURIComponent(roundId)}`, {
       method: "GET",
       headers: { Accept: "application/json" },
       cache: "no-store",

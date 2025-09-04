@@ -19,12 +19,13 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="es">
-      <body className={inter.className}>
+    <html lang="es" suppressHydrationWarning>
+      <body className={inter.className} suppressHydrationWarning>
         <Providers>
           <div className="min-h-screen bg-gray-50">
             <Navigation />
             <main>{children}</main>
+            {/* Mover Toaster al final para evitar problemas de hidratación */}
             <Toaster position="top-center" />
           </div>
         </Providers>

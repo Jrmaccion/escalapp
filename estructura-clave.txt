@@ -35,6 +35,8 @@
 \app\admin\tournaments\[id]\players
 \app\admin\tournaments\[id]\players\manage
 \app\admin\tournaments\[id]\players\manage\page.tsx
+\app\admin\tournaments\[id]\settings
+\app\admin\tournaments\[id]\settings\ComodinSettings.tsx
 \app\admin\tournaments\[id]\TournamentDetailClient.tsx
 \app\admin\tournaments\[id]\TournamentPlayersManager.tsx
 \app\admin\tournaments\create
@@ -113,6 +115,8 @@
 \app\api\tournaments\[id]\activate\route.ts
 \app\api\tournaments\[id]\available-players
 \app\api\tournaments\[id]\available-players\route.ts
+\app\api\tournaments\[id]\comodin-settings
+\app\api\tournaments\[id]\comodin-settings\route.ts
 \app\api\tournaments\[id]\deactivate
 \app\api\tournaments\[id]\deactivate\route.ts
 \app\api\tournaments\[id]\delete-info
@@ -166,7 +170,9 @@
 \components
 \components\admin
 \components\admin\ComodinManagement.tsx
+\components\admin\ComodinSettings.tsx
 \components\Breadcrumbs.tsx
+\components\ClientToaster.tsx
 \components\CloseRoundButton.tsx
 \components\GroupManagementPanel.tsx
 \components\ManualGroupManager.tsx
@@ -220,6 +226,8 @@
 \postcss.config.js
 \prisma
 \prisma\migrations
+\prisma\migrations\20250903210313_update
+\prisma\migrations\20250903210313_update\migration.sql
 \prisma\migrations\migration_lock.toml
 \prisma\prisma
 \prisma\prisma\dev.db

@@ -7,13 +7,55 @@ import { usePathname } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Home, Users, Trophy, Calendar, Settings, LogOut, Menu, X, ChevronDown, Target } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 export default function Navigation() {
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // TODOS LOS HOOKS ANTES DE CUALQUIER RETURN - ORDEN CORRECTO
+  // Evitar hidratación inconsistente
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Cerrar menús al hacer click fuera - MOVIDO ANTES DEL RETURN
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setAdminMenuOpen(false);
+      setMobileMenuOpen(false);
+    };
+
+    if (adminMenuOpen || mobileMenuOpen) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [adminMenuOpen, mobileMenuOpen]);
+
+  // AHORA SÍ: Return condicional DESPUÉS de todos los hooks
+  if (!mounted || status === "loading") {
+    return (
+      <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <Link href="/dashboard" className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">E</span>
+              </div>
+              <span className="text-xl font-bold text-gray-900">Escalapp</span>
+            </Link>
+            <div className="animate-pulse flex space-x-4">
+              <div className="h-4 bg-gray-200 rounded w-20"></div>
+              <div className="h-4 bg-gray-200 rounded w-16"></div>
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
+  }
 
   const isAdmin = session?.user?.isAdmin;
 
@@ -77,7 +119,10 @@ export default function Navigation() {
             {isAdmin && (
               <div className="relative">
                 <button
-                  onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setAdminMenuOpen(!adminMenuOpen);
+                  }}
                   className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
                     pathname.startsWith("/admin")
                       ? "bg-purple-50 text-purple-700 border border-purple-200"
@@ -90,27 +135,24 @@ export default function Navigation() {
                 </button>
 
                 {adminMenuOpen && (
-                  <>
-                    <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
-                      {adminRoutes.map((route) => {
-                        const Icon = route.icon;
-                        return (
-                          <Link
-                            key={route.href}
-                            href={route.href}
-                            className={`block px-4 py-2 text-sm transition-colors flex items-center gap-2 ${
-                              isActiveRoute(route.href) ? "bg-purple-50 text-purple-700" : "text-gray-700 hover:bg-gray-50"
-                            }`}
-                            onClick={() => setAdminMenuOpen(false)}
-                          >
-                            <Icon className="w-4 h-4" />
-                            {route.label}
-                          </Link>
-                        );
-                      })}
-                    </div>
-                    <div className="fixed inset-0 z-40" onClick={() => setAdminMenuOpen(false)} />
-                  </>
+                  <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
+                    {adminRoutes.map((route) => {
+                      const Icon = route.icon;
+                      return (
+                        <Link
+                          key={route.href}
+                          href={route.href}
+                          className={`block px-4 py-2 text-sm transition-colors flex items-center gap-2 ${
+                            isActiveRoute(route.href) ? "bg-purple-50 text-purple-700" : "text-gray-700 hover:bg-gray-50"
+                          }`}
+                          onClick={() => setAdminMenuOpen(false)}
+                        >
+                          <Icon className="w-4 h-4" />
+                          {route.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
                 )}
               </div>
             )}
@@ -129,7 +171,10 @@ export default function Navigation() {
               <span className="hidden sm:inline ml-2">Salir</span>
             </Button>
             <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMobileMenuOpen(!mobileMenuOpen);
+              }}
               className="md:hidden p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-50"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -186,8 +231,6 @@ export default function Navigation() {
           </div>
         )}
       </div>
-
-      {adminMenuOpen && <div className="fixed inset-0 z-40" onClick={() => setAdminMenuOpen(false)} />}
     </nav>
   );
 }

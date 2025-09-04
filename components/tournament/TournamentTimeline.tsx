@@ -1,4 +1,4 @@
-// components/tournament/TournamentTimeline.tsx
+// components/tournament/TournamentTimeline.tsx - ACTUALIZADO CON NUEVA LÓGICA
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -25,13 +25,17 @@ import {
   BarChart3,
   Target,
   Award,
-  Crown
+  Crown,
+  ArrowUp,
+  ArrowDown,
+  ChevronsUp,
+  ChevronsDown
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
-type Movement = "up" | "down" | "stay" | "new" | "absent";
+type Movement = "up" | "down" | "stay" | "new" | "absent" | "up2" | "down2";
 
 type RoundDTO = { 
   number: number; 
@@ -81,7 +85,7 @@ type TimelineAPI = {
 
 type Props = { tournamentId: string };
 
-// Estilos mejorados con iconos
+// ESTILOS ACTUALIZADOS CON NUEVA LÓGICA DE MOVIMIENTOS
 const MOVE_STYLES: Record<Movement, { 
   bg: string; 
   text: string; 
@@ -89,22 +93,25 @@ const MOVE_STYLES: Record<Movement, {
   icon: React.ComponentType<{ className?: string }>; 
   label: string;
   chip: string;
+  description: string;
 }> = {
-  up: { 
+  up2: { 
     bg: "bg-emerald-50", 
     text: "text-emerald-700", 
     border: "border-emerald-200",
-    icon: TrendingUp, 
-    label: "Sube", 
-    chip: "↗️"
+    icon: ChevronsUp, 
+    label: "Sube 2", 
+    chip: "⏫",
+    description: "1° lugar - Sube 2 grupos"
   },
-  down: { 
-    bg: "bg-rose-50", 
-    text: "text-rose-700", 
-    border: "border-rose-200",
-    icon: TrendingDown, 
-    label: "Baja", 
-    chip: "↘️"
+  up: { 
+    bg: "bg-green-50", 
+    text: "text-green-700", 
+    border: "border-green-200",
+    icon: ArrowUp, 
+    label: "Sube 1", 
+    chip: "⬆️",
+    description: "2° lugar - Sube 1 grupo"
   },
   stay: { 
     bg: "bg-blue-50", 
@@ -112,7 +119,26 @@ const MOVE_STYLES: Record<Movement, {
     border: "border-blue-200",
     icon: Minus, 
     label: "Mantiene", 
-    chip: "➡️"
+    chip: "➡️",
+    description: "Permanece en el mismo grupo"
+  },
+  down: { 
+    bg: "bg-orange-50", 
+    text: "text-orange-700", 
+    border: "border-orange-200",
+    icon: ArrowDown, 
+    label: "Baja 1", 
+    chip: "⬇️",
+    description: "3° lugar - Baja 1 grupo"
+  },
+  down2: { 
+    bg: "bg-rose-50", 
+    text: "text-rose-700", 
+    border: "border-rose-200",
+    icon: ChevronsDown, 
+    label: "Baja 2", 
+    chip: "⏬",
+    description: "4° lugar - Baja 2 grupos"
   },
   new: { 
     bg: "bg-amber-50", 
@@ -120,7 +146,8 @@ const MOVE_STYLES: Record<Movement, {
     border: "border-amber-200",
     icon: Star, 
     label: "Nuevo", 
-    chip: "⭐"
+    chip: "⭐",
+    description: "Nuevo jugador en el torneo"
   },
   absent: { 
     bg: "bg-slate-50", 
@@ -128,7 +155,8 @@ const MOVE_STYLES: Record<Movement, {
     border: "border-slate-200",
     icon: UserX, 
     label: "Ausente", 
-    chip: "⚫"
+    chip: "⚫",
+    description: "No participó en esta ronda"
   },
 };
 
@@ -137,6 +165,17 @@ const GROUP_LEVELS = {
   2: { name: "Avanzado", color: "bg-blue-100 text-blue-800 border-blue-300", icon: Medal },
   3: { name: "Intermedio", color: "bg-green-100 text-green-800 border-green-300", icon: Target },
   4: { name: "Desarrollo", color: "bg-purple-100 text-purple-800 border-purple-300", icon: Award },
+};
+
+// FUNCIÓN AUXILIAR PARA DETERMINAR MOVIMIENTO BASADO EN POSICIÓN
+const getMovementFromPosition = (position: number | undefined): Movement => {
+  switch (position) {
+    case 1: return "up2"; // 1° lugar sube 2
+    case 2: return "up";  // 2° lugar sube 1
+    case 3: return "down"; // 3° lugar baja 1
+    case 4: return "down2"; // 4° lugar baja 2
+    default: return "stay"; // Sin posición definida
+  }
 };
 
 export default function TournamentTimeline({ tournamentId }: Props) {
@@ -163,7 +202,22 @@ export default function TournamentTimeline({ tournamentId }: Props) {
           throw new Error(`Error ${res.status}: ${res.statusText}`);
         }
         const json: TimelineAPI = await res.json();
-        setData(json);
+        
+        // PROCESAR DATOS PARA CORREGIR MOVIMIENTOS BASADOS EN POSICIÓN
+        const processedPlayers = json.players.map(player => ({
+          ...player,
+          history: player.history.map(point => ({
+            ...point,
+            movement: point.position 
+              ? getMovementFromPosition(point.position)
+              : (point.movement as Movement)
+          }))
+        }));
+        
+        setData({
+          ...json,
+          players: processedPlayers
+        });
         
         // Establecer rango inicial de rondas (últimas 5 o todas si hay menos)
         if (json.rounds.length > 0) {
@@ -194,11 +248,15 @@ export default function TournamentTimeline({ tournamentId }: Props) {
     return data.players
       .map((p) => {
         const last = p.history.find((h) => h.round === lastRound);
+        const movement = last?.position 
+          ? getMovementFromPosition(last.position)
+          : (last?.movement ?? "absent") as Movement;
+          
         return {
           playerId: p.playerId,
           name: p.name,
           group: last?.group ?? null,
-          movement: (last?.movement ?? "absent") as Movement,
+          movement,
           points: last?.points ?? 0,
           position: last?.position,
           totalPoints: p.totalPoints ?? 0,
@@ -375,6 +433,36 @@ export default function TournamentTimeline({ tournamentId }: Props) {
         </div>
       )}
 
+      {/* NUEVA SECCIÓN: Explicación del sistema de escalera */}
+      <Card className="border-amber-200 bg-amber-50">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-amber-800">
+            <Trophy className="h-5 w-5" />
+            Sistema de Escalera
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div className="flex items-center gap-2 p-2 bg-emerald-100 rounded border border-emerald-200">
+              <ChevronsUp className="h-4 w-4 text-emerald-700" />
+              <span className="font-medium text-emerald-800">1° → Sube 2 grupos</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 bg-green-100 rounded border border-green-200">
+              <ArrowUp className="h-4 w-4 text-green-700" />
+              <span className="font-medium text-green-800">2° → Sube 1 grupo</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 bg-orange-100 rounded border border-orange-200">
+              <ArrowDown className="h-4 w-4 text-orange-700" />
+              <span className="font-medium text-orange-800">3° → Baja 1 grupo</span>
+            </div>
+            <div className="flex items-center gap-2 p-2 bg-rose-100 rounded border border-rose-200">
+              <ChevronsDown className="h-4 w-4 text-rose-700" />
+              <span className="font-medium text-rose-800">4° → Baja 2 grupos</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Tabs defaultValue="board" className="w-full max-w-none">
         <TabsList className="grid w-full grid-cols-3 max-w-md">
           <TabsTrigger value="board" className="flex items-center gap-2">
@@ -433,12 +521,16 @@ export default function TournamentTimeline({ tournamentId }: Props) {
                 </div>
               </div>
 
-              {/* Leyenda de movimientos */}
+              {/* Leyenda de movimientos actualizada */}
               <div className="flex flex-wrap gap-2">
                 {(Object.entries(MOVE_STYLES) as [Movement, typeof MOVE_STYLES[Movement]][]).map(([move, style]) => {
                   const Icon = style.icon;
                   return (
-                    <div key={move} className={cn("flex items-center gap-1 px-2 py-1 rounded text-xs", style.bg, style.text)}>
+                    <div 
+                      key={move} 
+                      className={cn("flex items-center gap-1 px-2 py-1 rounded text-xs", style.bg, style.text)}
+                      title={style.description}
+                    >
                       <Icon className="h-3 w-3" />
                       <span>{style.label}</span>
                     </div>
@@ -485,7 +577,7 @@ export default function TournamentTimeline({ tournamentId }: Props) {
                                     <span className="text-lg font-bold text-muted-foreground">
                                       #{index + 1}
                                     </span>
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-2" title={style.description}>
                                       <MoveIcon className={cn("h-4 w-4", style.text)} />
                                       <span className="text-lg">{style.chip}</span>
                                     </div>
@@ -553,7 +645,7 @@ export default function TournamentTimeline({ tournamentId }: Props) {
           </Card>
         </TabsContent>
 
-        {/* Timeline mejorado */}
+        {/* Timeline con movimientos corregidos */}
         <TabsContent value="timeline" className="mt-6 w-full max-w-none">
           <Card className="shadow-sm border-0 w-full max-w-none">
             <CardHeader className="space-y-4">
@@ -691,7 +783,9 @@ export default function TournamentTimeline({ tournamentId }: Props) {
                       {/* Celdas por ronda */}
                       {visibleRounds.map((round) => {
                         const history = player.history.find(h => h.round === round.number);
-                        const movement = (history?.movement ?? "absent") as Movement;
+                        const movement = history?.position 
+                          ? getMovementFromPosition(history.position)
+                          : (history?.movement ?? "absent") as Movement;
                         const style = MOVE_STYLES[movement];
                         const MoveIcon = style.icon;
                         
@@ -703,7 +797,7 @@ export default function TournamentTimeline({ tournamentId }: Props) {
                               style.bg, style.text,
                               viewMode === "compact" ? "py-2" : "py-3"
                             )}
-                            title={`${player.name} - Ronda ${round.number} - ${style.label}${history?.group ? ` - Grupo ${history.group}` : ""}${history?.points ? ` - ${history.points} pts` : ""}`}
+                            title={`${player.name} - Ronda ${round.number} - ${style.description}${history?.group ? ` - Grupo ${history.group}` : ""}${history?.points ? ` - ${history.points} pts` : ""}`}
                           >
                             {viewMode === "detailed" ? (
                               <>
@@ -713,6 +807,9 @@ export default function TournamentTimeline({ tournamentId }: Props) {
                                 </div>
                                 {history?.points !== undefined && (
                                   <div className="text-xs opacity-75">{history.points}p</div>
+                                )}
+                                {history?.position && (
+                                  <div className="text-xs opacity-75 mt-1">#{history.position}</div>
                                 )}
                               </>
                             ) : (
@@ -734,10 +831,78 @@ export default function TournamentTimeline({ tournamentId }: Props) {
           </Card>
         </TabsContent>
 
-        {/* Nueva pestaña de estadísticas */}
+        {/* Pestaña de estadísticas actualizada */}
         <TabsContent value="stats" className="mt-6">
           <div className="grid gap-6">
-            {/* Estadísticas por grupo */}
+            {/* Estadísticas de movimientos actualizadas */}
+            <Card className="shadow-sm border-0">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-green-600" />
+                  Resumen de Movimientos - Ronda {lastRound}
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Distribución de movimientos según la nueva lógica de escalera
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                  {(Object.entries(MOVE_STYLES) as [Movement, typeof MOVE_STYLES[Movement]][])
+                    .filter(([movement]) => movement !== 'new' && movement !== 'absent') // Solo movimientos activos
+                    .map(([movement, style]) => {
+                      const count = ranking.filter(p => p.movement === movement).length;
+                      const percentage = ranking.length > 0 ? (count / ranking.length * 100) : 0;
+                      const Icon = style.icon;
+
+                      return (
+                        <div key={movement} className={cn("p-4 rounded-lg border text-center", style.bg, style.border)}>
+                          <Icon className={cn("h-6 w-6 mx-auto mb-2", style.text)} />
+                          <div className="text-2xl font-bold">{count}</div>
+                          <div className={cn("text-sm font-medium", style.text)}>{style.label}</div>
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {percentage.toFixed(1)}%
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+
+                {/* Explicación del sistema */}
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                  <h4 className="font-medium text-blue-900 mb-3">Lógica de Movimientos</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-800">
+                    <div>
+                      <p className="font-medium mb-2">Ascensos:</p>
+                      <ul className="space-y-1 text-xs">
+                        <li className="flex items-center gap-2">
+                          <ChevronsUp className="h-3 w-3 text-emerald-600" />
+                          <span>1° lugar sube 2 grupos (si es posible)</span>
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <ArrowUp className="h-3 w-3 text-green-600" />
+                          <span>2° lugar sube 1 grupo</span>
+                        </li>
+                      </ul>
+                    </div>
+                    <div>
+                      <p className="font-medium mb-2">Descensos:</p>
+                      <ul className="space-y-1 text-xs">
+                        <li className="flex items-center gap-2">
+                          <ArrowDown className="h-3 w-3 text-orange-600" />
+                          <span>3° lugar baja 1 grupo</span>
+                        </li>
+                        <li className="flex items-center gap-2">
+                          <ChevronsDown className="h-3 w-3 text-rose-600" />
+                          <span>4° lugar baja 2 grupos (si es posible)</span>
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Resto de las estadísticas existentes */}
             {data.groupStats && data.groupStats.length > 0 && (
               <Card className="shadow-sm border-0">
                 <CardHeader>
@@ -786,7 +951,7 @@ export default function TournamentTimeline({ tournamentId }: Props) {
               </Card>
             )}
 
-            {/* Top performers */}
+            {/* Top performers y progreso del torneo (código existente) */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card className="shadow-sm border-0">
                 <CardHeader>
@@ -859,36 +1024,6 @@ export default function TournamentTimeline({ tournamentId }: Props) {
                 </CardContent>
               </Card>
             </div>
-
-            {/* Estadísticas de movimientos */}
-            <Card className="shadow-sm border-0">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Activity className="h-5 w-5 text-green-600" />
-                  Resumen de Movimientos - Ronda {lastRound}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  {(Object.entries(MOVE_STYLES) as [Movement, typeof MOVE_STYLES[Movement]][]).map(([movement, style]) => {
-                    const count = ranking.filter(p => p.movement === movement).length;
-                    const percentage = ranking.length > 0 ? (count / ranking.length * 100) : 0;
-                    const Icon = style.icon;
-
-                    return (
-                      <div key={movement} className={cn("p-4 rounded-lg border text-center", style.bg, style.border)}>
-                        <Icon className={cn("h-6 w-6 mx-auto mb-2", style.text)} />
-                        <div className="text-2xl font-bold">{count}</div>
-                        <div className={cn("text-sm font-medium", style.text)}>{style.label}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {percentage.toFixed(1)}%
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
 
             {/* Progreso del torneo */}
             <Card className="shadow-sm border-0">

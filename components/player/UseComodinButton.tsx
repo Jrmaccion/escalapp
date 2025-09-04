@@ -1,4 +1,4 @@
-// components/player/UseComodinButton.tsx - VERSIÓN COMPLETADA
+// components/player/UseComodinButton.tsx - VERSIÓN COMPLETADA + refreshTrigger + onActionComplete
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -13,6 +13,10 @@ type Props = {
   roundId: string;
   disabled?: boolean;
   className?: string;
+  /** Nuevo: cuando cambie, el componente recargará el estado desde el backend */
+  refreshTrigger?: number;
+  /** Nuevo: callback tras aplicar o revocar el comodín con éxito */
+  onActionComplete?: () => void;
 };
 
 type EligiblePlayer = {
@@ -21,7 +25,13 @@ type EligiblePlayer = {
   groupNumber: number;
 };
 
-export default function UseComodinButton({ roundId, disabled, className }: Props) {
+export default function UseComodinButton({
+  roundId,
+  disabled,
+  className,
+  refreshTrigger,
+  onActionComplete,
+}: Props) {
   const [status, setStatus] = useState<ComodinStatus | null>(null);
   const [eligiblePlayers, setEligiblePlayers] = useState<EligiblePlayer[]>([]);
   const [loading, setLoading] = useState(false);
@@ -30,8 +40,8 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
   const [message, setMessage] = useState<string | null>(null);
 
   // UI state local
-  const [selectedMode, setSelectedMode] = useState<'mean' | 'substitute'>('mean');
-  const [selectedSubstitute, setSelectedSubstitute] = useState<string>('');
+  const [selectedMode, setSelectedMode] = useState<"mean" | "substitute">("mean");
+  const [selectedSubstitute, setSelectedSubstitute] = useState<string>("");
 
   // Cargar estado del comodín
   const loadStatus = useCallback(async () => {
@@ -41,7 +51,7 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
       const statusData = await comodinApi.getStatus(roundId);
       setStatus(statusData);
     } catch (err: any) {
-      setError(err.message || 'Error al cargar estado del comodín');
+      setError(err.message || "Error al cargar estado del comodín");
       setStatus(null);
     } finally {
       setLoading(false);
@@ -55,7 +65,7 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
       const data = await comodinApi.eligibleSubstitutes(roundId);
       setEligiblePlayers(data.players || []);
     } catch (err: any) {
-      console.warn('Error cargando jugadores elegibles:', err.message);
+      console.warn("Error cargando jugadores elegibles:", err.message);
       setEligiblePlayers([]);
     } finally {
       setLoadingPlayers(false);
@@ -65,7 +75,7 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
   // Aplicar comodín
   const applyComodin = async () => {
     if (!canUseMode(selectedMode)) return;
-    if (selectedMode === 'substitute' && !selectedSubstitute) return;
+    if (selectedMode === "substitute" && !selectedSubstitute) return;
 
     try {
       setLoading(true);
@@ -73,16 +83,18 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
       setMessage(null);
 
       let result;
-      if (selectedMode === 'mean') {
+      if (selectedMode === "mean") {
         result = await comodinApi.applyMean(roundId);
       } else {
         result = await comodinApi.applySubstitute(roundId, selectedSubstitute);
       }
 
-      setMessage(result.message || 'Comodín aplicado exitosamente');
+      setMessage(result.message || "Comodín aplicado exitosamente");
       await loadStatus();
+      // Notificar al padre (para refrescar su vista)
+      onActionComplete?.();
     } catch (err: any) {
-      setError(err.message || 'Error al aplicar comodín');
+      setError(err.message || "Error al aplicar comodín");
     } finally {
       setLoading(false);
     }
@@ -96,54 +108,56 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
       setMessage(null);
 
       const result = await comodinApi.revoke(roundId);
-      setMessage(result.message || 'Comodín revocado exitosamente');
+      setMessage(result.message || "Comodín revocado exitosamente");
       await loadStatus();
+      // Notificar al padre (para refrescar su vista)
+      onActionComplete?.();
     } catch (err: any) {
-      setError(err.message || 'Error al revocar comodín');
+      setError(err.message || "Error al revocar comodín");
     } finally {
       setLoading(false);
     }
   };
 
   // Validar si puede usar un modo específico
-  const canUseMode = (mode: 'mean' | 'substitute') => {
+  const canUseMode = (mode: "mean" | "substitute") => {
     if (!status || !status.canUse) return false;
-    
+
     // Si no hay tournamentInfo, asumir que ambos están habilitados (compatibilidad)
     if (!status.tournamentInfo) return true;
-    
+
     // Verificar configuración específica (cuando esté disponible)
-    if (mode === 'mean') {
+    if (mode === "mean") {
       return (status.tournamentInfo as any).enableMeanComodin !== false;
     }
-    
-    if (mode === 'substitute') {
+
+    if (mode === "substitute") {
       return (status.tournamentInfo as any).enableSubstituteComodin !== false;
     }
-    
+
     return true;
   };
 
   // Obtener razón de deshabilitación
-  const getModeDisabledReason = (mode: 'mean' | 'substitute') => {
-    if (!status?.tournamentInfo) return 'Configuración no disponible';
-    
+  const getModeDisabledReason = (mode: "mean" | "substitute") => {
+    if (!status?.tournamentInfo) return "Configuración no disponible";
+
     const tournamentInfo = status.tournamentInfo as any;
-    
-    if (mode === 'mean' && tournamentInfo.enableMeanComodin === false) {
-      return 'El comodín de media está deshabilitado en este torneo';
+
+    if (mode === "mean" && tournamentInfo.enableMeanComodin === false) {
+      return "El comodín de media está deshabilitado en este torneo";
     }
-    
-    if (mode === 'substitute' && tournamentInfo.enableSubstituteComodin === false) {
-      return 'El comodín de sustituto está deshabilitado en este torneo';
+
+    if (mode === "substitute" && tournamentInfo.enableSubstituteComodin === false) {
+      return "El comodín de sustituto está deshabilitado en este torneo";
     }
-    
+
     return null;
   };
 
   // Cargar jugadores elegibles cuando se selecciona modo sustituto
   useEffect(() => {
-    if (selectedMode === 'substitute' && !status?.used && canUseMode('substitute')) {
+    if (selectedMode === "substitute" && !status?.used && canUseMode("substitute")) {
       loadEligiblePlayers();
     }
   }, [selectedMode, status?.used, loadEligiblePlayers]);
@@ -151,10 +165,10 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
   // Auto-seleccionar modo válido disponible
   useEffect(() => {
     if (status && !status.used) {
-      if (selectedMode === 'mean' && !canUseMode('mean') && canUseMode('substitute')) {
-        setSelectedMode('substitute');
-      } else if (selectedMode === 'substitute' && !canUseMode('substitute') && canUseMode('mean')) {
-        setSelectedMode('mean');
+      if (selectedMode === "mean" && !canUseMode("mean") && canUseMode("substitute")) {
+        setSelectedMode("substitute");
+      } else if (selectedMode === "substitute" && !canUseMode("substitute") && canUseMode("mean")) {
+        setSelectedMode("mean");
       }
     }
   }, [status, selectedMode]);
@@ -165,6 +179,14 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
       loadStatus();
     }
   }, [roundId, loadStatus]);
+
+  // NUEVO: re-cargar estado si cambia refreshTrigger (forzado desde el padre)
+  useEffect(() => {
+    if (refreshTrigger !== undefined) {
+      // no necesitamos esperar, pero protegemos por roundId
+      if (roundId) void loadStatus();
+    }
+  }, [refreshTrigger, roundId, loadStatus]);
 
   // Auto-limpiar mensajes
   useEffect(() => {
@@ -177,11 +199,11 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
     }
   }, [message, error]);
 
-  const handleModeChange = (mode: 'mean' | 'substitute') => {
+  const handleModeChange = (mode: "mean" | "substitute") => {
     if (canUseMode(mode)) {
       setSelectedMode(mode);
-      if (mode === 'mean') {
-        setSelectedSubstitute('');
+      if (mode === "mean") {
+        setSelectedSubstitute("");
       }
     }
   };
@@ -213,9 +235,7 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
   if (!status) {
     return (
       <Card className={`p-4 ${className}`}>
-        <div className="text-sm text-gray-500">
-          No se pudo determinar el estado del comodín para esta ronda.
-        </div>
+        <div className="text-sm text-gray-500">No se pudo determinar el estado del comodín para esta ronda.</div>
       </Card>
     );
   }
@@ -242,20 +262,24 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
               </Button>
             )}
           </div>
-          
+
           <div className="text-sm text-gray-700 space-y-1">
-            <p><strong>Modo:</strong> {status.mode === 'mean' ? 'Media del grupo' : 'Sustituto'}</p>
-            {status.mode === 'substitute' && status.substitutePlayer && (
-              <p><strong>Sustituto:</strong> {status.substitutePlayer}</p>
+            <p>
+              <strong>Modo:</strong> {status.mode === "mean" ? "Media del grupo" : "Sustituto"}
+            </p>
+            {status.mode === "substitute" && status.substitutePlayer && (
+              <p>
+                <strong>Sustituto:</strong> {status.substitutePlayer}
+              </p>
             )}
-            <p><strong>Puntos asignados:</strong> {(status.points || 0).toFixed(1)}</p>
-            {status.appliedAt && (
-              <p><strong>Aplicado:</strong> {new Date(status.appliedAt).toLocaleString('es-ES')}</p>
-            )}
+            <p>
+              <strong>Puntos asignados:</strong> {(status.points || 0).toFixed(1)}
+            </p>
+            {status.appliedAt && <p><strong>Aplicado:</strong> {new Date(status.appliedAt).toLocaleString("es-ES")}</p>}
           </div>
-          
+
           {status.reason && (
-            <div className="text-xs bg-white p-2 rounded border-l-2 border-green-400 text-green-800">
+            <div className="text-xs bg-white p-2 rounded border-l-2 border-green-400 text-green-8 00">
               {status.reason}
             </div>
           )}
@@ -282,17 +306,20 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
             <AlertTriangle className="w-4 h-4" />
             Comodín no disponible
           </h4>
-          
+
           <div className="text-sm text-gray-600">
             {status.restrictionReason && (
               <div className="bg-yellow-50 p-2 rounded border-l-2 border-yellow-400 text-yellow-800">
                 {status.restrictionReason}
               </div>
             )}
-            
+
             {status.tournamentInfo && (
               <div className="mt-2 text-xs bg-blue-50 p-2 rounded">
-                <p>Comodines en este torneo: {status.tournamentInfo.comodinesUsed}/{status.tournamentInfo.maxComodines}</p>
+                <p>
+                  Comodines en este torneo: {status.tournamentInfo.comodinesUsed}/
+                  {status.tournamentInfo.maxComodines}
+                </p>
                 {status.tournamentInfo.comodinesRemaining === 0 && (
                   <p className="text-red-600 font-medium">Has agotado tus comodines disponibles</p>
                 )}
@@ -319,72 +346,67 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
             </Badge>
           )}
         </div>
-        
+
         {/* Selector de modo */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Tipo de comodín</Label>
           <div className="space-y-3">
-            
             {/* Opción de media */}
-            <label className={`flex items-start space-x-3 cursor-pointer p-3 rounded border transition-colors ${
-              canUseMode('mean') 
-                ? 'border-gray-200 hover:bg-gray-50' 
-                : 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
-            }`}>
+            <label
+              className={`flex items-start space-x-3 cursor-pointer p-3 rounded border transition-colors ${
+                canUseMode("mean") ? "border-gray-200 hover:bg-gray-50" : "border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed"
+              }`}
+            >
               <input
                 type="radio"
                 name="comodin-mode"
                 value="mean"
-                checked={selectedMode === 'mean'}
-                onChange={(e) => handleModeChange(e.target.value as 'mean')}
-                disabled={!canUseMode('mean')}
+                checked={selectedMode === "mean"}
+                onChange={(e) => handleModeChange(e.target.value as "mean")}
+                disabled={!canUseMode("mean")}
                 className="mt-1 text-blue-600"
               />
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <BarChart className="w-4 h-4" />
                   <span className="text-sm font-medium">Media del grupo</span>
-                  {!canUseMode('mean') && (
-                    <Badge variant="secondary" className="text-xs">Deshabilitado</Badge>
-                  )}
+                  {!canUseMode("mean") && <Badge variant="secondary" className="text-xs">Deshabilitado</Badge>}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
-                  {canUseMode('mean') 
+                  {canUseMode("mean")
                     ? "Se asigna automáticamente la media del grupo (R1-R2) o tu media personal (desde R3)"
-                    : getModeDisabledReason('mean')
-                  }
+                    : getModeDisabledReason("mean")}
                 </div>
               </div>
             </label>
-            
+
             {/* Opción de sustituto */}
-            <label className={`flex items-start space-x-3 cursor-pointer p-3 rounded border transition-colors ${
-              canUseMode('substitute') 
-                ? 'border-gray-200 hover:bg-gray-50' 
-                : 'border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed'
-            }`}>
+            <label
+              className={`flex items-start space-x-3 cursor-pointer p-3 rounded border transition-colors ${
+                canUseMode("substitute")
+                  ? "border-gray-200 hover:bg-gray-50"
+                  : "border-gray-100 bg-gray-50 opacity-60 cursor-not-allowed"
+              }`}
+            >
               <input
                 type="radio"
                 name="comodin-mode"
                 value="substitute"
-                checked={selectedMode === 'substitute'}
-                onChange={(e) => handleModeChange(e.target.value as 'substitute')}
-                disabled={!canUseMode('substitute')}
+                checked={selectedMode === "substitute"}
+                onChange={(e) => handleModeChange(e.target.value as "substitute")}
+                disabled={!canUseMode("substitute")}
                 className="mt-1 text-blue-600"
               />
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4" />
                   <span className="text-sm font-medium">Jugador sustituto</span>
-                  {!canUseMode('substitute') && (
-                    <Badge variant="secondary" className="text-xs">Deshabilitado</Badge>
-                  )}
+                  {!canUseMode("substitute") && <Badge variant="secondary" className="text-xs">Deshabilitado</Badge>}
                 </div>
                 <div className="text-xs text-gray-500 mt-1">
-                  {canUseMode('substitute') 
+                  {canUseMode("substitute")
                     ? "Un jugador de grupo inferior juega por ti. Los puntos se te asignan a ti y el suplente recibe crédito Ironman"
-                    : getModeDisabledReason('substitute')
-                  }
+                    : getModeDisabledReason("substitute")}
                 </div>
               </div>
             </label>
@@ -392,13 +414,11 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
         </div>
 
         {/* Selector de sustituto */}
-        {selectedMode === 'substitute' && canUseMode('substitute') && (
+        {selectedMode === "substitute" && canUseMode("substitute") && (
           <div className="space-y-2">
             <Label className="text-sm font-medium">Seleccionar sustituto</Label>
             {loadingPlayers ? (
-              <div className="text-sm text-gray-500 p-2 bg-gray-50 rounded">
-                Cargando jugadores disponibles...
-              </div>
+              <div className="text-sm text-gray-500 p-2 bg-gray-50 rounded">Cargando jugadores disponibles...</div>
             ) : eligiblePlayers.length > 0 ? (
               <select
                 value={selectedSubstitute}
@@ -423,10 +443,10 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
         {/* Información contextual */}
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
           <h5 className="font-medium text-blue-900 text-sm mb-2">
-            {selectedMode === 'mean' ? 'Información sobre media' : 'Información sobre sustituto'}
+            {selectedMode === "mean" ? "Información sobre media" : "Información sobre sustituto"}
           </h5>
           <div className="text-xs text-blue-700 space-y-1">
-            {selectedMode === 'mean' ? (
+            {selectedMode === "mean" ? (
               <>
                 <p>• Se calcula automáticamente basado en tu historial</p>
                 <p>• No cuenta como ronda jugada para el ranking oficial</p>
@@ -469,36 +489,30 @@ export default function UseComodinButton({ roundId, disabled, className }: Props
           type="button"
           onClick={applyComodin}
           disabled={
-            disabled || 
-            loading || 
+            disabled ||
+            loading ||
             !canUseMode(selectedMode) ||
-            (selectedMode === 'substitute' && (!selectedSubstitute || eligiblePlayers.length === 0))
+            (selectedMode === "substitute" && (!selectedSubstitute || eligiblePlayers.length === 0))
           }
           className="w-full"
         >
-          {loading ? (
-            "Aplicando..."
-          ) : !canUseMode(selectedMode) ? (
-            `${selectedMode === 'mean' ? 'Media' : 'Sustituto'} deshabilitado`
-          ) : selectedMode === 'mean' ? (
-            "Usar comodín (Media)"
-          ) : (
-            selectedSubstitute ? 
-              `Usar comodín con ${eligiblePlayers.find(p => p.id === selectedSubstitute)?.name}` :
-              "Seleccionar sustituto"
-          )}
+          {loading
+            ? "Aplicando..."
+            : !canUseMode(selectedMode)
+            ? `${selectedMode === "mean" ? "Media" : "Sustituto"} deshabilitado`
+            : selectedMode === "mean"
+            ? "Usar comodín (Media)"
+            : selectedSubstitute
+            ? `Usar comodín con ${eligiblePlayers.find((p) => p.id === selectedSubstitute)?.name}`
+            : "Seleccionar sustituto"}
         </Button>
 
         {/* Mensajes de estado */}
         {message && (
-          <div className="text-sm text-green-700 bg-green-50 p-3 rounded border-l-2 border-green-400">
-            {message}
-          </div>
+          <div className="text-sm text-green-700 bg-green-50 p-3 rounded border-l-2 border-green-400">{message}</div>
         )}
         {error && (
-          <div className="text-sm text-red-600 bg-red-50 p-3 rounded border-l-2 border-red-400">
-            {error}
-          </div>
+          <div className="text-sm text-red-600 bg-red-50 p-3 rounded border-l-2 border-red-400">{error}</div>
         )}
       </div>
     </Card>
