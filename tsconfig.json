@@ -32,10 +32,13 @@
   "include": [
     "next-env.d.ts",
     "**/*.ts",
-    "**/*.tsx",
+    "**/*.tsx"
+    // Eliminado: ".next/types/**/*.ts"
+    ,
     ".next/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    ".next" // Evita que el TS Server mire dentro de .next
   ]
 }

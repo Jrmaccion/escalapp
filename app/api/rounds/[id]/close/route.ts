@@ -1,4 +1,4 @@
-// app/api/rounds/[id]/close/route.ts
+// app/api/rounds/[id]/close/route.ts - CORREGIDO CON CAMPOS CONTINUITY
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -8,6 +8,7 @@ import {
   generateNextRoundFromMovements,
   GROUP_SIZE,
 } from "@/lib/rounds";
+import { processContinuityStreaksForRound } from "@/lib/streak-calculator";
 
 type ClosePayload = {
   generateNext?: boolean;
@@ -31,7 +32,21 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   try {
     const round = await prisma.round.findUnique({
       where: { id: roundId },
-      include: { tournament: { select: { id: true, title: true } } },
+      include: { 
+        tournament: { 
+          select: { 
+            id: true, 
+            title: true,
+            // ✅ CORREGIDO: Usando campos correctos de la DB
+            continuityEnabled: true,
+            continuityPointsPerSet: true,
+            continuityPointsPerRound: true,
+            continuityMinRounds: true,
+            continuityMaxBonus: true,
+            continuityMode: true,
+          } 
+        } 
+      },
     });
 
     if (!round) {
@@ -53,7 +68,29 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
     }
 
-    // Cerrar
+    // === CALCULAR RACHAS DE CONTINUIDAD ANTES DE CERRAR ===
+    let streakMessage = "";
+    if (round.tournament.continuityEnabled) {
+      try {
+        // ✅ CORREGIDO: Mapeo directo a nueva interfaz
+        const continuityConfig = {
+          continuityEnabled: round.tournament.continuityEnabled,
+          continuityPointsPerSet: round.tournament.continuityPointsPerSet,
+          continuityPointsPerRound: round.tournament.continuityPointsPerRound,
+          continuityMinRounds: round.tournament.continuityMinRounds,
+          continuityMaxBonus: round.tournament.continuityMaxBonus,
+          continuityMode: round.tournament.continuityMode as "SETS" | "MATCHES" | "BOTH",
+        };
+
+        await processContinuityStreaksForRound(roundId, continuityConfig);
+        streakMessage = " - Rachas de continuidad aplicadas";
+      } catch (streakError) {
+        console.error("Error procesando rachas de continuidad:", streakError);
+        streakMessage = " - Error en rachas (continuando con cierre)";
+      }
+    }
+
+    // Cerrar la ronda
     await closeRound(round.id);
 
     // Generar siguiente (opcional)
@@ -63,7 +100,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     return NextResponse.json({
       ok: true,
-      message: "Ronda cerrada correctamente",
+      message: `Ronda cerrada correctamente${streakMessage}`,
       roundId: round.id,
       tournamentId: round.tournament.id,
       nextRoundId,

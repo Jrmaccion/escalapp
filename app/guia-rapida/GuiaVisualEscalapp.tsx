@@ -269,20 +269,50 @@ const GuiaVisualEscalapp = () => {
         return (
           <div className="space-y-6">
             <div className="bg-gradient-to-br from-orange-50 to-yellow-50 border border-orange-200 rounded-xl p-6">
-              <h3 className="text-xl font-bold text-orange-900 mb-4">Sistema de Racha</h3>
+              <h3 className="text-xl font-bold text-orange-900 mb-4">Sistema de Rachas de Continuidad</h3>
               <div className="bg-white border border-orange-200 rounded-lg p-4 mb-4">
                 <h4 className="font-semibold text-orange-800 mb-2">¿Cómo Funciona?</h4>
                 <p className="text-sm text-orange-700">
-                  La racha cuenta <strong>rondas consecutivas jugadas</strong> (sin comodín). 
-                  Desde la segunda ronda consecutiva, añade <strong>+2 puntos por set jugado</strong>.
+                  Las rachas de continuidad premian la <strong>participación constante</strong> en el torneo. 
+                  Cuenta rondas consecutivas jugadas (sin usar comodín). Los puntos bonus son <strong>configurables por el admin</strong>.
                 </p>
               </div>
               <StreakVisualization />
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <h4 className="font-semibold text-blue-800 mb-2">🎯 Configuración por Torneo</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-blue-700">
+                  <div>
+                    <div className="font-medium">Por Sets:</div>
+                    <div>X puntos × 3 sets por ronda</div>
+                  </div>
+                  <div>
+                    <div className="font-medium">Por Ronda:</div>
+                    <div>X puntos fijos por ronda</div>
+                  </div>
+                  <div>
+                    <div className="font-medium">Combinado:</div>
+                    <div>Sets + Ronda sumados</div>
+                  </div>
+                  <div>
+                    <div className="font-medium">Límite:</div>
+                    <div>Máximo bonus por ronda</div>
+                  </div>
+                </div>
+              </div>
               <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
                 <h4 className="font-semibold text-yellow-800 mb-2">💡 Ejemplo Práctico</h4>
                 <p className="text-sm text-yellow-700">
-                  Si tienes racha de 2 rondas y juegas los 3 sets → +6 puntos extra (2×3 sets)
+                  Con configuración "3 puntos por ronda": Ronda 1 → 0 bonus | Ronda 2 → +3 pts | Ronda 3 → +3 pts | 
+                  Usa comodín → 0 pts y se resetea | Vuelve a participar → 0 pts (primera después del reset)
                 </p>
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                <h4 className="font-semibold text-red-800 mb-2">⚠️ Se Rompe La Racha Si:</h4>
+                <ul className="text-sm text-red-700 space-y-1">
+                  <li>• No participas en una ronda</li>
+                  <li>• Usas cualquier tipo de comodín</li>
+                  <li>• Quedas fuera por falta de jugadores (grupos de 4)</li>
+                </ul>
               </div>
             </div>
           </div>

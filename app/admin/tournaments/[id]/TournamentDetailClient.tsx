@@ -1,7 +1,7 @@
-// app/admin/tournaments/[id]/TournamentDetailClient.tsx - CORREGIDO + GUARD CLAUSE SSR
+// app/admin/tournaments/[id]/TournamentDetailClient.tsx - CORREGIDO SIN ERRORES DE HIDRATACIÓN
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useEffect } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,10 +22,12 @@ import {
   Zap,
   RefreshCw,
 } from "lucide-react";
-// CORRECCIÓN: Importación correcta del TournamentPlayersManager
+// Importaciones de gestión
 import TournamentPlayersManager from "./TournamentPlayersManager";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
 import ComodinSettings from "@/components/admin/ComodinSettings";
+// Configuración de rachas
+import StreakSettings from "@/components/admin/StreakSettings";
 
 /* ========================= Tipos ========================= */
 type SerializedTournament = {
@@ -86,7 +88,7 @@ type Stats = {
 };
 
 /* =============================================================================
- * Componente principal CON VALIDACIÓN DEFENSIVA
+ * Componente principal
  * =========================================================================== */
 export default function TournamentDetailClient({
   tournament,
@@ -99,15 +101,16 @@ export default function TournamentDetailClient({
   players?: SerializedPlayer[];
   stats?: Stats;
 }) {
-  // Agrega estas validaciones al inicio de componentes problemáticos
-  if (typeof window === "undefined") {
-    return null; // No renderizar en servidor para componentes puramente cliente
-  }
-
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isClient, setIsClient] = useState(false);
 
-  // VALIDACIÓN DEFENSIVA: Si no hay datos esenciales, mostrar loading
+  // ✅ CORREGIDO: Usar useEffect para operaciones de cliente
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+
+  // Fallbacks seguros que son consistentes en servidor y cliente
   if (!tournament) {
     return (
       <div className="space-y-6">
@@ -121,7 +124,6 @@ export default function TournamentDetailClient({
     );
   }
 
-  // Valores por defecto seguros
   const safeRounds = rounds || [];
   const safePlayers = players || [];
   const safeStats = stats || {
@@ -135,11 +137,9 @@ export default function TournamentDetailClient({
     averagePlayersPerRound: 0,
   };
 
-  // Pestañas principales
-  type TabId = "overview" | "rounds" | "players" | "comodines" | "settings";
+  type TabId = "overview" | "rounds" | "players" | "comodines" | "rachas" | "settings";
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
-  // Ronda seleccionada para gestión (versión defensiva)
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() => {
     if (!safeRounds || safeRounds.length === 0) return null;
     return safeRounds.find((r) => !r.isClosed)?.id ?? safeRounds[0]?.id ?? null;
@@ -198,16 +198,27 @@ export default function TournamentDetailClient({
     });
   };
 
-  // Formatear fechas
-  const formatDate = (dateStr: string) =>
-    new Date(dateStr).toLocaleDateString("es-ES", {
+  // ✅ CORREGIDO: Formateo de fechas consistente
+  const formatDate = (dateStr: string) => {
+    if (!isClient) {
+      // En el servidor, usar formato simple que no dependa de zona horaria
+      return new Date(dateStr).toISOString().split('T')[0];
+    }
+    // En el cliente, usar formato localizado
+    return new Date(dateStr).toLocaleDateString("es-ES", {
       day: "numeric",
       month: "short",
       year: "numeric",
     });
+  };
 
   const getRoundStatus = (round: SerializedRound) => {
     if (round.isClosed) return { label: "Cerrada", variant: "secondary" as const };
+
+    if (!isClient) {
+      // En el servidor, evitar comparaciones de fecha que pueden variar
+      return { label: "En curso", variant: "default" as const };
+    }
 
     const now = new Date();
     const start = new Date(round.startDate);
@@ -220,7 +231,7 @@ export default function TournamentDetailClient({
 
   return (
     <div className="space-y-6">
-      {/* Header con estadísticas principales - VERSIÓN DEFENSIVA */}
+      {/* Header con KPIs */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4">
@@ -288,11 +299,12 @@ export default function TournamentDetailClient({
         </CardHeader>
         <CardContent>
           <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
-            <TabsList className="grid w-full grid-cols-5">
+            <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="overview">Resumen</TabsTrigger>
               <TabsTrigger value="rounds">Rondas</TabsTrigger>
               <TabsTrigger value="players">Jugadores</TabsTrigger>
               <TabsTrigger value="comodines">Comodines</TabsTrigger>
+              <TabsTrigger value="rachas">Rachas</TabsTrigger>
               <TabsTrigger value="settings">Configuración</TabsTrigger>
             </TabsList>
 
@@ -446,7 +458,7 @@ export default function TournamentDetailClient({
                 </CardContent>
               </Card>
 
-              {/* Panel de gestión de grupos de la ronda seleccionada */}
+              {/* Panel de gestión de grupos */}
               {selectedRound && (
                 <GroupManagementPanel
                   roundId={selectedRound.id}
@@ -463,7 +475,7 @@ export default function TournamentDetailClient({
                 />
               )}
 
-              {/* Lista completa de rondas */}
+              {/* Tabla de rondas */}
               <Card>
                 <CardHeader>
                   <CardTitle>Todas las Rondas</CardTitle>
@@ -618,6 +630,22 @@ export default function TournamentDetailClient({
                   </div>
                 </CardContent>
               </Card>
+            </TabsContent>
+
+            {/* =================== PESTAÑA: RACHAS =================== */}
+            <TabsContent value="rachas" className="space-y-6 mt-6">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Rachas de Continuidad</h2>
+                <p className="text-gray-600">Configuración de bonificaciones por participación consecutiva</p>
+              </div>
+
+              <StreakSettings
+                tournamentId={tournament.id}
+                tournamentName={tournament.title}
+                onSettingsChanged={() => {
+                  router.refresh();
+                }}
+              />
             </TabsContent>
 
             {/* =================== PESTAÑA: CONFIGURACIÓN =================== */}

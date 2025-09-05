@@ -128,6 +128,8 @@
 \app\api\tournaments\[id]\players\[playerId]\route.ts
 \app\api\tournaments\[id]\players\route.ts
 \app\api\tournaments\[id]\route.ts
+\app\api\tournaments\[id]\streak-settings
+\app\api\tournaments\[id]\streak-settings\route.ts
 \app\api\tournaments\[id]\timeline
 \app\api\tournaments\[id]\timeline\route.ts
 \app\api\tournaments\route.ts
@@ -151,6 +153,7 @@
 \app\diag\page.tsx
 \app\globals.css
 \app\guia-rapida
+\app\guia-rapida\GuiaVisualEscalapp.tsx
 \app\guia-rapida\page.tsx
 \app\historial
 \app\historial\HistorialClient.tsx
@@ -173,6 +176,7 @@
 \components\admin
 \components\admin\ComodinManagement.tsx
 \components\admin\ComodinSettings.tsx
+\components\admin\StreakSettings.tsx
 \components\Breadcrumbs.tsx
 \components\ClientToaster.tsx
 \components\CloseRoundButton.tsx
@@ -217,6 +221,7 @@
 \lib\prisma.ts
 \lib\ranking.ts
 \lib\rounds.ts
+\lib\streak-calculator.ts
 \lib\tournament-engine.ts
 \lib\utils.ts
 \lib\validators.ts
@@ -230,6 +235,8 @@
 \prisma\migrations
 \prisma\migrations\20250903210313_update
 \prisma\migrations\20250903210313_update\migration.sql
+\prisma\migrations\20250905135603_streak_config_fields
+\prisma\migrations\20250905135603_streak_config_fields\migration.sql
 \prisma\migrations\migration_lock.toml
 \prisma\prisma
 \prisma\prisma\dev.db
