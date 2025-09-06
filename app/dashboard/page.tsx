@@ -32,6 +32,9 @@ export default async function DashboardPage() {
 
   const isAdmin = !!session.user?.isAdmin;
 
+  // 👇 Ruta segura para el card "Resultados"
+  const resultsHref = isAdmin ? "/admin/results" : "/dashboard";
+
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto space-y-8">
       <Breadcrumbs />
@@ -79,7 +82,8 @@ export default async function DashboardPage() {
         </Card>
 
         <Card className="hover:bg-muted/40 transition-colors border-green-200 bg-green-50/50">
-          <Link href="/resultados/pendientes" className="block">
+          {/* 👇 Antes era "/resultados/pendientes" (causaba 404) */}
+          <Link href={resultsHref} className="block">
             <CardHeader>
               <div className="flex items-center gap-2">
                 <ListChecks className="w-5 h-5 text-green-600" />
