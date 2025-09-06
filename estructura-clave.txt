@@ -29,6 +29,8 @@
 \app\admin\rounds\[id]\RoundDetailClient.tsx
 \app\admin\rounds\page.tsx
 \app\admin\rounds\RoundsClient.tsx
+\app\admin\settings
+\app\admin\settings\page.tsx
 \app\admin\tournaments
 \app\admin\tournaments\[id]
 \app\admin\tournaments\[id]\page.tsx
@@ -92,6 +94,8 @@
 \app\api\player\historial\route.ts
 \app\api\rankings
 \app\api\rankings\route.ts
+\app\api\results
+\app\api\results\route.ts
 \app\api\rounds
 \app\api\rounds\[id]
 \app\api\rounds\[id]\close

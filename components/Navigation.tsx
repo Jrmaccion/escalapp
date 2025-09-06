@@ -1,4 +1,4 @@
-// components/Navigation.tsx
+// components/Navigation.tsx - Versión con soporte para página pública
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
@@ -17,7 +17,9 @@ import {
   X,
   ChevronDown,
   Target,
-  BookOpen, // 👈 añadido para Guía rápida
+  BookOpen,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -46,8 +48,114 @@ export default function Navigation() {
     }
   }, [adminMenuOpen, mobileMenuOpen]);
 
-  // Carga esquelética mientras session/hidratación
-  if (!mounted || status === "loading") {
+  const isPublicPage = pathname === "/";
+
+  // Para páginas públicas, mostrar navegación simplificada inmediatamente
+  if (!mounted) {
+    return (
+      <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <Link href="/" className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">E</span>
+              </div>
+              <span className="text-xl font-bold text-gray-900">Escalapp</span>
+            </Link>
+            <div className="flex items-center space-x-4">
+              <div className="h-4 bg-gray-200 rounded w-20 animate-pulse"></div>
+            </div>
+          </div>
+        </div>
+      </nav>
+    );
+  }
+
+  // Navegación para página pública (sin sesión)
+  if (isPublicPage || (!session && status !== "loading")) {
+    return (
+      <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <Link href="/" className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+                <span className="text-white font-bold text-sm">E</span>
+              </div>
+              <span className="text-xl font-bold text-gray-900">Escalapp</span>
+            </Link>
+
+            {/* Desktop - Public */}
+            <div className="hidden md:flex items-center space-x-4">
+              <Link href="/clasificaciones">
+                <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
+                  <Trophy className="w-4 h-4 mr-2" />
+                  Rankings
+                </Button>
+              </Link>
+              <Link href="/auth/login">
+                <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
+                  <LogIn className="w-4 h-4 mr-2" />
+                  Iniciar Sesión
+                </Button>
+              </Link>
+              <Link href="/auth/register">
+                <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                  <UserPlus className="w-4 h-4 mr-2" />
+                  Registrarse
+                </Button>
+              </Link>
+            </div>
+
+            {/* Mobile toggle - Public */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setMobileMenuOpen(!mobileMenuOpen);
+              }}
+              className="md:hidden p-2 rounded-md text-gray-600 hover:text-gray-900 hover:bg-gray-50"
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
+
+          {/* Mobile menu - Public */}
+          {mobileMenuOpen && (
+            <div className="md:hidden border-t border-gray-200 bg-white">
+              <div className="px-2 pt-2 pb-3 space-y-1">
+                <Link
+                  href="/clasificaciones"
+                  className="block px-3 py-2 rounded-md text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-3"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <Trophy className="w-5 h-5" />
+                  Rankings Públicos
+                </Link>
+                <Link
+                  href="/auth/login"
+                  className="block px-3 py-2 rounded-md text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-gray-50 flex items-center gap-3"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <LogIn className="w-5 h-5" />
+                  Iniciar Sesión
+                </Link>
+                <Link
+                  href="/auth/register"
+                  className="block px-3 py-2 rounded-md text-base font-medium bg-blue-600 text-white hover:bg-blue-700 flex items-center gap-3"
+                  onClick={() => setMobileMenuOpen(false)}
+                >
+                  <UserPlus className="w-5 h-5" />
+                  Registrarse
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      </nav>
+    );
+  }
+
+  // Carga esquelética mientras session/hidratación para usuarios logueados
+  if (status === "loading") {
     return (
       <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -68,6 +176,7 @@ export default function Navigation() {
     );
   }
 
+  // Navegación para usuarios logueados (código original)
   const isAdmin = session?.user?.isAdmin;
 
   const playerRoutes = [
@@ -76,7 +185,6 @@ export default function Navigation() {
     { href: "/mi-grupo", label: "Mi Grupo", icon: Users },
     { href: "/clasificaciones", label: "Rankings", icon: Trophy },
     { href: "/historial", label: "Historial", icon: Calendar },
-    // 👇 Nueva entrada de ayuda / guía
     { href: "/guia-rapida", label: "Guía rápida", icon: BookOpen },
   ] as const;
 
@@ -184,7 +292,7 @@ export default function Navigation() {
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => signOut({ callbackUrl: "/auth/login" })}
+              onClick={() => signOut({ callbackUrl: "/" })}
               className="text-gray-600 hover:text-gray-900"
             >
               <LogOut className="w-4 h-4" />

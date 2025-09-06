@@ -1,7 +1,9 @@
+// components/Breadcrumbs.tsx - Compatible con páginas públicas
 "use client";
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { ChevronRight, Home } from "lucide-react";
 
 type BreadcrumbItem = {
@@ -16,12 +18,24 @@ type BreadcrumbsProps = {
 
 export default function Breadcrumbs({ items }: BreadcrumbsProps) {
   const pathname = usePathname();
+  const { data: session } = useSession();
+
+  // No mostrar breadcrumbs en páginas públicas
+  if (pathname === "/" || !session) {
+    return null;
+  }
 
   // Generar breadcrumbs automáticamente si no se proporcionan
   const generateBreadcrumbs = (): BreadcrumbItem[] => {
     const segments = pathname.split('/').filter(Boolean);
+    const isAdmin = session?.user?.isAdmin;
+    
+    // Punto de inicio basado en el tipo de usuario
     const breadcrumbs: BreadcrumbItem[] = [
-      { label: 'Inicio', href: '/dashboard' }
+      { 
+        label: 'Inicio', 
+        href: isAdmin && pathname.startsWith('/admin') ? '/admin' : '/dashboard' 
+      }
     ];
 
     let currentPath = '';
@@ -41,7 +55,8 @@ export default function Breadcrumbs({ items }: BreadcrumbsProps) {
         'mi-grupo': 'Mi Grupo',
         'clasificaciones': 'Clasificaciones',
         'historial': 'Historial',
-        'match': 'Partido'
+        'match': 'Partido',
+        'guia-rapida': 'Guía Rápida'
       };
 
       const label = routeNames[segment] || segment;

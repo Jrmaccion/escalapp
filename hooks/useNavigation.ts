@@ -1,3 +1,4 @@
+// hooks/useNavigation.ts - Compatible con páginas públicas
 import { useRouter, usePathname } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { toast } from 'react-hot-toast';
@@ -5,7 +6,7 @@ import { toast } from 'react-hot-toast';
 export function useNavigation() {
   const router = useRouter();
   const pathname = usePathname();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
 
   const navigateWithLoading = async (path: string, showLoading = true) => {
     if (showLoading) {
@@ -31,11 +32,18 @@ export function useNavigation() {
   const getPageTitle = (path?: string): string => {
     const currentPath = path || pathname;
     
+    // Títulos para páginas públicas
+    if (currentPath === "/" || !session) {
+      return 'Escalapp - Torneos de Pádel';
+    }
+    
     const titles: Record<string, string> = {
       '/dashboard': 'Inicio',
       '/mi-grupo': 'Mi Grupo',
       '/clasificaciones': 'Clasificaciones',
       '/historial': 'Historial',
+      '/guia-rapida': 'Guía Rápida',
+      '/tournaments': 'Torneos',
       '/admin': 'Dashboard Admin',
       '/admin/tournaments': 'Gestión de Torneos',
       '/admin/rounds': 'Gestión de Rondas',
@@ -49,6 +57,12 @@ export function useNavigation() {
 
   const getBreadcrumbItems = (path?: string) => {
     const currentPath = path || pathname;
+    
+    // No generar breadcrumbs para páginas públicas
+    if (currentPath === "/" || !session) {
+      return [];
+    }
+    
     const segments = currentPath.split('/').filter(Boolean);
     
     type BreadcrumbItem = {
@@ -57,8 +71,12 @@ export function useNavigation() {
       current?: boolean;
     };
     
+    const isAdmin = session?.user?.isAdmin;
     const items: BreadcrumbItem[] = [
-      { label: 'Inicio', href: '/dashboard' }
+      { 
+        label: 'Inicio', 
+        href: isAdmin && currentPath.startsWith('/admin') ? '/admin' : '/dashboard' 
+      }
     ];
 
     let buildPath = '';
@@ -76,6 +94,10 @@ export function useNavigation() {
         'mi-grupo': 'Mi Grupo',
         'clasificaciones': 'Clasificaciones',
         'historial': 'Historial',
+        'guia-rapida': 'Guía Rápida',
+        'create': 'Crear',
+        'manage': 'Gestionar',
+        'settings': 'Configuración'
       };
 
       const label = routeNames[segment] || segment;
@@ -91,6 +113,30 @@ export function useNavigation() {
     return items;
   };
 
+  // Función segura para obtener datos del usuario
+  const getUserInfo = () => {
+    if (status === "loading") {
+      return {
+        isLoading: true,
+        isLoggedIn: false,
+        user: null,
+        isAdmin: false
+      };
+    }
+
+    return {
+      isLoading: false,
+      isLoggedIn: !!session,
+      user: session?.user || null,
+      isAdmin: session?.user?.isAdmin || false
+    };
+  };
+
+  // Función para verificar si estamos en página pública
+  const isPublicPage = () => {
+    return pathname === "/" || (!session && status !== "loading");
+  };
+
   return {
     router,
     pathname,
@@ -98,7 +144,11 @@ export function useNavigation() {
     canAccessAdminRoutes,
     getPageTitle,
     getBreadcrumbItems,
-    isAdmin: session?.user?.isAdmin,
-    user: session?.user
+    getUserInfo,
+    isPublicPage,
+    // Propiedades directas (mantener compatibilidad)
+    isAdmin: session?.user?.isAdmin || false,
+    user: session?.user || null,
+    isLoading: status === "loading"
   };
 }
