@@ -1,47 +1,64 @@
 // middleware.ts
-import { withAuth } from "next-auth/middleware"
-import { NextResponse } from "next/server"
+import { NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { withAuth } from "next-auth/middleware";
+
+const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "X-XSS-Protection": "1; mode=block",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Content-Security-Policy": [
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com",
+    "style-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com",
+    "img-src 'self' data: https:",
+    "connect-src 'self'",
+    "font-src 'self' https:",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+  ].join("; "),
+};
 
 export default withAuth(
-  function middleware(req) {
-    const token = req.nextauth.token
-    const isAuth = !!token
-    const isAuthPage = req.nextUrl.pathname.startsWith('/auth')
-    const isAdminRoute = req.nextUrl.pathname.startsWith('/admin')
+  function middleware(req: NextRequest) {
+    const { pathname } = req.nextUrl;
+    // Token via withAuth
+    const token: any = (req as any).nextauth?.token;
 
-    // Si está en página de auth y ya autenticado, redirigir a dashboard
-    if (isAuthPage && isAuth) {
-      return NextResponse.redirect(new URL('/dashboard', req.url))
+    // Admin gate
+    if (pathname.startsWith("/admin")) {
+      if (!token || !token.isAdmin) {
+        const url = req.nextUrl.clone();
+        url.pathname = "/auth/login";
+        return NextResponse.redirect(url);
+      }
     }
 
-    // Si no está autenticado y no está en auth, redirigir a login
-    if (!isAuth && !isAuthPage) {
-      return NextResponse.redirect(new URL('/auth/login', req.url))
+    // Evitar que logueados entren a /auth/*
+    if (pathname.startsWith("/auth") && token) {
+      const url = req.nextUrl.clone();
+      url.pathname = "/dashboard";
+      return NextResponse.redirect(url);
     }
 
-    // Si intenta acceder a admin sin permisos
-    if (isAdminRoute && isAuth && !token?.isAdmin) {
-      return NextResponse.redirect(new URL('/dashboard', req.url))
+    const res = NextResponse.next();
+    for (const [k, v] of Object.entries(SECURITY_HEADERS)) {
+      res.headers.set(k, v);
     }
-
-    return NextResponse.next()
+    return res;
   },
   {
     callbacks: {
-      authorized: ({ token, req }) => {
-        // Solo permitir auth pages sin token
-        if (req.nextUrl.pathname.startsWith('/auth')) {
-          return true
-        }
-        // Todo lo demás requiere token
-        return !!token
-      },
+      // Permitimos que pase y validamos dentro
+      authorized: () => true,
     },
   }
-)
+);
 
 export const config = {
   matcher: [
-    '/((?!api/auth|_next/static|_next/image|favicon.ico|uploads|api/health).*)',
-  ]
-}
+    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:css|js|svg|png|jpg|jpeg|gif|webp)$).*)",
+  ],
+};

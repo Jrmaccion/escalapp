@@ -105,7 +105,7 @@ export default function TournamentDetailClient({
   const [isPending, startTransition] = useTransition();
   const [isClient, setIsClient] = useState(false);
 
-  // ✅ CORREGIDO: Usar useEffect para operaciones de cliente
+  // ✅ CORREGIDO: Usar useEffect para operaciones de cliente (evita mismatches de hidratación)
   useEffect(() => {
     setIsClient(true);
   }, []);
@@ -198,13 +198,13 @@ export default function TournamentDetailClient({
     });
   };
 
-  // ✅ CORREGIDO: Formateo de fechas consistente
+  // ✅ CORREGIDO: Formateo de fechas consistente (SSR y primer render del cliente iguales)
   const formatDate = (dateStr: string) => {
     if (!isClient) {
-      // En el servidor, usar formato simple que no dependa de zona horaria
-      return new Date(dateStr).toISOString().split('T')[0];
+      // En el servidor y durante la hidratación en el cliente (primer render), usar formato estable
+      return new Date(dateStr).toISOString().split("T")[0];
     }
-    // En el cliente, usar formato localizado
+    // Tras montar en cliente, podemos usar formato localizado
     return new Date(dateStr).toLocaleDateString("es-ES", {
       day: "numeric",
       month: "short",
@@ -216,7 +216,7 @@ export default function TournamentDetailClient({
     if (round.isClosed) return { label: "Cerrada", variant: "secondary" as const };
 
     if (!isClient) {
-      // En el servidor, evitar comparaciones de fecha que pueden variar
+      // En SSR/primer render, evitar depender de la hora actual para no desincronizar
       return { label: "En curso", variant: "default" as const };
     }
 
@@ -262,7 +262,9 @@ export default function TournamentDetailClient({
             <div className="flex items-center gap-3">
               <Target className="w-8 h-8 text-purple-600" />
               <div>
-                <div className="text-2xl font-bold">{Math.round(safeStats.completionPercentage)}%</div>
+                <div className="text-2xl font-bold">
+                  {Math.round(safeStats.completionPercentage)}%
+                </div>
                 <div className="text-sm text-gray-600">Progreso</div>
               </div>
             </div>
@@ -322,7 +324,9 @@ export default function TournamentDetailClient({
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                       <div>
                         <span className="text-gray-600">Estado:</span>
-                        <div className="font-medium">{getRoundStatus(currentRound).label}</div>
+                        <div className="font-medium">
+                          {getRoundStatus(currentRound).label}
+                        </div>
                       </div>
                       <div>
                         <span className="text-gray-600">Grupos:</span>
@@ -334,12 +338,16 @@ export default function TournamentDetailClient({
                       </div>
                       <div>
                         <span className="text-gray-600">Pendientes:</span>
-                        <div className="font-medium text-orange-600">{currentRound.pendingMatches}</div>
+                        <div className="font-medium text-orange-600">
+                          {currentRound.pendingMatches}
+                        </div>
                       </div>
                     </div>
                     <div className="mt-4">
                       <Button asChild>
-                        <Link href={`/admin/rounds/${currentRound.id}`}>Gestionar Ronda Actual</Link>
+                        <Link href={`/admin/rounds/${currentRound.id}`}>
+                          Gestionar Ronda Actual
+                        </Link>
                       </Button>
                     </div>
                   </CardContent>
@@ -348,7 +356,9 @@ export default function TournamentDetailClient({
                 <Card className="bg-amber-50 border-amber-200">
                   <CardContent className="p-6 text-center">
                     <AlertTriangle className="w-8 h-8 text-amber-600 mx-auto mb-2" />
-                    <p className="text-amber-800 font-medium">No hay rondas configuradas</p>
+                    <p className="text-amber-800 font-medium">
+                      No hay rondas configuradas
+                    </p>
                     <p className="text-sm text-amber-700 mt-1">
                       Configure las rondas del torneo para comenzar
                     </p>
@@ -365,11 +375,15 @@ export default function TournamentDetailClient({
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
                     <div>
                       <span className="text-gray-600">Inicio:</span>
-                      <div className="font-medium">{formatDate(tournament.startDate)}</div>
+                      <div className="font-medium">
+                        {formatDate(tournament.startDate)}
+                      </div>
                     </div>
                     <div>
                       <span className="text-gray-600">Fin:</span>
-                      <div className="font-medium">{formatDate(tournament.endDate)}</div>
+                      <div className="font-medium">
+                        {formatDate(tournament.endDate)}
+                      </div>
                     </div>
                     <div>
                       <span className="text-gray-600">Total rondas:</span>
@@ -377,11 +391,15 @@ export default function TournamentDetailClient({
                     </div>
                     <div>
                       <span className="text-gray-600">Días por ronda:</span>
-                      <div className="font-medium">{tournament.roundDurationDays}</div>
+                      <div className="font-medium">
+                        {tournament.roundDurationDays}
+                      </div>
                     </div>
                     <div>
                       <span className="text-gray-600">Visibilidad:</span>
-                      <div className="font-medium">{tournament.isPublic ? "Público" : "Privado"}</div>
+                      <div className="font-medium">
+                        {tournament.isPublic ? "Público" : "Privado"}
+                      </div>
                     </div>
                     <div>
                       <span className="text-gray-600">Progreso total:</span>
@@ -408,7 +426,9 @@ export default function TournamentDetailClient({
                         return (
                           <Button
                             key={round.id}
-                            variant={round.id === selectedRoundId ? "default" : "outline"}
+                            variant={
+                              round.id === selectedRoundId ? "default" : "outline"
+                            }
                             size="sm"
                             onClick={() => setSelectedRoundId(round.id)}
                             className="flex items-center gap-2"
@@ -421,36 +441,49 @@ export default function TournamentDetailClient({
                         );
                       })
                     ) : (
-                      <div className="text-sm text-gray-500">No hay rondas disponibles.</div>
+                      <div className="text-sm text-gray-500">
+                        No hay rondas disponibles.
+                      </div>
                     )}
                   </div>
 
                   {selectedRound && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">Ronda {selectedRound.number}</h4>
+                        <h4 className="font-medium">
+                          Ronda {selectedRound.number}
+                        </h4>
                         <Button size="sm" asChild>
-                          <Link href={`/admin/rounds/${selectedRound.id}`}>Abrir Vista Completa</Link>
+                          <Link href={`/admin/rounds/${selectedRound.id}`}>
+                            Abrir Vista Completa
+                          </Link>
                         </Button>
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                         <div>
                           <span className="text-gray-600">Fechas:</span>
                           <div>
-                            {formatDate(selectedRound.startDate)} - {formatDate(selectedRound.endDate)}
+                            {formatDate(selectedRound.startDate)} -{" "}
+                            {formatDate(selectedRound.endDate)}
                           </div>
                         </div>
                         <div>
                           <span className="text-gray-600">Grupos:</span>
-                          <div className="font-medium">{selectedRound.groupsCount}</div>
+                          <div className="font-medium">
+                            {selectedRound.groupsCount}
+                          </div>
                         </div>
                         <div>
                           <span className="text-gray-600">Jugadores:</span>
-                          <div className="font-medium">{selectedRound.playersCount}</div>
+                          <div className="font-medium">
+                            {selectedRound.playersCount}
+                          </div>
                         </div>
                         <div>
                           <span className="text-gray-600">Pendientes:</span>
-                          <div className="font-medium text-orange-600">{selectedRound.pendingMatches}</div>
+                          <div className="font-medium text-orange-600">
+                            {selectedRound.pendingMatches}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -500,25 +533,40 @@ export default function TournamentDetailClient({
                             const status = getRoundStatus(round);
                             return (
                               <tr key={round.id} className="hover:bg-gray-50">
-                                <td className="px-3 py-3 font-medium">#{round.number}</td>
+                                <td className="px-3 py-3 font-medium">
+                                  #{round.number}
+                                </td>
                                 <td className="px-3 py-3 text-xs">
-                                  {formatDate(round.startDate)} - {formatDate(round.endDate)}
+                                  {formatDate(round.startDate)} -{" "}
+                                  {formatDate(round.endDate)}
                                 </td>
                                 <td className="px-3 py-3">
                                   <Badge variant={status.variant} className="text-xs">
                                     {status.label}
                                   </Badge>
                                 </td>
-                                <td className="px-3 py-3 text-center">{round.groupsCount}</td>
-                                <td className="px-3 py-3 text-center">{round.matchesCount}</td>
                                 <td className="px-3 py-3 text-center">
-                                  <span className={round.pendingMatches > 0 ? "text-orange-600 font-medium" : ""}>
+                                  {round.groupsCount}
+                                </td>
+                                <td className="px-3 py-3 text-center">
+                                  {round.matchesCount}
+                                </td>
+                                <td className="px-3 py-3 text-center">
+                                  <span
+                                    className={
+                                      round.pendingMatches > 0
+                                        ? "text-orange-600 font-medium"
+                                        : ""
+                                    }
+                                  >
                                     {round.pendingMatches}
                                   </span>
                                 </td>
                                 <td className="px-3 py-3 text-center">
                                   <Button size="sm" variant="outline" asChild>
-                                    <Link href={`/admin/rounds/${round.id}`}>Gestionar</Link>
+                                    <Link href={`/admin/rounds/${round.id}`}>
+                                      Gestionar
+                                    </Link>
                                   </Button>
                                 </td>
                               </tr>
@@ -526,7 +574,10 @@ export default function TournamentDetailClient({
                           })
                         ) : (
                           <tr>
-                            <td className="px-3 py-3 text-sm text-gray-500" colSpan={7}>
+                            <td
+                              className="px-3 py-3 text-sm text-gray-500"
+                              colSpan={7}
+                            >
                               No hay rondas registradas.
                             </td>
                           </tr>
@@ -580,22 +631,32 @@ export default function TournamentDetailClient({
                             <div>
                               <div className="font-medium">Ronda {round.number}</div>
                               <div className="text-sm text-gray-600">
-                                {formatDate(round.startDate)} - {formatDate(round.endDate)}
+                                {formatDate(round.startDate)} -{" "}
+                                {formatDate(round.endDate)}
                               </div>
                             </div>
                             <div className="text-right">
-                              <Badge variant={getRoundStatus(round).variant} className="mb-1">
+                              <Badge
+                                variant={getRoundStatus(round).variant}
+                                className="mb-1"
+                              >
                                 {getRoundStatus(round).label}
                               </Badge>
-                              <div className="text-xs text-gray-500">{round.playersCount} jugadores</div>
+                              <div className="text-xs text-gray-500">
+                                {round.playersCount} jugadores
+                              </div>
                             </div>
                             <Button size="sm" variant="outline" asChild className="ml-3">
-                              <Link href={`/admin/rounds/${round.id}/comodines`}>Ver Comodines</Link>
+                              <Link href={`/admin/rounds/${round.id}/comodines`}>
+                                Ver Comodines
+                              </Link>
                             </Button>
                           </div>
                         ))
                       ) : (
-                        <div className="text-sm text-gray-500">No hay rondas para listar comodines.</div>
+                        <div className="text-sm text-gray-500">
+                          No hay rondas para listar comodines.
+                        </div>
                       )}
                     </div>
                   </CardContent>
@@ -635,8 +696,12 @@ export default function TournamentDetailClient({
             {/* =================== PESTAÑA: RACHAS =================== */}
             <TabsContent value="rachas" className="space-y-6 mt-6">
               <div className="mb-6">
-                <h2 className="text-2xl font-bold text-gray-900 mb-2">Rachas de Continuidad</h2>
-                <p className="text-gray-600">Configuración de bonificaciones por participación consecutiva</p>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">
+                  Rachas de Continuidad
+                </h2>
+                <p className="text-gray-600">
+                  Configuración de bonificaciones por participación consecutiva
+                </p>
               </div>
 
               <StreakSettings
@@ -662,7 +727,9 @@ export default function TournamentDetailClient({
                     <div>
                       <div className="font-medium">Estado del torneo</div>
                       <div className="text-sm text-gray-600">
-                        {tournament.isActive ? "El torneo está activo y visible" : "El torneo está pausado"}
+                        {tournament.isActive
+                          ? "El torneo está activo y visible"
+                          : "El torneo está pausado"}
                       </div>
                     </div>
                     <Button
@@ -682,7 +749,11 @@ export default function TournamentDetailClient({
                         Esta acción es irreversible y eliminará todos los datos asociados
                       </div>
                     </div>
-                    <Button onClick={deleteTournament} disabled={isPending || tournament.isActive} variant="destructive">
+                    <Button
+                      onClick={deleteTournament}
+                      disabled={isPending || tournament.isActive}
+                      variant="destructive"
+                    >
                       <Trash2 className="w-4 h-4 mr-2" />
                       Eliminar
                     </Button>

@@ -1,157 +1,164 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useSession } from "next-auth/react";
+import { z } from "zod";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+  DialogDescription,
+} from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { CheckCircle, Save, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
-type MatchEdit = {
-  id: string;
-  groupNumber?: number;
-  setNumber?: number | null;
-  team1Games?: number | null;
-  team2Games?: number | null;
-  tiebreakScore?: string | null;
+type MatchEditDialogProps = {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  initialTeam1Games?: number | null;
+  initialTeam2Games?: number | null;
+  initialTiebreakScore?: string | null;
+  onSubmit: (data: {
+    team1Games: number;
+    team2Games: number;
+    tiebreakScore: string | null;
+    photoUrl?: string | null;
+  }) => Promise<void>;
 };
 
-type Props = {
-  isAdmin?: boolean;
-  match: MatchEdit;
-  onClose: () => void;
-  onSaved: () => void;
-};
+const scoreSchema = z.object({
+  team1Games: z.number().min(0).max(7),
+  team2Games: z.number().min(0).max(7),
+  tiebreakScore: z
+    .string()
+    .regex(/^\d+-\d+$/, "Formato de tie-break inválido (ej: 7-5)")
+    .nullable()
+    .optional(),
+});
 
-function isIntIn(v: any, min: number, max: number) {
-  if (v === "" || v === null || v === undefined) return false;
-  const n = Number(v);
-  return Number.isInteger(n) && n >= min && n <= max;
-}
+export default function MatchEditDialog({
+  open,
+  onOpenChange,
+  initialTeam1Games,
+  initialTeam2Games,
+  initialTiebreakScore,
+  onSubmit,
+}: MatchEditDialogProps) {
+  const { data: session } = useSession();
 
-export default function MatchEditDialog({ isAdmin = true, match, onClose, onSaved }: Props) {
-  const [team1Games, setTeam1Games] = useState<string>(match.team1Games?.toString() ?? "");
-  const [team2Games, setTeam2Games] = useState<string>(match.team2Games?.toString() ?? "");
-  const [tiebreakScore, setTiebreakScore] = useState<string>(match.tiebreakScore ?? "");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [team1, setTeam1] = useState<number>(initialTeam1Games ?? 0);
+  const [team2, setTeam2] = useState<number>(initialTeam2Games ?? 0);
+  const [tiebreak, setTiebreak] = useState<string>(initialTiebreakScore ?? "");
+  const [photoUrl, setPhotoUrl] = useState<string>("");
 
-  const validate = () => {
-    if (!isIntIn(team1Games, 0, 5) || !isIntIn(team2Games, 0, 5)) {
-      setError("Los juegos deben estar entre 0 y 5.");
-      return false;
+  useEffect(() => {
+    setTeam1(initialTeam1Games ?? 0);
+    setTeam2(initialTeam2Games ?? 0);
+    setTiebreak(initialTiebreakScore ?? "");
+  }, [initialTeam1Games, initialTeam2Games, initialTiebreakScore]);
+
+  const needsTiebreak = useMemo(() => {
+    const a = Number(team1);
+    const b = Number(team2);
+    return (a === 4 && b === 4) || (a === 6 && b === 6);
+  }, [team1, team2]);
+
+  async function handleSave() {
+    const data = {
+      team1Games: Number(team1),
+      team2Games: Number(team2),
+      tiebreakScore: tiebreak ? tiebreak : null,
+      photoUrl: photoUrl || null,
+    };
+
+    // Validación ligera en cliente
+    const parsed = scoreSchema.safeParse(data);
+    if (!parsed.success) {
+      alert(parsed.error.issues[0]?.message ?? "Datos inválidos");
+      return;
     }
-    const a = Number(team1Games);
-    const b = Number(team2Games);
 
-    const isTie = a === 4 && b === 4;
-    if (isTie && !tiebreakScore.trim()) {
-      setError("Si el set es 4–4, debes indicar el marcador del tie-break (ej. 7-5).");
-      return false;
+    if (needsTiebreak && !tiebreak) {
+      alert("Debes indicar el tie-break cuando el set fue 4-4 o 6-6.");
+      return;
     }
 
-    const validRegular =
-      (a === 4 && b <= 2) || (b === 4 && a <= 2) || (a === 5 && b === 4) || (b === 5 && a === 4);
-
-    if (!isTie && !validRegular) {
-      setError("Marcador inválido para las reglas del set.");
-      return false;
-    }
-    return true;
-  };
-
-  const save = async () => {
-    setError(null);
-    if (!validate()) return;
-    setSaving(true);
-    try {
-      // Con tu API:
-      // - Admin: PATCH sin action -> fuerza confirmación.
-      // - Jugador: PATCH con action='report' -> reporta sin confirmar.
-      const payload: any = {
-        team1Games: Number(team1Games),
-        team2Games: Number(team2Games),
-        tiebreakScore: tiebreakScore.trim() || null,
-      };
-      if (!isAdmin) payload.action = "report";
-
-      const res = await fetch(`/api/matches/${match.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.error || "No se pudo guardar el set");
-      onSaved();
-    } catch (e: any) {
-      setError(e?.message || "Error guardando el set");
-    } finally {
-      setSaving(false);
-    }
-  };
+    await onSubmit(data);
+    onOpenChange(false);
+  }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-md">
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" aria-describedby="match-edit-desc">
         <DialogHeader>
-          <DialogTitle>Editar Set — Grupo {match.groupNumber ?? "—"} · Set {match.setNumber ?? "—"}</DialogTitle>
+          <DialogTitle>Editar resultado</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-4">
-          {error && <div className="p-2 text-sm rounded border bg-red-50 text-red-700">{error}</div>}
+        {/* 👇 Accesible: descripción para el contenido del dialog */}
+        <DialogDescription id="match-edit-desc">
+          Introduce los juegos de cada equipo y, si fue 4-4 o 6-6, añade el tie-break con
+          formato “7-5”, “10-8”, etc.
+        </DialogDescription>
 
-          <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-4 py-2">
+          <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>Juegos Equipo 1</Label>
+              <Label htmlFor="team1">Juegos Equipo 1</Label>
               <Input
-                inputMode="numeric"
-                value={team1Games}
-                placeholder="0–5"
-                onChange={(e) => setTeam1Games(e.target.value.replace(/[^\d]/g, ""))}
+                id="team1"
+                type="number"
+                min={0}
+                max={7}
+                value={team1}
+                onChange={(e) => setTeam1(Number(e.target.value))}
               />
             </div>
             <div>
-              <Label>Juegos Equipo 2</Label>
+              <Label htmlFor="team2">Juegos Equipo 2</Label>
               <Input
-                inputMode="numeric"
-                value={team2Games}
-                placeholder="0–5"
-                onChange={(e) => setTeam2Games(e.target.value.replace(/[^\d]/g, ""))}
+                id="team2"
+                type="number"
+                min={0}
+                max={7}
+                value={team2}
+                onChange={(e) => setTeam2(Number(e.target.value))}
               />
             </div>
           </div>
 
+          {needsTiebreak && (
+            <div>
+              <Label htmlFor="tb">Tie-break (ej: 7-5)</Label>
+              <Input
+                id="tb"
+                placeholder="ej: 7-5"
+                value={tiebreak}
+                onChange={(e) => setTiebreak(e.target.value)}
+              />
+            </div>
+          )}
+
           <div>
-            <Label>Tie-break (si 4–4)</Label>
+            <Label htmlFor="photo">URL de foto (opcional)</Label>
             <Input
-              value={tiebreakScore}
-              placeholder="7-5"
-              onChange={(e) => setTiebreakScore(e.target.value)}
+              id="photo"
+              placeholder="https://…"
+              value={photoUrl}
+              onChange={(e) => setPhotoUrl(e.target.value)}
             />
-            <p className="text-xs text-gray-500 mt-1">
-              Se guardará el marcador real del TB; el set computará como 5–4 para el ganador.
-            </p>
           </div>
         </div>
 
-        <DialogFooter className="gap-2">
-          <Button variant="outline" onClick={onClose}>
-            <X className="w-4 h-4 mr-1" />
-            Cancelar
-          </Button>
-          <Button onClick={save} disabled={saving}>
-            {saving ? (
-              <>
-                <CheckCircle className="w-4 h-4 mr-2 animate-pulse" />
-                Guardando…
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4 mr-2" />
-                Guardar
-              </>
-            )}
-          </Button>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Cancelar</Button>
+          </DialogClose>
+          <Button onClick={handleSave}>Guardar</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
