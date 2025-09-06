@@ -1,9 +1,10 @@
-// app/api/player/dashboard/route.ts - Tu archivo actual con mejoras mínimas:
+// app/api/player/dashboard/route.ts - ACTUALIZADO PARA USAR PARTYMANAGER
 
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { PartyManager } from "@/lib/party-manager";
 
 export const dynamic = 'force-dynamic';
 
@@ -38,12 +39,16 @@ export async function GET(request: NextRequest) {
         activeTournament: null,
         currentGroup: null,
         myMatches: [],
+        party: null,
         ranking: null,
         stats: {
           matchesPlayed: 0,
           matchesPending: 0,
           winRate: 0,
-          currentStreak: 0
+          currentStreak: 0,
+          partiesPlayed: 0,
+          partiesPending: 0,
+          partyWinRate: 0
         }
       });
     }
@@ -67,7 +72,7 @@ export async function GET(request: NextRequest) {
           include: {
             player: true
           },
-          orderBy: { points: 'desc' } // CAMBIO: ordenar por puntos en lugar de posición
+          orderBy: { points: 'desc' }
         }
       }
     });
@@ -75,7 +80,13 @@ export async function GET(request: NextRequest) {
     // Buscar la información del jugador en el grupo actual
     const playerInGroup = currentGroup?.players.find(p => p.playerId === playerId);
 
-    // Buscar los matches del jugador en la ronda actual
+    // NUEVO: Obtener datos del partido actual usando PartyManager
+    let currentParty = null;
+    if (currentGroup) {
+      currentParty = await PartyManager.getParty(currentGroup.id, playerId);
+    }
+
+    // Buscar los matches del jugador en la ronda actual (para compatibilidad)
     const myMatches = await prisma.match.findMany({
       where: {
         groupId: currentGroup?.id,
@@ -89,10 +100,59 @@ export async function GET(request: NextRequest) {
       include: {
         group: true
       },
-      orderBy: { setNumber: 'asc' } // AÑADIDO: ordenar matches
+      orderBy: { setNumber: 'asc' }
     });
 
-    // Obtener nombres de jugadores para los matches
+    // NUEVO: Obtener estadísticas históricas de partidos usando PartyManager
+    const allPlayerGroups = await prisma.group.findMany({
+      where: {
+        round: { tournamentId: activeTournament.id },
+        players: { some: { playerId } }
+      },
+      include: {
+        round: true
+      }
+    });
+
+    // Estadísticas de partidos completos
+    let partiesPlayed = 0;
+    let partiesWon = 0;
+    let partiesPending = 0;
+
+    for (const group of allPlayerGroups) {
+      try {
+        const partyData = await PartyManager.getParty(group.id, playerId);
+        if (partyData) {
+          if (partyData.status === 'COMPLETED') {
+            partiesPlayed++;
+            // Determinar si ganó el partido (más sets ganados)
+            let setsWon = 0;
+            for (const set of partyData.sets) {
+              if (set.isConfirmed && set.team1Games !== null && set.team2Games !== null) {
+                const isTeam1 = set.team1Player1Id === playerId || set.team1Player2Id === playerId;
+                const team1Won = set.team1Games > set.team2Games;
+                if ((isTeam1 && team1Won) || (!isTeam1 && !team1Won)) {
+                  setsWon++;
+                }
+              }
+            }
+            // Ganó el partido si ganó al menos 2 de 3 sets
+            if (setsWon >= 2) {
+              partiesWon++;
+            }
+          } else if (['PENDING', 'DATE_PROPOSED', 'SCHEDULED'].includes(partyData.status)) {
+            partiesPending++;
+          }
+        }
+      } catch (error) {
+        // Si hay error al obtener datos del partido, ignorar silenciosamente
+        console.warn(`Error getting party data for group ${group.id}:`, error);
+      }
+    }
+
+    const partyWinRate = partiesPlayed > 0 ? (partiesWon / partiesPlayed) * 100 : 0;
+
+    // Obtener nombres de jugadores para los matches (compatibilidad)
     const allPlayerIds = [
       ...myMatches.flatMap(m => [m.team1Player1Id, m.team1Player2Id, m.team2Player1Id, m.team2Player2Id])
     ];
@@ -106,7 +166,7 @@ export async function GET(request: NextRequest) {
       return acc;
     }, {} as Record<string, string>);
 
-    // Formatear matches con nombres de jugadores
+    // Formatear matches con nombres de jugadores (para compatibilidad)
     const formattedMatches = myMatches.map(match => ({
       id: match.id,
       setNumber: match.setNumber,
@@ -131,7 +191,7 @@ export async function GET(request: NextRequest) {
       orderBy: { roundNumber: 'desc' }
     });
 
-    // Calcular estadísticas
+    // Calcular estadísticas legacy (por sets, para compatibilidad)
     const confirmedMatches = myMatches.filter(m => m.isConfirmed);
     const pendingMatches = myMatches.filter(m => !m.isConfirmed);
     
@@ -146,7 +206,28 @@ export async function GET(request: NextRequest) {
 
     const winRate = confirmedMatches.length > 0 ? (wins / confirmedMatches.length) * 100 : 0;
 
-    // Preparar respuesta
+    // NUEVO: Formatear datos del partido actual para el dashboard
+    const partyForDashboard = currentParty ? {
+      id: `party-${currentGroup?.id}`,
+      groupId: currentGroup?.id,
+      groupNumber: currentGroup?.number,
+      status: currentParty.status,
+      proposedDate: currentParty.proposedDate,
+      acceptedDate: currentParty.acceptedDate,
+      needsAction: currentParty.status === 'DATE_PROPOSED' && !currentParty.acceptedDate,
+      needsScheduling: currentParty.status === 'PENDING',
+      canPlay: currentParty.status === 'SCHEDULED',
+      completedSets: currentParty.completedSets,
+      totalSets: 3,
+      progress: Math.round((currentParty.completedSets / 3) * 100),
+      sets: currentParty.sets.map(set => ({
+        setNumber: set.setNumber,
+        isConfirmed: set.isConfirmed,
+        hasResult: set.team1Games !== null && set.team2Games !== null
+      }))
+    } : null;
+
+    // Preparar respuesta con datos legacy y nuevos
     const response = {
       activeTournament: {
         id: activeTournament.id,
@@ -169,7 +250,13 @@ export async function GET(request: NextRequest) {
           points: p.points
         }))
       } : null,
+      
+      // LEGACY: Compatibilidad con componentes existentes
       myMatches: formattedMatches,
+      
+      // NUEVO: Datos de partido unificados
+      party: partyForDashboard,
+      
       ranking: latestRanking ? {
         position: latestRanking.position,
         averagePoints: latestRanking.averagePoints,
@@ -177,11 +264,26 @@ export async function GET(request: NextRequest) {
         roundsPlayed: latestRanking.roundsPlayed,
         ironmanPosition: latestRanking.ironmanPosition
       } : null,
+      
       stats: {
+        // LEGACY: Estadísticas por sets (para compatibilidad)
         matchesPlayed: confirmedMatches.length,
         matchesPending: pendingMatches.length,
         winRate: Math.round(winRate),
-        currentStreak: playerInGroup?.streak || 0
+        currentStreak: playerInGroup?.streak || 0,
+        
+        // NUEVO: Estadísticas por partidos completos
+        partiesPlayed,
+        partiesPending,
+        partyWinRate: Math.round(partyWinRate),
+        totalPartiesInTournament: allPlayerGroups.length
+      },
+
+      // NUEVO: Metadatos para el cliente
+      _metadata: {
+        usePartyData: true,
+        hasPartyStats: true,
+        partyApiVersion: "1.0"
       }
     };
 

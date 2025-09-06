@@ -1,4 +1,4 @@
-// components/player/UseComodinButton.tsx - VERSIÓN COMPLETADA + refreshTrigger + onActionComplete
+// components/player/UseComodinButton.tsx - VERSIÓN COMPLETADA + loading granular + refreshTrigger + onActionComplete
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -13,9 +13,9 @@ type Props = {
   roundId: string;
   disabled?: boolean;
   className?: string;
-  /** Nuevo: cuando cambie, el componente recargará el estado desde el backend */
+  /** Cuando cambie, el componente recargará el estado desde el backend */
   refreshTrigger?: number;
-  /** Nuevo: callback tras aplicar o revocar el comodín con éxito */
+  /** Callback tras aplicar o revocar el comodín con éxito */
   onActionComplete?: () => void;
 };
 
@@ -34,8 +34,6 @@ export default function UseComodinButton({
 }: Props) {
   const [status, setStatus] = useState<ComodinStatus | null>(null);
   const [eligiblePlayers, setEligiblePlayers] = useState<EligiblePlayer[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [loadingPlayers, setLoadingPlayers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -43,33 +41,50 @@ export default function UseComodinButton({
   const [selectedMode, setSelectedMode] = useState<"mean" | "substitute">("mean");
   const [selectedSubstitute, setSelectedSubstitute] = useState<string>("");
 
+  // Loading granular
+  const [loadingStates, setLoadingStates] = useState({
+    fetchingStatus: false,
+    applyingComodin: false,
+    revokingComodin: false,
+    loadingSubstitutes: false,
+  });
+
+  // Helper de carga
+  const withLoading = async <T,>(operation: keyof typeof loadingStates, fn: () => Promise<T>) => {
+    setLoadingStates((prev) => ({ ...prev, [operation]: true }));
+    try {
+      const result = await fn();
+      return result;
+    } finally {
+      setLoadingStates((prev) => ({ ...prev, [operation]: false }));
+    }
+  };
+
   // Cargar estado del comodín
   const loadStatus = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const statusData = await comodinApi.getStatus(roundId);
-      setStatus(statusData);
-    } catch (err: any) {
-      setError(err.message || "Error al cargar estado del comodín");
-      setStatus(null);
-    } finally {
-      setLoading(false);
-    }
+    return withLoading("fetchingStatus", async () => {
+      try {
+        setError(null);
+        const statusData = await comodinApi.getStatus(roundId);
+        setStatus(statusData);
+      } catch (err: any) {
+        setError(err.message || "Error al cargar estado del comodín");
+        setStatus(null);
+      }
+    });
   }, [roundId]);
 
   // Cargar jugadores elegibles
   const loadEligiblePlayers = useCallback(async () => {
-    try {
-      setLoadingPlayers(true);
-      const data = await comodinApi.eligibleSubstitutes(roundId);
-      setEligiblePlayers(data.players || []);
-    } catch (err: any) {
-      console.warn("Error cargando jugadores elegibles:", err.message);
-      setEligiblePlayers([]);
-    } finally {
-      setLoadingPlayers(false);
-    }
+    return withLoading("loadingSubstitutes", async () => {
+      try {
+        const data = await comodinApi.eligibleSubstitutes(roundId);
+        setEligiblePlayers(data.players || []);
+      } catch (err: any) {
+        console.warn("Error cargando jugadores elegibles:", err?.message || err);
+        setEligiblePlayers([]);
+      }
+    });
   }, [roundId]);
 
   // Aplicar comodín
@@ -77,46 +92,42 @@ export default function UseComodinButton({
     if (!canUseMode(selectedMode)) return;
     if (selectedMode === "substitute" && !selectedSubstitute) return;
 
-    try {
-      setLoading(true);
-      setError(null);
-      setMessage(null);
+    await withLoading("applyingComodin", async () => {
+      try {
+        setError(null);
+        setMessage(null);
 
-      let result;
-      if (selectedMode === "mean") {
-        result = await comodinApi.applyMean(roundId);
-      } else {
-        result = await comodinApi.applySubstitute(roundId, selectedSubstitute);
+        let result;
+        if (selectedMode === "mean") {
+          result = await comodinApi.applyMean(roundId);
+        } else {
+          result = await comodinApi.applySubstitute(roundId, selectedSubstitute);
+        }
+
+        setMessage(result.message || "Comodín aplicado exitosamente");
+        await loadStatus();
+        onActionComplete?.();
+      } catch (err: any) {
+        setError(err.message || "Error al aplicar comodín");
       }
-
-      setMessage(result.message || "Comodín aplicado exitosamente");
-      await loadStatus();
-      // Notificar al padre (para refrescar su vista)
-      onActionComplete?.();
-    } catch (err: any) {
-      setError(err.message || "Error al aplicar comodín");
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
   // Revocar comodín
   const revokeComodin = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      setMessage(null);
+    await withLoading("revokingComodin", async () => {
+      try {
+        setError(null);
+        setMessage(null);
 
-      const result = await comodinApi.revoke(roundId);
-      setMessage(result.message || "Comodín revocado exitosamente");
-      await loadStatus();
-      // Notificar al padre (para refrescar su vista)
-      onActionComplete?.();
-    } catch (err: any) {
-      setError(err.message || "Error al revocar comodín");
-    } finally {
-      setLoading(false);
-    }
+        const result = await comodinApi.revoke(roundId);
+        setMessage(result.message || "Comodín revocado exitosamente");
+        await loadStatus();
+        onActionComplete?.();
+      } catch (err: any) {
+        setError(err.message || "Error al revocar comodín");
+      }
+    });
   };
 
   // Validar si puede usar un modo específico
@@ -126,15 +137,12 @@ export default function UseComodinButton({
     // Si no hay tournamentInfo, asumir que ambos están habilitados (compatibilidad)
     if (!status.tournamentInfo) return true;
 
-    // Verificar configuración específica (cuando esté disponible)
     if (mode === "mean") {
       return (status.tournamentInfo as any).enableMeanComodin !== false;
     }
-
     if (mode === "substitute") {
       return (status.tournamentInfo as any).enableSubstituteComodin !== false;
     }
-
     return true;
   };
 
@@ -147,18 +155,16 @@ export default function UseComodinButton({
     if (mode === "mean" && tournamentInfo.enableMeanComodin === false) {
       return "El comodín de media está deshabilitado en este torneo";
     }
-
     if (mode === "substitute" && tournamentInfo.enableSubstituteComodin === false) {
       return "El comodín de sustituto está deshabilitado en este torneo";
     }
-
     return null;
   };
 
   // Cargar jugadores elegibles cuando se selecciona modo sustituto
   useEffect(() => {
     if (selectedMode === "substitute" && !status?.used && canUseMode("substitute")) {
-      loadEligiblePlayers();
+      void loadEligiblePlayers();
     }
   }, [selectedMode, status?.used, loadEligiblePlayers]);
 
@@ -176,15 +182,14 @@ export default function UseComodinButton({
   // Cargar estado inicial
   useEffect(() => {
     if (roundId) {
-      loadStatus();
+      void loadStatus();
     }
   }, [roundId, loadStatus]);
 
-  // NUEVO: re-cargar estado si cambia refreshTrigger (forzado desde el padre)
+  // Re-cargar estado si cambia refreshTrigger (forzado desde el padre)
   useEffect(() => {
-    if (refreshTrigger !== undefined) {
-      // no necesitamos esperar, pero protegemos por roundId
-      if (roundId) void loadStatus();
+    if (refreshTrigger !== undefined && roundId) {
+      void loadStatus();
     }
   }, [refreshTrigger, roundId, loadStatus]);
 
@@ -208,25 +213,67 @@ export default function UseComodinButton({
     }
   };
 
-  // Estado de carga
-  if (loading && !status) {
+  const getButtonText = () => {
+    if (!canUseMode(selectedMode)) {
+      return `${selectedMode === "mean" ? "Media" : "Sustituto"} deshabilitado`;
+    }
+    if (selectedMode === "mean") {
+      return "Usar comodín (Media)";
+    }
+    // substitute
+    if (selectedSubstitute) {
+      const name = eligiblePlayers.find((p) => p.id === selectedSubstitute)?.name;
+      return name ? `Usar comodín con ${name}` : "Usar comodín (Sustituto)";
+    }
+    return "Seleccionar sustituto";
+  };
+
+  const renderLoadingState = () => {
+    if (loadingStates.fetchingStatus && !status) {
+      return (
+        <Card className={`p-4 ${className || ""}`}>
+          <div className="flex items-center gap-3">
+            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-600"></div>
+            <span className="text-sm text-gray-600">Verificando estado del comodín...</span>
+          </div>
+        </Card>
+      );
+    }
+    return null;
+  };
+
+  const renderActionButton = () => {
+    const isApplying = loadingStates.applyingComodin;
+    const isRevoking = loadingStates.revokingComodin;
+
     return (
-      <Card className={`p-4 ${className}`}>
-        <div className="flex items-center justify-center py-4">
-          <RefreshCw className="w-4 h-4 animate-spin text-gray-400 mr-2" />
-          <span className="text-sm text-gray-500">Cargando estado del comodín...</span>
-        </div>
-      </Card>
+      <Button
+        type="button"
+        onClick={applyComodin}
+        disabled={
+          disabled ||
+          isApplying ||
+          isRevoking ||
+          !canUseMode(selectedMode) ||
+          (selectedMode === "substitute" && (!selectedSubstitute || eligiblePlayers.length === 0))
+        }
+        className="w-full"
+      >
+        {(isApplying || isRevoking) && <RefreshCw className="w-4 h-4 mr-2 animate-spin" />}
+        {isApplying ? "Aplicando comodín..." : isRevoking ? "Revocando..." : getButtonText()}
+      </Button>
     );
-  }
+  };
+
+  // Loading principal (estado inicial aún no cargado)
+  const initialLoading = renderLoadingState();
+  if (initialLoading) return initialLoading;
 
   // Error de carga
   if (error && !status) {
     return (
-      <Card className={`p-4 ${className}`}>
-        <div className="text-sm text-red-600 bg-red-50 p-3 rounded border-l-2 border-red-400">
-          {error}
-        </div>
+      <Card className={`p-4 ${className || ""}`}>
+        <div className="text-sm text-red-600 bg-red-50 p-3 rounded border-l-2 border-red-400">{error}</div>
       </Card>
     );
   }
@@ -234,7 +281,7 @@ export default function UseComodinButton({
   // No se pudo determinar estado
   if (!status) {
     return (
-      <Card className={`p-4 ${className}`}>
+      <Card className={`p-4 ${className || ""}`}>
         <div className="text-sm text-gray-500">No se pudo determinar el estado del comodín para esta ronda.</div>
       </Card>
     );
@@ -243,7 +290,7 @@ export default function UseComodinButton({
   // CASO 1: Ya se usó el comodín - mostrar estado
   if (status.used) {
     return (
-      <Card className={`p-4 bg-green-50 border-green-200 ${className}`}>
+      <Card className={`p-4 bg-green-50 border-green-200 ${className || ""}`}>
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="font-medium text-green-800 flex items-center gap-2">
@@ -255,10 +302,17 @@ export default function UseComodinButton({
                 variant="outline"
                 size="sm"
                 onClick={revokeComodin}
-                disabled={loading}
+                disabled={loadingStates.revokingComodin}
                 className="text-red-600 hover:text-red-700 border-red-300"
               >
-                {loading ? "Revocando..." : "Revocar"}
+                {loadingStates.revokingComodin ? (
+                  <span className="inline-flex items-center">
+                    <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                    Revocando...
+                  </span>
+                ) : (
+                  "Revocar"
+                )}
               </Button>
             )}
           </div>
@@ -275,13 +329,15 @@ export default function UseComodinButton({
             <p>
               <strong>Puntos asignados:</strong> {(status.points || 0).toFixed(1)}
             </p>
-            {status.appliedAt && <p><strong>Aplicado:</strong> {new Date(status.appliedAt).toLocaleString("es-ES")}</p>}
+            {status.appliedAt && (
+              <p>
+                <strong>Aplicado:</strong> {new Date(status.appliedAt).toLocaleString("es-ES")}
+              </p>
+            )}
           </div>
 
           {status.reason && (
-            <div className="text-xs bg-white p-2 rounded border-l-2 border-green-400 text-green-8 00">
-              {status.reason}
-            </div>
+            <div className="text-xs bg-white p-2 rounded border-l-2 border-green-400 text-green-800">{status.reason}</div>
           )}
 
           {!status.canRevoke && status.restrictions && (
@@ -300,7 +356,7 @@ export default function UseComodinButton({
   // CASO 2: No puede usar comodín - mostrar restricciones
   if (!status.canUse) {
     return (
-      <Card className={`p-4 bg-gray-50 border-gray-200 ${className}`}>
+      <Card className={`p-4 bg-gray-50 border-gray-200 ${className || ""}`}>
         <div className="space-y-3">
           <h4 className="font-medium text-gray-700 flex items-center gap-2">
             <AlertTriangle className="w-4 h-4" />
@@ -333,7 +389,7 @@ export default function UseComodinButton({
 
   // CASO 3: Puede usar comodín - mostrar interfaz
   return (
-    <Card className={`p-4 ${className}`}>
+    <Card className={`p-4 ${className || ""}`}>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
           <h4 className="font-medium text-gray-900 flex items-center gap-2">
@@ -417,8 +473,11 @@ export default function UseComodinButton({
         {selectedMode === "substitute" && canUseMode("substitute") && (
           <div className="space-y-2">
             <Label className="text-sm font-medium">Seleccionar sustituto</Label>
-            {loadingPlayers ? (
-              <div className="text-sm text-gray-500 p-2 bg-gray-50 rounded">Cargando jugadores disponibles...</div>
+            {loadingStates.loadingSubstitutes ? (
+              <div className="text-sm text-gray-500 p-2 bg-gray-50 rounded flex items-center gap-2">
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                Buscando sustitutos disponibles...
+              </div>
             ) : eligiblePlayers.length > 0 ? (
               <select
                 value={selectedSubstitute}
@@ -485,27 +544,7 @@ export default function UseComodinButton({
         )}
 
         {/* Botón de aplicar */}
-        <Button
-          type="button"
-          onClick={applyComodin}
-          disabled={
-            disabled ||
-            loading ||
-            !canUseMode(selectedMode) ||
-            (selectedMode === "substitute" && (!selectedSubstitute || eligiblePlayers.length === 0))
-          }
-          className="w-full"
-        >
-          {loading
-            ? "Aplicando..."
-            : !canUseMode(selectedMode)
-            ? `${selectedMode === "mean" ? "Media" : "Sustituto"} deshabilitado`
-            : selectedMode === "mean"
-            ? "Usar comodín (Media)"
-            : selectedSubstitute
-            ? `Usar comodín con ${eligiblePlayers.find((p) => p.id === selectedSubstitute)?.name}`
-            : "Seleccionar sustituto"}
-        </Button>
+        {renderActionButton()}
 
         {/* Mensajes de estado */}
         {message && (

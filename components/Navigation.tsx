@@ -1,4 +1,4 @@
-// components/Navigation.tsx - Versión con soporte para página pública
+// components/Navigation.tsx - VERSIÓN UNIFICADA Y SIMPLIFICADA
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
@@ -16,12 +16,26 @@ import {
   Menu,
   X,
   ChevronDown,
-  Target,
-  BookOpen,
   LogIn,
   UserPlus,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+
+// RUTAS UNIFICADAS - Usadas en desktop y móvil
+const PLAYER_ROUTES = [
+  { href: "/dashboard", label: "Inicio", icon: Home },
+  { href: "/mi-grupo", label: "Mi Grupo", icon: Users },
+  { href: "/clasificaciones", label: "Rankings", icon: Trophy },
+  { href: "/historial", label: "Historial", icon: Calendar },
+] as const;
+
+const ADMIN_ROUTES = [
+  { href: "/admin", label: "Dashboard", icon: Home },
+  { href: "/admin/tournaments", label: "Torneos", icon: Trophy },
+  { href: "/admin/rounds", label: "Rondas", icon: Calendar },
+  { href: "/admin/players", label: "Jugadores", icon: Users },
+  { href: "/admin/results", label: "Resultados", icon: Settings },
+] as const;
 
 export default function Navigation() {
   const { data: session, status } = useSession();
@@ -30,7 +44,6 @@ export default function Navigation() {
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
 
-  // Evitar hidratación inconsistente
   useEffect(() => {
     setMounted(true);
   }, []);
@@ -50,7 +63,7 @@ export default function Navigation() {
 
   const isPublicPage = pathname === "/";
 
-  // Para páginas públicas, mostrar navegación simplificada inmediatamente
+  // Loading skeleton
   if (!mounted) {
     return (
       <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
@@ -71,7 +84,7 @@ export default function Navigation() {
     );
   }
 
-  // Navegación para página pública (sin sesión)
+  // Navegación pública
   if (isPublicPage || (!session && status !== "loading")) {
     return (
       <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
@@ -87,19 +100,19 @@ export default function Navigation() {
             {/* Desktop - Public */}
             <div className="hidden md:flex items-center space-x-4">
               <Link href="/clasificaciones">
-                <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
+                <Button variant="ghost" size="sm">
                   <Trophy className="w-4 h-4 mr-2" />
                   Rankings
                 </Button>
               </Link>
               <Link href="/auth/login">
-                <Button variant="ghost" className="text-gray-600 hover:text-gray-900">
+                <Button variant="ghost" size="sm">
                   <LogIn className="w-4 h-4 mr-2" />
                   Iniciar Sesión
                 </Button>
               </Link>
               <Link href="/auth/register">
-                <Button className="bg-blue-600 hover:bg-blue-700 text-white">
+                <Button size="sm">
                   <UserPlus className="w-4 h-4 mr-2" />
                   Registrarse
                 </Button>
@@ -128,7 +141,7 @@ export default function Navigation() {
                   onClick={() => setMobileMenuOpen(false)}
                 >
                   <Trophy className="w-5 h-5" />
-                  Rankings Públicos
+                  Rankings
                 </Link>
                 <Link
                   href="/auth/login"
@@ -154,7 +167,7 @@ export default function Navigation() {
     );
   }
 
-  // Carga esquelética mientras session/hidratación para usuarios logueados
+  // Loading para usuarios autenticados
   if (status === "loading") {
     return (
       <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
@@ -176,31 +189,12 @@ export default function Navigation() {
     );
   }
 
-  // Navegación para usuarios logueados (código original)
+  // Navegación para usuarios autenticados
   const isAdmin = session?.user?.isAdmin;
-
-  const playerRoutes = [
-    { href: "/dashboard", label: "Inicio", icon: Home },
-    { href: "/tournaments", label: "Torneo", icon: Target },
-    { href: "/mi-grupo", label: "Mi Grupo", icon: Users },
-    { href: "/clasificaciones", label: "Rankings", icon: Trophy },
-    { href: "/historial", label: "Historial", icon: Calendar },
-    { href: "/guia-rapida", label: "Guía rápida", icon: BookOpen },
-  ] as const;
-
-  const adminRoutes = [
-    { href: "/admin", label: "Dashboard Admin", icon: Home },
-    { href: "/admin/tournaments", label: "Torneos", icon: Trophy },
-    { href: "/admin/rounds", label: "Rondas", icon: Calendar },
-    { href: "/admin/players", label: "Jugadores", icon: Users },
-    { href: "/admin/results", label: "Resultados", icon: Settings },
-    { href: "/admin/rankings", label: "Rankings", icon: Trophy },
-  ] as const;
 
   const isActiveRoute = (href: string) => {
     if (href === "/dashboard") return pathname === "/dashboard";
-    if (href === "/admin") return pathname === "/admin" || pathname.startsWith("/admin/");
-    if (href === "/tournaments") return pathname === "/tournaments" || pathname.startsWith("/tournaments/");
+    if (href === "/admin") return pathname === "/admin";
     return pathname.startsWith(href);
   };
 
@@ -208,6 +202,7 @@ export default function Navigation() {
     <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
+          {/* Logo */}
           <Link href="/dashboard" className="flex items-center space-x-2">
             <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold text-sm">E</span>
@@ -215,9 +210,9 @@ export default function Navigation() {
             <span className="text-xl font-bold text-gray-900">Escalapp</span>
           </Link>
 
-          {/* Desktop */}
+          {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-1">
-            {playerRoutes.map((route) => {
+            {PLAYER_ROUTES.map((route) => {
               const Icon = route.icon;
               const active = isActiveRoute(route.href);
               return (
@@ -257,7 +252,7 @@ export default function Navigation() {
 
                 {adminMenuOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg border border-gray-200 py-1 z-50">
-                    {adminRoutes.map((route) => {
+                    {ADMIN_ROUTES.map((route) => {
                       const Icon = route.icon;
                       return (
                         <Link
@@ -281,14 +276,15 @@ export default function Navigation() {
             )}
           </div>
 
-          {/* User + mobile toggle */}
+          {/* User info + mobile toggle */}
           <div className="flex items-center space-x-3">
             <div className="hidden sm:flex items-center space-x-2">
-              <span className="text-sm text-gray-700">
+              <span className="text-sm text-gray-700 max-w-32 truncate">
                 {session?.user?.name || session?.user?.email}
               </span>
               {isAdmin && <Badge variant="outline" className="text-xs">Admin</Badge>}
             </div>
+            
             <Button
               variant="ghost"
               size="sm"
@@ -298,6 +294,7 @@ export default function Navigation() {
               <LogOut className="w-4 h-4" />
               <span className="hidden sm:inline ml-2">Salir</span>
             </Button>
+            
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -310,11 +307,11 @@ export default function Navigation() {
           </div>
         </div>
 
-        {/* Mobile */}
+        {/* Mobile Menu */}
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-gray-200 bg-white">
             <div className="px-2 pt-2 pb-3 space-y-1">
-              {playerRoutes.map((route) => {
+              {PLAYER_ROUTES.map((route) => {
                 const Icon = route.icon;
                 const active = isActiveRoute(route.href);
                 return (
@@ -337,7 +334,7 @@ export default function Navigation() {
                   <div className="px-3 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wide">
                     Administración
                   </div>
-                  {adminRoutes.map((route) => {
+                  {ADMIN_ROUTES.map((route) => {
                     const Icon = route.icon;
                     return (
                       <Link

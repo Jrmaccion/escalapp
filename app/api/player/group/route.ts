@@ -1,9 +1,10 @@
-// app/api/player/group/route.ts - VERSIÓN CORREGIDA PARA USAR PUNTOS REALES
+// app/api/player/group/route.ts - ACTUALIZADO PARA USAR PARTYMANAGER
 
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { PartyManager } from "@/lib/party-manager";
 
 // --- Utils de fecha (día completo) ---
 function inDayRange(date: Date, start: Date, end: Date) {
@@ -28,36 +29,6 @@ function pickCurrentRound(
   return byNumberAsc[byNumberAsc.length - 1]; // última como fallback
 }
 
-// --- Vista de partido (set) para la UI ---
-function buildMatchView(m: any, nameById: Map<string, string>) {
-  const hasResult = m.team1Games != null && m.team2Games != null;
-  const acceptedCount = Array.isArray(m.acceptedBy) ? m.acceptedBy.length : 0;
-
-  return {
-    id: m.id,
-    setNumber: m.setNumber ?? 0,
-    partner: "", // si quieres mostrar compañero/oponentes, puedes derivarlo en client con los ids
-    opponents: [],
-
-    hasResult,
-    isPending: !hasResult && !m.isConfirmed,
-    isConfirmed: !!m.isConfirmed,
-
-    status: m.status ?? (m.acceptedDate ? "SCHEDULED" : m.proposedDate ? "DATE_PROPOSED" : "PENDING"),
-    proposedDate: m.proposedDate ? new Date(m.proposedDate).toISOString() : null,
-    acceptedDate: m.acceptedDate ? new Date(m.acceptedDate).toISOString() : null,
-    acceptedCount,
-
-    team1Player1Name: nameById.get(m.team1Player1Id ?? "") ?? "Jugador 1",
-    team1Player2Name: nameById.get(m.team1Player2Id ?? "") ?? "Jugador 2",
-    team2Player1Name: nameById.get(m.team2Player1Id ?? "") ?? "Jugador 3",
-    team2Player2Name: nameById.get(m.team2Player2Id ?? "") ?? "Jugador 4",
-
-    team1Games: m.team1Games ?? null,
-    team2Games: m.team2Games ?? null,
-  };
-}
-
 export async function GET() {
   try {
     const session = await getServerSession(authOptions);
@@ -69,24 +40,21 @@ export async function GET() {
     let playerId: string | null = (session.user as any).playerId ?? null;
 
     if (!playerId) {
-      // Fallback por userId o email -> Player se vincula por relación 'user'
       const userId = (session.user as any).id ?? null;
       const email = session.user.email ?? null;
 
-      // Primero por userId (rápido)
       const byUser =
         userId
           ? await prisma.player.findUnique({
-              where: { userId }, // Player tiene userId (relación con User)
+              where: { userId },
               select: { id: true },
             })
           : null;
 
-      // Si no está por userId, buscamos por la relación con User.email
       const byEmail =
         !byUser && email
           ? await prisma.player.findFirst({
-              where: { user: { email } }, // <- NO usamos Player.email (no existe), usamos la relación
+              where: { user: { email } },
               select: { id: true },
             })
           : null;
@@ -101,7 +69,7 @@ export async function GET() {
       playerId = resolved.id;
     }
 
-    // 2) Torneos del jugador vía TournamentPlayer (incluimos tournament para decidir)
+    // 2) Torneos del jugador vía TournamentPlayer
     const tps = await prisma.tournamentPlayer.findMany({
       where: { playerId },
       include: {
@@ -118,7 +86,7 @@ export async function GET() {
       );
     }
 
-    // Elegimos torneo activo (si hay); si no, el más reciente por startDate
+    // Elegimos torneo activo
     const activeTp = tps
       .filter((tp) => tp.tournament?.isActive)
       .sort((a, b) => {
@@ -165,16 +133,15 @@ export async function GET() {
       where: { roundId: current.id, players: { some: { playerId } } },
       include: {
         round: { include: { tournament: { select: { title: true } } } },
-        // CAMBIO CRÍTICO: Ordenar por puntos descendentes en lugar de por posición
         players: { 
           include: { player: true }, 
-          orderBy: { points: 'desc' }  // <- ESTO ES CLAVE
+          orderBy: { points: 'desc' }
         },
         matches: true,
       },
     });
 
-    // Fallback: si aún no lo han asignado en la ronda actual, buscar su último grupo dentro del torneo
+    // Fallback: buscar último grupo dentro del torneo
     if (!group) {
       group = await prisma.group.findFirst({
         where: { round: { tournamentId }, players: { some: { playerId } } },
@@ -182,11 +149,11 @@ export async function GET() {
           round: { include: { tournament: { select: { title: true } } } },
           players: { 
             include: { player: true }, 
-            orderBy: { points: 'desc' }  // <- También aquí
+            orderBy: { points: 'desc' }
           },
           matches: true,
         },
-        orderBy: { id: "desc" }, // último grupo que lo contenga
+        orderBy: { id: "desc" },
       });
 
       if (!group) {
@@ -201,68 +168,67 @@ export async function GET() {
       }
     }
 
-    // 5) Map de nombres por playerId
+    // 5) NUEVO: Usar PartyManager para obtener datos unificados de partido
+    const partyData = await PartyManager.getParty(group.id, playerId);
+
+    if (!partyData) {
+      return NextResponse.json(
+        {
+          hasGroup: false,
+          tournament: { title: tournament.title, currentRound: current.number },
+          message: "No se pudo obtener información del partido",
+        },
+        { status: 200 }
+      );
+    }
+
+    // 6) Map de nombres por playerId
     const nameById = new Map<string, string>();
     group.players.forEach((gp) => nameById.set(gp.playerId, gp.player?.name ?? "Jugador"));
 
-    // 6) CAMBIO CRÍTICO: Usar puntos reales de la base de datos en lugar de calcular
-    // Los puntos ya están calculados correctamente por recalculateGroupPointsWithSubstituteSupport
+    // 7) Puntos reales de la base de datos
     const pointsMap = new Map<string, number>();
     group.players.forEach((gp) => pointsMap.set(gp.playerId, gp.points || 0));
 
-    // 7) Sets en los que participa el jugador (para allMatches/nextMatches)
-    const myMatches = (group.matches ?? []).filter((m) => {
-      // NUEVO: Considerar tanto jugador directo como sustituto
-      const directParticipation = [
-        m.team1Player1Id, 
-        m.team1Player2Id, 
-        m.team2Player1Id, 
-        m.team2Player2Id
-      ].includes(playerId!);
-
-      // Verificar si algún jugador del grupo usó este jugador como sustituto
-      const asSubstitute = group!.players.some(gp => 
-        gp.substitutePlayerId === playerId && [
-          m.team1Player1Id, 
-          m.team1Player2Id, 
-          m.team2Player1Id, 
-          m.team2Player2Id
-        ].includes(gp.substitutePlayerId)
-      );
-
-      return directParticipation || asSubstitute;
-    });
-
-    // Completar nombres de jugadores externos (por seguridad)
-    const extIds = new Set<string>();
-    myMatches.forEach((m) => {
-      [m.team1Player1Id, m.team1Player2Id, m.team2Player1Id, m.team2Player2Id].forEach((pid) => {
-        if (pid && !nameById.has(pid)) extIds.add(pid);
-      });
-    });
-    if (extIds.size > 0) {
-      const extra = await prisma.player.findMany({
-        where: { id: { in: Array.from(extIds) } },
-        select: { id: true, name: true },
-      });
-      extra.forEach((p) => nameById.set(p.id, p.name));
-    }
-
-    const allMatches = myMatches
-      .slice()
-      .sort((a, b) => (a.setNumber ?? 0) - (b.setNumber ?? 0))
-      .map((m) => buildMatchView(m, nameById));
-
     const currentGp = group.players.find((gp) => gp.playerId === playerId);
 
-    // NUEVO: Calcular posiciones dinámicamente basadas en puntos reales
+    // 8) Calcular posiciones dinámicamente basadas en puntos reales
     const sortedByPoints = group.players
       .slice()
-      .sort((a, b) => (b.points || 0) - (a.points || 0)); // Descendente por puntos
+      .sort((a, b) => (b.points || 0) - (a.points || 0));
+
+    // 9) NUEVO: Formatear datos del partido para compatibilidad con UI existente
+    const partyForUI = {
+      id: `party-${group.id}`,
+      groupId: group.id,
+      status: partyData.status,
+      proposedDate: partyData.proposedDate,
+      acceptedDate: partyData.acceptedDate,
+      acceptedCount: partyData.acceptedCount,
+      needsScheduling: partyData.status === 'PENDING' || partyData.status === 'DATE_PROPOSED',
+      canSchedule: partyData.canSchedule,
+      allSetsCompleted: partyData.status === 'COMPLETED',
+      completedSets: partyData.completedSets,
+      totalSets: 3,
+      sets: partyData.sets.map(set => ({
+        id: set.id,
+        setNumber: set.setNumber,
+        team1Player1Name: nameById.get(set.team1Player1Id) || "Jugador",
+        team1Player2Name: nameById.get(set.team1Player2Id) || "Jugador", 
+        team2Player1Name: nameById.get(set.team2Player1Id) || "Jugador",
+        team2Player2Name: nameById.get(set.team2Player2Id) || "Jugador",
+        team1Games: set.team1Games,
+        team2Games: set.team2Games,
+        tiebreakScore: set.tiebreakScore,
+        isConfirmed: set.isConfirmed,
+        hasResult: set.team1Games !== null && set.team2Games !== null,
+        isPending: !set.isConfirmed && (set.team1Games === null || set.team2Games === null)
+      }))
+    };
 
     return NextResponse.json({
       hasGroup: true,
-      roundId: group.round.id, // roundId necesario para el botón de comodín
+      roundId: group.round.id,
       tournament: {
         title: group.round.tournament.title,
         currentRound: group.round.number,
@@ -273,22 +239,33 @@ export async function GET() {
         totalPlayers: group.players.length,
       },
       myStatus: {
-        // CORREGIDO: Usar posición real basada en puntos
         position: sortedByPoints.findIndex(gp => gp.playerId === playerId) + 1,
         points: pointsMap.get(playerId!) ?? 0,
         streak: currentGp?.streak || 0,
       },
-      // CORREGIDO: Jugadores ordenados por puntos con posiciones correctas
       players: sortedByPoints.map((gp, index) => ({
         id: gp.playerId,
         name: gp.player?.name ?? "Jugador",
         points: gp.points || 0,
-        position: index + 1, // Posición basada en el orden real por puntos
+        position: index + 1,
         isCurrentUser: gp.playerId === playerId,
       })),
-      allMatches,
-      nextMatches: allMatches.filter((m) => !m.isConfirmed),
+      
+      // NUEVO: Datos unificados de partido (reemplaza allMatches/nextMatches)
+      party: partyForUI,
+      
+      // LEGACY: Mantenemos compatibilidad pero marcamos como deprecated
+      allMatches: partyForUI.sets, // Para compatibilidad temporal
+      nextMatches: partyForUI.sets.filter(s => !s.isConfirmed), // Para compatibilidad temporal
+      
+      // NUEVO: Metadatos útiles
+      _metadata: {
+        usePartyData: true, // Indica al cliente que use party en lugar de allMatches
+        partyApiVersion: "1.0",
+        hasPartyScheduling: true
+      }
     });
+
   } catch (error: any) {
     console.error("[/api/player/group] error:", error);
     return NextResponse.json(

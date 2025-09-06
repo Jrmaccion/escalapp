@@ -85,6 +85,9 @@
 \app\api\matches\party\propose-date\route.ts
 \app\api\matches\party\respond-date
 \app\api\matches\party\respond-date\route.ts
+\app\api\parties
+\app\api\parties\[id]
+\app\api\parties\[id]\route.ts
 \app\api\player
 \app\api\player\dashboard
 \app\api\player\dashboard\route.ts
@@ -92,6 +95,9 @@
 \app\api\player\group\route.ts
 \app\api\player\historial
 \app\api\player\historial\route.ts
+\app\api\public
+\app\api\public\rankings
+\app\api\public\rankings\route.ts
 \app\api\rankings
 \app\api\rankings\route.ts
 \app\api\results
@@ -112,6 +118,7 @@
 \app\api\rounds\[id]\manage-groups\route.ts
 \app\api\rounds\[id]\matches
 \app\api\rounds\[id]\matches\route.ts
+\app\api\rounds\[id]\route.ts
 \app\api\rounds\TournamentPicker.tsx
 \app\api\tournaments
 \app\api\tournaments\[id]
@@ -181,6 +188,7 @@
 \components\admin\ComodinManagement.tsx
 \components\admin\ComodinSettings.tsx
 \components\admin\StreakSettings.tsx
+\components\ApiStateComponents.tsx
 \components\Breadcrumbs.tsx
 \components\ClientToaster.tsx
 \components\CloseRoundButton.tsx
@@ -196,6 +204,7 @@
 \components\player
 \components\player\UseComodinButton.tsx
 \components\PlayerTabbar.tsx
+\components\PublicHome.tsx
 \components\RoundsMatchesOverview.tsx
 \components\tournament
 \components\tournament\TournamentTimeline.tsx
@@ -214,17 +223,20 @@
 \estructura-clave.txt
 \fix-classname.ps1
 \hooks
+\hooks\useApiState.ts
 \hooks\useComodin.ts
 \hooks\useNavigation.ts
 \lib
 \lib\api
 \lib\api\comodin.ts
 \lib\auth.ts
+\lib\buildPartyInfo.ts
 \lib\concurrency.ts
 \lib\decorators.ts
 \lib\error-handler.ts
 \lib\match-validator.ts
 \lib\matches.ts
+\lib\party-manager.ts
 \lib\performance.ts
 \lib\prisma.ts
 \lib\ranking.ts

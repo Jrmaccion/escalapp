@@ -1,35 +1,33 @@
-// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN CORREGIDA CON NUEVO COMODÍN + AUTO-REFRESH
+// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN SIN ERRORES TYPESCRIPT
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useCallback, useState, useMemo } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  AlertTriangle,
   Calendar,
-  Clock,
   Users,
   CheckCircle,
   Play,
   CalendarPlus,
   ArrowUp,
   ArrowDown,
-  Minus,
-  Crown,
-  Star,
-  Trophy,
   Target,
   Flame,
   RefreshCw,
+  Crown,
+  Star
 } from "lucide-react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import UseComodinButton from "@/components/player/UseComodinButton";
+import { useGroupData } from "@/hooks/useApiState";
+import { LoadingState, ErrorState, EmptyState, UpdateBadge } from "@/components/ApiStateComponents";
 
 /* =========
-   Tipos
+   Tipos simplificados
    ========= */
 type GroupData = {
   hasGroup: boolean;
@@ -56,25 +54,6 @@ type GroupData = {
     position: number;
     isCurrentUser: boolean;
   }>;
-  nextMatches?: Array<{
-    id: string;
-    setNumber: number;
-    partner: string;
-    opponents: string[];
-    hasResult: boolean;
-    isPending: boolean;
-    isConfirmed: boolean;
-    status?: string;
-    proposedDate?: string | null;
-    acceptedDate?: string | null;
-    acceptedCount?: number;
-    team1Player1Name?: string;
-    team1Player2Name?: string;
-    team2Player1Name?: string;
-    team2Player2Name?: string;
-    team1Games?: number | null;
-    team2Games?: number | null;
-  }>;
   allMatches?: Array<{
     id: string;
     setNumber: number;
@@ -96,8 +75,12 @@ type GroupData = {
   }>;
 };
 
+// Tipo para los matches con tipos explícitos
+type MatchType = NonNullable<GroupData["allMatches"]>[0];
+type PlayerType = NonNullable<GroupData["players"]>[0];
+
 /* =========
-   Datos de preview (fallback)
+   Datos de preview
    ========= */
 const PREVIEW_DATA: GroupData = {
   hasGroup: true,
@@ -180,76 +163,61 @@ function round1(n: number) {
 
 export default function MiGrupoClient() {
   const { data: session } = useSession();
-  const [data, setData] = useState<GroupData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
+  
+  // HOOK UNIFICADO
+  const {
+    data,
+    isLoading,
+    hasError,
+    error,
+    retry,
+    hasUpdates,
+    loadingMessage
+  } = useGroupData();
 
-  // === NUEVO: trigger para forzar refresh en UseComodinButton y dependientes
-  const [refreshTrigger, setRefreshTrigger] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false); // para el botón manual
+  // CRÍTICO: Estado para manejar refreshTrigger del comodín
+  const [comodinRefreshTrigger, setComodinRefreshTrigger] = useState(0);
+  const [lastComodinAction, setLastComodinAction] = useState<string | null>(null);
+  const [showActionFeedback, setShowActionFeedback] = useState(false);
 
-  const fetchData = useCallback(async () => {
-    try {
-      setIsRefreshing(true);
-      const response = await fetch("/api/player/group", { cache: "no-store" });
-      if (response.ok) {
-        const groupData = (await response.json()) as GroupData;
-        if (!groupData.hasGroup) {
-          setData(PREVIEW_DATA);
-          setIsPreviewMode(true);
-        } else {
-          setData(groupData);
-          setIsPreviewMode(false);
-        }
-        // Incrementa trigger para que UseComodinButton reaccione
-        setRefreshTrigger((prev) => prev + 1);
-      } else {
-        setData(PREVIEW_DATA);
-        setIsPreviewMode(true);
-      }
-    } catch (error) {
-      console.error("Error:", error);
-      setData(PREVIEW_DATA);
-      setIsPreviewMode(true);
-    } finally {
-      setLoading(false);
-      setIsRefreshing(false);
-    }
-  }, []);
+  const isPreviewMode = !data?.hasGroup;
+  const groupData = data?.hasGroup ? data : PREVIEW_DATA;
 
-  // Alias semántico usado por el botón manual
-  const refreshGroupData = useCallback(async () => {
-    if (!loading) {
-      await fetchData();
-    } else {
-      // si es el primer load, lo deja continuar
-      await fetchData();
-    }
-  }, [fetchData, loading]);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
-
-  // === NUEVO: Polling ligero cada 30s si no está cargando
-  useEffect(() => {
-    const interval = setInterval(() => {
-      if (!loading) {
-        void refreshGroupData();
-      }
-    }, 30000);
-    return () => clearInterval(interval);
-  }, [loading, refreshGroupData]);
-
-  // === NUEVO: Callback tras usar comodín → refresco inmediato
+  // CRÍTICO: Callback corregido para cuando se usa comodín
   const handleComodinAction = useCallback(() => {
-    // Pequeño delay para dar tiempo al backend a persistir
+    console.log('[MiGrupoClient] Comodin action triggered');
+    
+    // Incrementar el trigger para forzar refresh en UseComodinButton
+    setComodinRefreshTrigger(prev => prev + 1);
+    
+    // Guardar información de la acción para feedback visual
+    setLastComodinAction('aplicado');
+    setShowActionFeedback(true);
+    
+    // Ocultar feedback después de 3 segundos
     setTimeout(() => {
-      void refreshGroupData();
-    }, 1000);
-  }, [refreshGroupData]);
+      setShowActionFeedback(false);
+    }, 3000);
 
-  const getMatchStatusInfo = (match: NonNullable<GroupData["allMatches"]>[0]) => {
+    // Refresco manual del estado del grupo tras un delay
+    setTimeout(() => {
+      console.log('[MiGrupoClient] Triggering group data refresh');
+      retry();
+    }, 1500);
+  }, [retry]);
+
+  // Auto-refresh periódico cada 30 segundos si hay datos
+  useEffect(() => {
+    if (!isPreviewMode && data?.hasGroup) {
+      const interval = setInterval(() => {
+        retry();
+      }, 30000);
+
+      return () => clearInterval(interval);
+    }
+  }, [isPreviewMode, data?.hasGroup, retry]);
+
+  const getMatchStatusInfo = (match: MatchType) => {
     if (match.isConfirmed) {
       return {
         label: "Completado",
@@ -262,7 +230,7 @@ export default function MiGrupoClient() {
       return {
         label: "Por confirmar",
         color: "bg-yellow-100 text-yellow-700 border-yellow-200",
-        icon: Clock,
+        icon: Calendar,
       };
     }
 
@@ -277,7 +245,7 @@ export default function MiGrupoClient() {
         return {
           label: `Fecha propuesta (${match.acceptedCount || 0}/4)`,
           color: "bg-purple-100 text-purple-700 border-purple-200",
-          icon: Clock,
+          icon: Calendar,
         };
       default:
         return {
@@ -307,7 +275,7 @@ export default function MiGrupoClient() {
     if (position === 2) return <ArrowUp className="w-4 h-4 text-green-600" />;
     if (position === 3) return <ArrowDown className="w-4 h-4 text-red-600" />;
     if (position === 4) return <ArrowDown className="w-4 h-4 text-red-600" />;
-    return <Minus className="w-4 h-4 text-blue-600" />;
+    return <Target className="w-4 h-4 text-blue-600" />;
   };
 
   const getMovementText = (position: number) => {
@@ -345,48 +313,79 @@ export default function MiGrupoClient() {
         return {
           level: "Intermedio",
           color: "bg-blue-100 border-blue-300 text-blue-700",
-          icon: Trophy,
+          icon: Target,
           gradient: "from-blue-50 to-blue-100",
         };
     }
   };
 
-  if (loading) {
+  // Datos memoizados para optimización
+  const { matches, completedMatches, groupInfo, GroupIcon } = useMemo(() => {
+    const sortedMatches = (groupData.allMatches || [])
+      .slice()
+      .sort((a: MatchType, b: MatchType) => a.setNumber - b.setNumber);
+    
+    const completed = sortedMatches.filter((m: MatchType) => m.isConfirmed);
+    const info = getGroupLevelInfo(groupData.group?.number || 2);
+    
+    return {
+      matches: sortedMatches,
+      completedMatches: completed,
+      groupInfo: info,
+      GroupIcon: info.icon
+    };
+  }, [groupData.allMatches, groupData.group?.number]);
+
+  // Estados de carga unificados
+  if (isLoading) {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
-        <div className="flex justify-center py-8">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-        </div>
+        <LoadingState message={loadingMessage} />
       </div>
     );
   }
 
-  if (!data) {
+  if (hasError) {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
-        <div className="text-center py-20">
-          <AlertTriangle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Error al cargar</h2>
-          <p className="text-gray-600 mb-4">No se pudo cargar la información del grupo.</p>
-          <Button onClick={refreshGroupData}>Reintentar</Button>
-        </div>
+        <ErrorState error={error} onRetry={retry} />
       </div>
     );
   }
 
-  const matches = (data.allMatches || data.nextMatches || [])
-    .slice()
-    .sort((a, b) => a.setNumber - b.setNumber);
-
-  const completedMatches = matches.filter((m) => m.isConfirmed);
-  const groupInfo = getGroupLevelInfo(data.group?.number || 2);
-  const GroupIcon = groupInfo.icon;
+  if (!groupData) {
+    return (
+      <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
+        <Breadcrumbs />
+        <EmptyState 
+          message="No se pudo cargar la información del grupo"
+          icon={Users}
+          action={<Button onClick={retry}>Reintentar</Button>}
+        />
+      </div>
+    );
+  }
 
   return (
     <div className={`px-4 py-6 max-w-6xl mx-auto space-y-6 ${isPreviewMode ? "opacity-75" : ""}`}>
       <Breadcrumbs />
+
+      {/* BADGE DE ACTUALIZACIONES DISPONIBLES */}
+      <UpdateBadge show={hasUpdates} onRefresh={retry} />
+
+      {/* Feedback visual para acciones de comodín */}
+      {showActionFeedback && lastComodinAction && (
+        <div className="fixed top-4 right-4 z-50 bg-green-100 border border-green-300 rounded-lg p-3 shadow-lg animate-in fade-in slide-in-from-right-4">
+          <div className="flex items-center gap-2 text-green-700">
+            <CheckCircle className="w-4 h-4" />
+            <span className="text-sm font-medium">
+              Comodín {lastComodinAction} correctamente
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Header con botón de refresh manual */}
       <div className="flex items-center justify-between">
@@ -396,7 +395,7 @@ export default function MiGrupoClient() {
             Mi Grupo
           </h1>
           <p className="text-gray-600 mt-1">
-            {data.tournament?.title} - Ronda {data.tournament?.currentRound}
+            {groupData.tournament?.title} - Ronda {groupData.tournament?.currentRound}
           </p>
         </div>
 
@@ -413,12 +412,12 @@ export default function MiGrupoClient() {
           <Button
             variant="outline"
             size="sm"
-            onClick={refreshGroupData}
-            disabled={isRefreshing}
+            onClick={retry}
+            disabled={isLoading}
             className="flex items-center gap-2"
           >
-            <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-            {isRefreshing ? "Actualizando..." : "Actualizar"}
+            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            Actualizar
           </Button>
         </div>
       </div>
@@ -429,11 +428,11 @@ export default function MiGrupoClient() {
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-3 text-xl">
               <GroupIcon className="w-6 h-6" />
-              Grupo {data.group?.number} - {groupInfo.level}
+              Grupo {groupData.group?.number} - {groupInfo.level}
             </CardTitle>
             <div className="text-right">
               <Badge variant="outline" className="mb-1">
-                {data.group?.totalPlayers} jugadores
+                {groupData.group?.totalPlayers} jugadores
               </Badge>
               <div className="text-sm opacity-75">
                 Progreso: {completedMatches.length}/{matches.length} sets
@@ -443,7 +442,8 @@ export default function MiGrupoClient() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {data.players?.map((player) => (
+            {/* Jugadores del grupo */}
+            {groupData.players?.map((player: PlayerType) => (
               <div
                 key={player.id}
                 className={`flex items-center justify-between p-4 rounded-lg border-2 transition-all hover:shadow-md ${
@@ -478,10 +478,10 @@ export default function MiGrupoClient() {
                         {player.name}
                         {player.isCurrentUser && <span className="text-blue-600 text-sm ml-2">(Tú)</span>}
                       </span>
-                      {data.myStatus?.streak && player.isCurrentUser && data.myStatus.streak > 0 && (
+                      {groupData.myStatus?.streak && player.isCurrentUser && groupData.myStatus.streak > 0 && (
                         <div className="flex items-center gap-1">
                           <Flame className="w-4 h-4 text-orange-500" />
-                          <span className="text-sm text-orange-600 font-medium">Racha {data.myStatus.streak}</span>
+                          <span className="text-sm text-orange-600 font-medium">Racha {groupData.myStatus.streak}</span>
                         </div>
                       )}
                     </div>
@@ -512,32 +512,30 @@ export default function MiGrupoClient() {
             ))}
           </div>
 
-          {/* NUEVO SISTEMA DE COMODÍN + AUTO-REFRESH */}
-          {!isPreviewMode && data.roundId && (
+          {/* Sistema de comodín - CRÍTICO: Pasar refreshTrigger correctamente */}
+          {!isPreviewMode && groupData.roundId && (
             <div className="mt-6">
               <UseComodinButton
-                roundId={data.roundId}
-                className="w-full"
-                // las dos props siguientes son opcionales; si el componente no las soporta, se ignoran
-                refreshTrigger={refreshTrigger}
+                roundId={groupData.roundId}
+                refreshTrigger={comodinRefreshTrigger}
                 onActionComplete={handleComodinAction}
+                className="w-full"
               />
             </div>
           )}
 
           {/* Mensaje si no hay roundId */}
-          {!isPreviewMode && !data.roundId && (
+          {!isPreviewMode && !groupData.roundId && (
             <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <p className="text-sm text-amber-800">
-                <strong>Comodín no disponible:</strong> No se pudo obtener la información de la ronda actual. Contacta con el
-                administrador si necesitas usar el comodín.
+                <strong>Comodín no disponible:</strong> No se pudo obtener la información de la ronda actual.
               </p>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Info de movimientos - CORREGIDA */}
+      {/* Info de movimientos */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
@@ -547,27 +545,19 @@ export default function MiGrupoClient() {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm text-blue-700">
             <div className="flex items-center gap-2">
               <ArrowUp className="w-4 h-4 text-green-600" />
-              <span>
-                <strong>1º lugar:</strong> Sube 2 grupos
-              </span>
+              <span><strong>1º lugar:</strong> Sube 2 grupos</span>
             </div>
             <div className="flex items-center gap-2">
               <ArrowUp className="w-4 h-4 text-green-600" />
-              <span>
-                <strong>2º lugar:</strong> Sube 1 grupo
-              </span>
+              <span><strong>2º lugar:</strong> Sube 1 grupo</span>
             </div>
             <div className="flex items-center gap-2">
               <ArrowDown className="w-4 h-4 text-red-600" />
-              <span>
-                <strong>3º lugar:</strong> Baja 1 grupo
-              </span>
+              <span><strong>3º lugar:</strong> Baja 1 grupo</span>
             </div>
             <div className="flex items-center gap-2">
               <ArrowDown className="w-4 h-4 text-red-600" />
-              <span>
-                <strong>4º lugar:</strong> Baja 2 grupos
-              </span>
+              <span><strong>4º lugar:</strong> Baja 2 grupos</span>
             </div>
           </div>
         </CardContent>
@@ -577,13 +567,13 @@ export default function MiGrupoClient() {
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-blue-600">{data.myStatus?.position}º</div>
+            <div className="text-2xl font-bold text-blue-600">{groupData.myStatus?.position}º</div>
             <div className="text-sm text-gray-600">Mi Posición</div>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-green-600">{round1(data.myStatus?.points || 0)}</div>
+            <div className="text-2xl font-bold text-green-600">{round1(groupData.myStatus?.points || 0)}</div>
             <div className="text-sm text-gray-600">Mis Puntos</div>
           </CardContent>
         </Card>
@@ -597,7 +587,7 @@ export default function MiGrupoClient() {
         </Card>
         <Card>
           <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-orange-600">{data.myStatus?.streak || 0}</div>
+            <div className="text-2xl font-bold text-orange-600">{groupData.myStatus?.streak || 0}</div>
             <div className="text-sm text-gray-600">Racha Actual</div>
           </CardContent>
         </Card>
@@ -614,13 +604,13 @@ export default function MiGrupoClient() {
         </CardHeader>
         <CardContent>
           {matches.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Calendar className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              <p>No hay sets programados</p>
-            </div>
+            <EmptyState 
+              message="No hay sets programados"
+              icon={Calendar}
+            />
           ) : (
             <div className="space-y-4">
-              {matches.map((match) => {
+              {matches.map((match: MatchType) => {
                 const statusInfo = getMatchStatusInfo(match);
                 const StatusIcon = statusInfo.icon;
 
@@ -702,7 +692,7 @@ export default function MiGrupoClient() {
                     {match.status === "DATE_PROPOSED" && match.proposedDate && (
                       <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded">
                         <div className="flex items-center gap-2 text-purple-700 text-sm">
-                          <Clock className="w-4 h-4" />
+                          <Calendar className="w-4 h-4" />
                           <span className="font-medium">Fecha propuesta:</span>
                           <span>{formatDate(match.proposedDate)}</span>
                         </div>
@@ -726,7 +716,7 @@ export default function MiGrupoClient() {
             <Target className="h-12 w-12 text-blue-500 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-blue-900 mb-2">¡Ve Tu Grupo Real!</h3>
             <p className="text-blue-700 mb-6">
-              Estos son datos de ejemplo. Únete a un torneo para competir en tu grupo real y escalar posiciones.
+              Estos son datos de ejemplo. Únete a un torneo para competir en tu grupo real.
             </p>
             <Button variant="default">Contactar Administrador</Button>
           </CardContent>
