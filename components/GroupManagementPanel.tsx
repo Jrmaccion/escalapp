@@ -16,11 +16,8 @@ import {
   Trash2,
   Info,
   Settings,
-  Plus,
   Clock,
   Pencil,
-  X,
-  Move
 } from "lucide-react";
 import MatchEditDialog from "@/components/MatchEditDialog";
 import ManualGroupManager from "@/components/ManualGroupManager";
@@ -160,7 +157,7 @@ export default function GroupManagementPanel({
   };
 
   const handleConfirm = (m: MatchSummary) => {
-    if (!isAdmin && (!Number.isInteger(m.team1Games) || !Number.isInteger(m.team2Games))) {
+    if (!isAdmin && (!Number.isInteger(m.team1Games as any) || !Number.isInteger(m.team2Games as any))) {
       alert("No hay resultado que confirmar.");
       return;
     }
@@ -670,18 +667,26 @@ export default function GroupManagementPanel({
         </TabsContent>
       </Tabs>
 
-      {/* Diálogo de edición */}
-      {editing && (
-        <MatchEditDialog
-          isAdmin={isAdmin}
-          match={editing}
-          onClose={() => setEditing(null)}
-          onSaved={async () => {
-            setEditing(null);
-            await reloadMatches();
-          }}
-        />
-      )}
+      {/* Diálogo de edición - adaptado a la “opción A” */}
+      <MatchEditDialog
+        open={!!editing}
+        onOpenChange={(v) => {
+          if (!v) setEditing(null);
+        }}
+        initialTeam1Games={editing?.team1Games ?? null}
+        initialTeam2Games={editing?.team2Games ?? null}
+        initialTiebreakScore={editing?.tiebreakScore ?? null}
+        onSubmit={async (data) => {
+          if (!editing) return;
+          await patchMatch(editing.id, {
+            team1Games: data.team1Games,
+            team2Games: data.team2Games,
+            tiebreakScore: data.tiebreakScore ?? null,
+          });
+          setEditing(null);
+          await reloadMatches();
+        }}
+      />
 
       {/* Info */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
