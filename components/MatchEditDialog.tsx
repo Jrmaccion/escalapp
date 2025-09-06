@@ -29,6 +29,8 @@ type MatchEditDialogProps = {
     tiebreakScore: string | null;
     photoUrl?: string | null;
   }) => Promise<void>;
+  /** permite pasar modo admin desde el padre (opcional) */
+  isAdmin?: boolean; // 👈 añadido
 };
 
 const scoreSchema = z.object({
@@ -48,6 +50,7 @@ export default function MatchEditDialog({
   initialTeam2Games,
   initialTiebreakScore,
   onSubmit,
+  isAdmin = false, // 👈 recibido (no usado por ahora)
 }: MatchEditDialogProps) {
   const { data: session } = useSession();
 
