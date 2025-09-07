@@ -8,7 +8,8 @@ import {
   Clock, 
   FileText,
   BarChart3,
-  Play
+  Play,
+  UserMinus // ✅ AGREGADO: Import faltante
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -123,6 +124,24 @@ export default function AdminDashboardClient({ tournament, rounds, stats }: Admi
             </div>
           </Link>
 
+          {/* Gestión de Sustitutos */}
+          {currentRound && (
+            <Link 
+              href={`/admin/rounds/${currentRound.id}?tab=substitutes`} 
+              className="block p-4 bg-orange-50 hover:bg-orange-100 rounded-lg border border-orange-200 transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <UserMinus className="h-6 w-6 text-orange-600" />
+                <div>
+                  <div className="font-semibold text-orange-900">Gestionar Sustitutos</div>
+                  <div className="text-sm text-orange-600">
+                    {stats.suplentesActivos} sustitutos activos
+                  </div>
+                </div>
+              </div>
+            </Link>
+          )}
+
           <Link href="/admin/rounds" className="block p-4 bg-gray-50 hover:bg-gray-100 rounded-lg border border-gray-200 transition-colors">
             <div className="flex items-center gap-3">
               <Calendar className="h-6 w-6 text-gray-600" />
@@ -137,8 +156,8 @@ export default function AdminDashboardClient({ tournament, rounds, stats }: Admi
             <div className="flex items-center gap-3">
               <Trophy className="h-6 w-6 text-purple-600" />
               <div>
-              <div className="font-semibold text-purple-900">Gestionar Torneos</div>
-              <div className="text-sm text-purple-600">Crear y configurar</div>
+                <div className="font-semibold text-purple-900">Gestionar Torneos</div>
+                <div className="text-sm text-purple-600">Crear y configurar</div>
               </div>
             </div>
           </Link>
@@ -251,7 +270,7 @@ export default function AdminDashboardClient({ tournament, rounds, stats }: Admi
 
         {/* Sección de gestión de comodines */}
         {currentRound && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
             {/* Panel existente de acciones de ronda */}
             <div className="bg-white rounded-lg shadow">
               <div className="px-6 py-4 border-b border-gray-200">
@@ -269,6 +288,22 @@ export default function AdminDashboardClient({ tournament, rounds, stats }: Admi
                     </span>
                     <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">
                       {stats.comodinesUsados || 0} activos
+                    </span>
+                  </Button>
+                </Link>
+                
+                {/* Gestión de Sustitutos */}
+                <Link href={`/admin/tournaments/${tournament.id}?tab=comodines&roundId=${currentRound.id}`}>
+                  <Button 
+                    variant="outline" 
+                    className="w-full justify-between text-left"
+                  >
+                    <span className="flex items-center gap-2">
+                      👥
+                      Gestionar Sustitutos
+                    </span>
+                    <span className="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full">
+                      {stats.suplentesActivos || 0} activos
                     </span>
                   </Button>
                 </Link>
@@ -300,12 +335,48 @@ export default function AdminDashboardClient({ tournament, rounds, stats }: Admi
                   </div>
                 </div>
                 
-                <div className="mt-4">
+                <div className="mt-4 space-y-2">
                   <Link href={`/admin/rounds/${currentRound.id}/comodines`}>
                     <Button size="sm" className="w-full">
-                      Gestionar todos los comodines
+                      Gestionar Comodines
                     </Button>
                   </Link>
+                  <Link href={`/admin/tournaments/${tournament.id}?tab=comodines&roundId=${currentRound.id}`}>
+                    <Button size="sm" variant="outline" className="w-full">
+                      Gestionar Sustitutos
+                    </Button>
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            {/* Panel de estadísticas de sustitutos */}
+            <div className="bg-white rounded-lg shadow">
+              <div className="px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-medium text-gray-900">👥 Estado de Sustitutos</h3>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Sustitutos activos:</span>
+                    <span className="font-bold">{stats.suplentesActivos}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Asignaciones revocables:</span>
+                    <span className="font-bold text-green-600">{stats.revocables}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Comodines automáticos:</span>
+                    <span className="font-bold text-blue-600">{stats.mediaUsados}</span>
+                  </div>
+                </div>
+                
+                <div className="mt-4 pt-4 border-t">
+                  <div className="text-xs text-gray-500 space-y-1">
+                    <p>• Los sustitutos pueden ser asignados y revocados por el admin</p>
+                    <p>• Solo aplicable si no hay partidos confirmados</p>
+                    <p>• Los puntos se asignan al jugador original</p>
+                  </div>
                 </div>
               </div>
             </div>

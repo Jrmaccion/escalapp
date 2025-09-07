@@ -52,6 +52,8 @@
 \app\api\admin\players\route.ts
 \app\api\admin\results
 \app\api\admin\results\route.ts
+\app\api\admin\substitute
+\app\api\admin\substitute\route.ts
 \app\api\auth
 \app\api\auth\[...nextauth]
 \app\api\auth\[...nextauth]\route.ts
@@ -118,6 +120,8 @@
 \app\api\rounds\[id]\manage-groups\route.ts
 \app\api\rounds\[id]\matches
 \app\api\rounds\[id]\matches\route.ts
+\app\api\rounds\[id]\players
+\app\api\rounds\[id]\players\route.ts
 \app\api\rounds\[id]\route.ts
 \app\api\rounds\TournamentPicker.tsx
 \app\api\tournaments
@@ -185,6 +189,7 @@
 \app\tournaments\page.tsx
 \components
 \components\admin
+\components\admin\AdminSubstituteManager.tsx
 \components\admin\ComodinManagement.tsx
 \components\admin\ComodinSettings.tsx
 \components\admin\StreakSettings.tsx

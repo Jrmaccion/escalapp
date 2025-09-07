@@ -1,7 +1,8 @@
-// lib/tournament-engine.ts - VERSIÓN ROBUSTA CON ROLLBACKS Y VALIDACIONES
+// lib/tournament-engine.ts - VERSIÓN CORREGIDA SIN INCONSISTENCIAS DE STREAKS
 import { prisma } from './prisma'
 import { addDays } from 'date-fns'
 import { computeSubstituteCreditsForRound } from './rounds'
+import { processContinuityStreaksForRound } from './streak-calculator'
 
 // ✅ Enum para errores específicos del engine
 enum TournamentEngineError {
@@ -202,7 +203,7 @@ async function restoreFromSnapshot(snapshot: RoundSnapshot): Promise<void> {
 
 export class TournamentEngine {
   
-  // ✅ Versión robusta del método principal
+  // ✅ Versión robusta del método principal con cálculo correcto de streaks
   static async closeRoundAndGenerateNext(roundId: string) {
     let snapshot: RoundSnapshot | null = null;
     
@@ -218,7 +219,32 @@ export class TournamentEngine {
       // 3. Validar que todos los matches están completos
       await validateAllMatchesCompleted(roundId);
 
-      // 4. Operación crítica en transacción atómica
+      // ✅ 4. CALCULAR RACHAS DE CONTINUIDAD ANTES DE CERRAR
+      const tournament = await prisma.tournament.findUnique({
+        where: { id: integrity.tournamentId },
+        select: {
+          continuityEnabled: true,
+          continuityPointsPerSet: true,
+          continuityPointsPerRound: true,
+          continuityMinRounds: true,
+          continuityMaxBonus: true,
+          continuityMode: true
+        }
+      });
+
+      if (tournament?.continuityEnabled) {
+        await processContinuityStreaksForRound(roundId, {
+          continuityEnabled: tournament.continuityEnabled,
+          continuityPointsPerSet: tournament.continuityPointsPerSet || 0,
+          continuityPointsPerRound: tournament.continuityPointsPerRound || 0,
+          continuityMinRounds: tournament.continuityMinRounds || 2,
+          continuityMaxBonus: tournament.continuityMaxBonus || 10,
+          continuityMode: (tournament.continuityMode as "SETS" | "MATCHES" | "BOTH") || "SETS"
+        });
+        console.log(`✅ Rachas de continuidad procesadas para ronda ${integrity.roundNumber}`);
+      }
+
+      // 5. Operación crítica en transacción atómica
       const result = await prisma.$transaction(async (tx) => {
         // Revalidar que la ronda sigue abierta (protección contra concurrencia)
         const currentRound = await tx.round.findUnique({
@@ -240,7 +266,7 @@ export class TournamentEngine {
           data: { isClosed: true }
         });
 
-        // Obtener datos actualizados para movimientos
+        // Obtener datos actualizados para movimientos (con rachas ya calculadas)
         const roundWithGroups = await tx.round.findUnique({
           where: { id: roundId },
           include: {
@@ -266,15 +292,15 @@ export class TournamentEngine {
         timeout: 30000 // 30 segundos timeout
       });
 
-      // 5. Calcular movimientos fuera de la transacción principal
+      // 6. Calcular movimientos fuera de la transacción principal
       const movements = await this.calculateLadderMovements(result.groups);
       console.log(`📊 Movimientos calculados: ${movements.length} jugadores`);
 
-      // 6. Generar créditos de suplente
+      // 7. Generar créditos de suplente
       const substituteCredits = await computeSubstituteCreditsForRound(roundId);
       console.log(`💳 Créditos de suplente: ${substituteCredits.length}`);
 
-      // 7. Aplicar créditos y generar siguiente ronda si corresponde
+      // 8. Aplicar créditos y generar siguiente ronda si corresponde
       for (const credit of substituteCredits) {
         await this.applySubstituteCredit(result.tournament.id, credit);
       }
@@ -288,10 +314,10 @@ export class TournamentEngine {
         console.log(`🆕 Nueva ronda generada: ${nextRoundId}`);
       }
 
-      // 8. Actualizar rankings
+      // 9. Actualizar rankings
       await this.updateRankings(result.tournament.id, result.number);
 
-      // 9. Verificación final de integridad
+      // 10. Verificación final de integridad
       await this.verifyOperationIntegrity(roundId, result.tournament.id);
 
       console.log(`✅ Ronda ${result.number} cerrada exitosamente`);
@@ -374,8 +400,6 @@ export class TournamentEngine {
     }
   }
 
-  // ... resto de métodos existentes con mejoras menores...
-
   private static async calculateLadderMovements(groups: any[]) {
     const movements: any[] = []
 
@@ -415,7 +439,7 @@ export class TournamentEngine {
     return movements
   }
 
-  // ✅ Generación de siguiente ronda con validaciones
+  // ✅ Generación de siguiente ronda con streaks correctas
   private static async generateNextRound(tournamentId: string, roundNumber: number, movements: any[]) {
     return await prisma.$transaction(async (tx) => {
       const tournament = await tx.tournament.findUnique({
@@ -490,7 +514,8 @@ export class TournamentEngine {
               playerId: newGroupsDistribution[i][j].playerId,
               position: j + 1,
               points: 0,
-              streak: this.calculateNewStreak(newGroupsDistribution[i][j], roundNumber),
+              // ✅ CORREGIDO: Las rachas se calcularán usando streak-calculator.ts
+              streak: 0, // Inicializar en 0, se calculará en la próxima ronda
               usedComodin: false,
               substitutePlayerId: null
             }
@@ -514,8 +539,6 @@ export class TournamentEngine {
     });
   }
 
-  // ... resto de métodos con mejoras menores de logging y validación ...
-  
   private static redistributePlayersWithCorrectMovements(groups: any[], movements: any[]) {
     const numGroups = groups.length;
     const newDistribution: any[][] = Array(numGroups).fill(null).map(() => []);
@@ -587,10 +610,8 @@ export class TournamentEngine {
     console.log(`✅ Generados 3 matches para grupo ${groupId}`);
   }
 
-  private static calculateNewStreak(player: any, roundNumber: number) {
-    // TODO: Implementar lógica de racha real basada en continuidad
-    return 1;
-  }
+  // ✅ ELIMINADA: función calculateNewStreak (era placeholder inconsistente)
+  // Las rachas se calculan usando streak-calculator.ts al cerrar la ronda
 
   private static async applySubstituteCredit(tournamentId: string, credit: any) {
     try {
@@ -623,7 +644,6 @@ export class TournamentEngine {
   }
 
   private static async updateRankings(tournamentId: string, roundNumber: number) {
-    // Implementación existente con logging mejorado
     console.log(`📊 Actualizando rankings para torneo ${tournamentId}, ronda ${roundNumber}`);
     
     const playersStats = await prisma.$queryRaw<any[]>`

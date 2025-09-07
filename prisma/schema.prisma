@@ -7,7 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// Definir ENUM primero
+// ===== Enums =====
 enum MatchStatus {
   PENDING        // Esperando fecha
   DATE_PROPOSED  // Fecha propuesta, esperando confirmación
@@ -17,6 +17,7 @@ enum MatchStatus {
   CANCELLED      // Cancelado
 }
 
+// ===== Models =====
 model User {
   id              String   @id @default(cuid())
   name            String
@@ -49,16 +50,16 @@ model Tournament {
   rounds            Round[]
   players           TournamentPlayer[]
 
-  // Configuración de comodines (existente)
+  // Configuración de comodines
   maxComodinesPerPlayer    Int     @default(1)
   enableMeanComodin        Boolean @default(true)
   enableSubstituteComodin  Boolean @default(true)
 
-  // Configuración para créditos de suplente (existente)
+  // Configuración suplente
   substituteCreditFactor   Float   @default(0.5) // 50% del puntaje del titular
-  substituteMaxAppearances Int     @default(2)   // máximo de veces suplente por torneo
+  substituteMaxAppearances Int     @default(2)   // máximo por torneo
 
-  // ===== NUEVA CONFIGURACIÓN: CONTINUIDAD (renombrado de streak*) =====
+  // CONTINUIDAD (renombrado de streak*)
   continuityEnabled        Boolean @default(true)
   continuityPointsPerSet   Float   @default(1.0)
   continuityPointsPerRound Float   @default(3.0)
@@ -90,9 +91,7 @@ model TournamentPlayer {
   playerId              String
   joinedRound           Int    @default(1)
   comodinesUsed         Int    @default(0)
-
-  // Límite de veces que actuó de suplente en ese torneo (existente)
-  substituteAppearances Int   @default(0)
+  substituteAppearances Int    @default(0)
 
   // Relaciones
   player     Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
@@ -110,7 +109,7 @@ model Round {
   endDate      DateTime
   isClosed     Boolean    @default(false)
   createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt   // 👈 añadido para soportar select/update en código
+  updatedAt    DateTime   @updatedAt
 
   // Relaciones
   groups       Group[]
@@ -143,12 +142,10 @@ model GroupPlayer {
   playerId           String
   position           Int
   points             Float     @default(0)
-  streak             Int       @default(0)   // racha/continuidad actual (número entero)
+  streak             Int       @default(0)
   usedComodin        Boolean   @default(false)
   comodinReason      String?   @db.Text
   comodinAt          DateTime?
-
-  // Si hubo comodín "suplente", quién jugó por mí en esta ronda
   substitutePlayerId String?
 
   // Relaciones
@@ -169,7 +166,7 @@ model Match {
   team2Player1Id String
   team2Player2Id String
 
-  // Campos de resultados
+  // Resultado
   team1Games    Int?
   team2Games    Int?
   tiebreakScore String?
@@ -178,11 +175,11 @@ model Match {
   confirmedById String?
   photoUrl      String?
 
-  // Gestión de fechas
+  // Fechas / estado
   proposedDate DateTime?
   proposedById String?
   acceptedDate DateTime?
-  acceptedBy   String[]     // Postgres: lista de confirmadores
+  acceptedBy   String[]     // Pg: lista de confirmadores
   status       MatchStatus  @default(PENDING)
 
   // Relaciones
@@ -190,7 +187,7 @@ model Match {
   proposer User? @relation("MatchProposer", fields: [proposedById], references: [id])
 
   createdAt DateTime @default(now())
-  updatedAt DateTime @default(now()) @updatedAt
+  updatedAt DateTime @updatedAt
 
   @@unique([groupId, setNumber])
   @@map("matches")
@@ -228,8 +225,7 @@ model Ranking {
   @@map("rankings")
 }
 
-// ===== HISTORIAL DE RACHAS (opcional, para auditoría y trazabilidad) =====
-// Mantenemos el nombre para no impactar más código. Puedes renombrarlo a "ContinuityHistory" en otra migración si lo deseas.
+// Historial de “rachas/continuidad”
 model StreakHistory {
   id          String   @id @default(cuid())
   playerId    String

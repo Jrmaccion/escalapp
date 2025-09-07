@@ -1,4 +1,4 @@
-// app/api/matches/[id]/confirm/route.ts - CORREGIDO: SOLO PUNTOS BÁSICOS
+// app/api/matches/[id]/confirm/route.ts
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -10,11 +10,13 @@ export async function PATCH(
 ) {
   try {
     const session = await getServerSession(authOptions);
+
+    // Solo admin puede confirmar (según tu versión actual)
     if (!session?.user?.isAdmin) {
       return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    // Obtener el match
+    // 1) Obtener el match con el mínimo necesario para lógica de sustitutos
     const match = await prisma.match.findUnique({
       where: { id: params.id },
       include: {
@@ -22,7 +24,14 @@ export async function PATCH(
           include: {
             round: {
               include: {
-                tournament: { select: { id: true, title: true } },
+                tournament: {
+                  select: {
+                    id: true,
+                    title: true,
+                    // Necesario para el crédito de sustituto (si no existe, lo tratamos como 0.5 por defecto)
+                    substituteCreditFactor: true,
+                  },
+                },
               },
             },
           },
@@ -38,7 +47,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Match ya confirmado" }, { status: 400 });
     }
 
-    // Verificar que hay resultado registrado
+    // 2) Validación de resultado
     if (match.team1Games == null || match.team2Games == null) {
       return NextResponse.json(
         { error: "Match sin resultado registrado (faltan juegos)" },
@@ -46,13 +55,13 @@ export async function PATCH(
       );
     }
 
-    // Copiar a primitivas no nulas
+    // Copias no nulas
     const t1: number = match.team1Games;
     const t2: number = match.team2Games;
 
-    // Realizar operaciones en transacción
+    // 3) Transacción: confirmar + puntos básicos + lógica de sustitutos
     const updatedMatch = await prisma.$transaction(async (tx) => {
-      // 1) Confirmar el match
+      // 3.1) Confirmar el match
       await tx.match.update({
         where: { id: params.id },
         data: {
@@ -63,47 +72,101 @@ export async function PATCH(
         },
       });
 
-      // 2) Calcular y asignar SOLO puntos básicos por set
-      // ✅ CORREGIDO: Las rachas de continuidad se calcularán al cerrar la ronda
+      // 3.2) Calcular SOLO puntos básicos por set
+      // ⚠️ Las rachas se calcularán al cerrar la ronda (fuera de aquí)
       const team1Won = t1 > t2;
 
-      const allPlayerIds = [
+      const allPlayerIds: string[] = [
         match.team1Player1Id,
         match.team1Player2Id,
         match.team2Player1Id,
         match.team2Player2Id,
-      ];
+      ].filter(Boolean) as string[];
 
       for (const playerId of allPlayerIds) {
         const isInWinningTeam = team1Won
           ? [match.team1Player1Id, match.team1Player2Id].includes(playerId)
           : [match.team2Player1Id, match.team2Player2Id].includes(playerId);
 
-        const gamesWon: number = isInWinningTeam
-          ? (team1Won ? t1 : t2)
-          : (team1Won ? t2 : t1);
+        const gamesWon: number = isInWinningTeam ? (team1Won ? t1 : t2) : (team1Won ? t2 : t1);
 
-        // Puntos básicos: 1 punto por juego ganado + 1 extra si gana el set
+        // 1 punto por juego ganado + 1 extra si gana el set
         const basePoints = gamesWon + (isInWinningTeam ? 1 : 0);
 
-        await tx.groupPlayer.update({
+        // ✅ NUEVO: verificar sustituto configurado en GroupPlayer
+        const groupPlayer = await tx.groupPlayer.findUnique({
           where: {
             groupId_playerId: {
               groupId: match.groupId,
               playerId,
             },
           },
-          data: {
-            points: { increment: basePoints },
+          select: {
+            id: true,
+            playerId: true,
+            substitutePlayerId: true,
           },
         });
+
+        if (!groupPlayer) {
+          console.warn(`GroupPlayer no encontrado para ${playerId} en grupo ${match.groupId}`);
+          continue;
+        }
+
+        if (groupPlayer.substitutePlayerId) {
+          // CASO: jugador con sustituto asignado por admin
+          const tournament = match.group.round.tournament;
+          const creditFactor =
+            (tournament as any)?.substituteCreditFactor != null
+              ? Number((tournament as any).substituteCreditFactor)
+              : 0.5; // por defecto 50%
+
+          const substituteCredit = basePoints * creditFactor;
+
+          // 1) El jugador original no suma puntos (no jugó físicamente)
+          //    (incrementar 0 es no-op, pero dejamos explícito por claridad)
+          await tx.groupPlayer.update({
+            where: { id: groupPlayer.id },
+            data: { points: { increment: 0 } },
+          });
+
+          // 2) El sustituto recibe crédito en Ironman (acumulado en tournamentPlayer)
+          await tx.tournamentPlayer.update({
+            where: {
+              tournamentId_playerId: {
+                tournamentId: tournament.id,
+                playerId: groupPlayer.substitutePlayerId,
+              },
+            },
+            data: {
+              substituteAppearances: { increment: substituteCredit },
+            },
+          });
+
+          console.log(
+            `Sustituto ${groupPlayer.substitutePlayerId} recibe ${substituteCredit} puntos de crédito (factor ${creditFactor}).`
+          );
+        } else {
+          // CASO normal: sumar puntos básicos al jugador del grupo
+          await tx.groupPlayer.update({
+            where: {
+              groupId_playerId: {
+                groupId: match.groupId,
+                playerId,
+              },
+            },
+            data: {
+              points: { increment: basePoints },
+            },
+          });
+        }
       }
 
-      // Devolver el match confirmado
+      // Devolver la versión confirmada
       return tx.match.findUnique({ where: { id: params.id } });
     });
 
-    // Obtener datos actualizados del grupo
+    // 4) Devolver ranking de grupo actualizado (ordenado por puntos)
     const updatedGroup = await prisma.group.findUnique({
       where: { id: match.groupId },
       include: {
@@ -120,7 +183,8 @@ export async function PATCH(
       success: true,
       match: updatedMatch,
       groupPlayers: updatedGroup?.players ?? [],
-      message: "Match confirmado. Las rachas de continuidad se calcularán al cerrar la ronda.",
+      message:
+        "Match confirmado. Puntos básicos aplicados. Las rachas de continuidad se calcularán al cerrar la ronda.",
     });
   } catch (error) {
     console.error("Error confirming match:", error);
@@ -134,5 +198,4 @@ export async function PATCH(
   }
 }
 
-// ✅ CORREGIDO: Remover endpoints POST para recalcular rachas
-// (Ya no es necesario porque las rachas se calculan al cerrar ronda)
+// ✅ Sin endpoints POST auxiliares: las rachas se recalculan al cerrar la ronda.

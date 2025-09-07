@@ -28,6 +28,7 @@ import GroupManagementPanel from "@/components/GroupManagementPanel";
 import ComodinSettings from "@/components/admin/ComodinSettings";
 // Configuración de rachas
 import StreakSettings from "@/components/admin/StreakSettings";
+import AdminSubstituteManager from "@/components/admin/AdminSubstituteManager";
 
 /* ========================= Tipos ========================= */
 type SerializedTournament = {
@@ -663,6 +664,21 @@ export default function TournamentDetailClient({
                 </Card>
               </div>
 
+              {/* NUEVA SECCIÓN: Gestión de Sustitutos por Admin */}
+              {selectedRound && (
+                <div className="mt-8">
+                  <AdminSubstituteManager
+                    roundId={selectedRound.id}
+                    roundNumber={selectedRound.number}
+                    tournamentTitle={tournament.title}
+                    isRoundClosed={selectedRound.isClosed}
+                    onSubstituteChanged={() => {
+                      router.refresh();
+                    }}
+                  />
+                </div>
+              )}
+
               {/* Información sobre comodines */}
               <Card className="bg-blue-50 border-blue-200">
                 <CardHeader>
@@ -680,12 +696,12 @@ export default function TournamentDetailClient({
                       </ul>
                     </div>
                     <div>
-                      <h4 className="font-medium mb-2">Comodín de Sustituto</h4>
+                      <h4 className="font-medium mb-2">Gestión de Sustitutos</h4>
                       <ul className="space-y-1 text-xs">
-                        <li>• Otro jugador de grupo inferior juega por ti</li>
-                        <li>• Los puntos se asignan al titular</li>
-                        <li>• El sustituto recibe crédito Ironman proporcional</li>
-                        <li>• Revocable hasta 24h antes del partido</li>
+                        <li>• Los administradores pueden asignar sustitutos manualmente</li>
+                        <li>• Los puntos se asignan al jugador original</li>
+                        <li>• Asignación revocable hasta que haya partidos confirmados</li>
+                        <li>• Solo jugadores no participantes en la ronda son elegibles</li>
                       </ul>
                     </div>
                   </div>
@@ -712,6 +728,7 @@ export default function TournamentDetailClient({
                 }}
               />
             </TabsContent>
+            
 
             {/* =================== PESTAÑA: CONFIGURACIÓN =================== */}
             <TabsContent value="settings" className="space-y-6 mt-6">
