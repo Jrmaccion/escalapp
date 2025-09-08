@@ -21,7 +21,10 @@
     "create-admin": "tsx scripts/create-admin.ts",
     "postinstall": "prisma generate",
     "estructura": "node scripts/genera-estructura.js",
-    "db:clean-production": "echo 'CUIDADO: Ve a Neon dashboard, resetea la BD, luego ejecuta: npm run db:deploy && npm run create-admin'"
+    "db:clean-production": "echo 'CUIDADO: Ve a Neon dashboard, resetea la BD, luego ejecuta: npm run db:deploy && npm run create-admin'",
+    "db:deploy:prod": "dotenv -e .env.production.local -- prisma migrate deploy",
+    "clean-neon": "dotenv -e .env.production.local -- tsx scripts/clean-production.ts",
+    "create-admin:prod": "dotenv -e .env.production.local -- tsx scripts/create-admin.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
@@ -92,4 +95,5 @@
   "engines": {
     "node": ">=18.0.0"
   }
+  
 }

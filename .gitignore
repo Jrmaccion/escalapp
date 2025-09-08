@@ -29,3 +29,4 @@ prisma/*-journal
 
 # === Vercel / Build (opcional ignorar .vercel) ===
 .vercel/
+.vercel
