@@ -1,4 +1,4 @@
-/* app/globals.css - OPTIMIZACIONES MÓVILES MEJORADAS */
+/* app/globals.css - OPTIMIZACIONES MÓVILES + BRAND PadelRise */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -11,20 +11,37 @@
     --card-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
+
+    /* ====== PadelRise (modo claro) ======
+       #e74c3c -> hsl(6, 78%, 57%)
+       #ff5722 -> hsl(14, 100%, 57%)
+    */
+    --primary: 6 78% 57%;
     --primary-foreground: 210 40% 98%;
+
     --secondary: 210 40% 96%;
     --secondary-foreground: 222.2 84% 4.9%;
+
+    /* Usado por variantes ghost/hover y superficies sutiles */
     --muted: 210 40% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
+
+    /* Alineamos "accent" con la marca naranja */
+    --accent: 14 100% 57%;
+    --accent-foreground: 210 40% 98%;
+
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
+
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
+    /* Ring en tono primario por defecto */
+    --ring: 6 78% 57%;
+
     --radius: 0.5rem;
+
+    /* Complemento útil (coral cálido #ff7043 -> hsl(14, 100%, 63%)) */
+    --brand-coral: 14 100% 63%;
   }
 
   .dark {
@@ -34,23 +51,35 @@
     --card-foreground: 210 40% 98%;
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
+
+    /* ====== PadelRise (modo oscuro) ======
+       #c0392b -> hsl(6, 63%, 46%)
+       #f4511e -> hsl(14, 91%, 54%)
+    */
+    --primary: 6 63% 46%;
+    --primary-foreground: 210 40% 98%;
+
     --secondary: 217.2 32.6% 17.5%;
     --secondary-foreground: 210 40% 98%;
+
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+
+    /* Acento naranja algo más comedido en oscuro */
+    --accent: 14 91% 54%;
     --accent-foreground: 210 40% 98%;
+
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
+
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 94.1%;
+    --ring: 6 63% 46%;
   }
 }
 
 @layer base {
+  /* Solo definimos el color del borde por defecto (NO el ancho) */
   * {
     @apply border-border;
   }
@@ -61,28 +90,28 @@
 
 /* ========================================
    OPTIMIZACIONES MÓVILES ESPECÍFICAS
+   (se mantienen tal como tenías)
    ======================================== */
 
 @layer components {
-  
   /* Espaciado móvil mejorado para cards */
   @media (max-width: 768px) {
     .mobile-card {
       @apply p-4 space-y-3;
     }
-    
+
     .mobile-card .card-header {
       @apply p-4 pb-2;
     }
-    
+
     .mobile-card .card-content {
       @apply p-4 pt-2;
     }
-    
+
     .mobile-card .card-title {
       @apply text-lg leading-relaxed;
     }
-    
+
     .mobile-card .card-description {
       @apply text-sm leading-relaxed mt-2;
     }
@@ -93,11 +122,11 @@
     .mobile-button {
       @apply min-h-[44px] px-4 py-3 text-base;
     }
-    
+
     .mobile-button-sm {
       @apply min-h-[36px] px-3 py-2 text-sm;
     }
-    
+
     .mobile-button-lg {
       @apply min-h-[52px] px-6 py-4 text-lg;
     }
@@ -108,27 +137,27 @@
     .mobile-match-card {
       @apply p-4 space-y-4 border rounded-lg;
     }
-    
+
     .mobile-match-header {
       @apply flex flex-col space-y-2;
     }
-    
+
     .mobile-match-teams {
       @apply space-y-3;
     }
-    
+
     .mobile-match-team {
       @apply p-3 rounded-lg text-center;
     }
-    
+
     .mobile-match-vs {
       @apply text-center text-sm text-gray-500 py-1;
     }
-    
+
     .mobile-match-score {
       @apply text-2xl font-bold text-center;
     }
-    
+
     .mobile-match-actions {
       @apply flex flex-col space-y-2 mt-4;
     }
@@ -139,11 +168,11 @@
     .mobile-nav-item {
       @apply flex flex-col items-center justify-center py-3 px-2 min-h-[60px];
     }
-    
+
     .mobile-nav-icon {
       @apply w-6 h-6 mb-1;
     }
-    
+
     .mobile-nav-label {
       @apply text-xs text-center leading-tight;
     }
@@ -154,31 +183,31 @@
     .mobile-dashboard-container {
       @apply px-4 py-6 space-y-6 pb-20; /* Espacio para tab bar */
     }
-    
+
     .mobile-dashboard-header {
       @apply text-center space-y-2;
     }
-    
+
     .mobile-dashboard-title {
       @apply text-2xl font-bold;
     }
-    
+
     .mobile-dashboard-subtitle {
       @apply text-gray-600 text-sm;
     }
-    
+
     .mobile-action-card {
       @apply p-6 border-2 rounded-lg space-y-4;
     }
-    
+
     .mobile-action-card.high-priority {
       @apply border-red-200 bg-red-50;
     }
-    
+
     .mobile-action-card.medium-priority {
       @apply border-yellow-200 bg-yellow-50;
     }
-    
+
     .mobile-action-card.low-priority {
       @apply border-green-200 bg-green-50;
     }
@@ -189,15 +218,15 @@
     .mobile-stats-grid {
       @apply grid grid-cols-2 gap-3;
     }
-    
+
     .mobile-stats-card {
       @apply p-4 text-center bg-white rounded-lg border space-y-2;
     }
-    
+
     .mobile-stats-value {
       @apply text-xl font-bold;
     }
-    
+
     .mobile-stats-label {
       @apply text-xs text-gray-600 leading-tight;
     }
@@ -208,15 +237,15 @@
     .mobile-form-group {
       @apply space-y-3;
     }
-    
+
     .mobile-input {
       @apply min-h-[44px] px-4 text-base;
     }
-    
+
     .mobile-label {
       @apply text-sm font-medium leading-relaxed;
     }
-    
+
     .mobile-form-actions {
       @apply flex flex-col space-y-3 mt-6;
     }
@@ -227,15 +256,15 @@
     .mobile-filters {
       @apply space-y-4;
     }
-    
+
     .mobile-filter-group {
       @apply space-y-2;
     }
-    
+
     .mobile-filter-buttons {
       @apply flex flex-wrap gap-2;
     }
-    
+
     .mobile-filter-button {
       @apply px-3 py-2 text-sm rounded-lg border min-h-[36px];
     }
@@ -246,47 +275,47 @@
     .mobile-group-card {
       @apply p-4 rounded-lg border-2 space-y-4;
     }
-    
+
     .mobile-group-header {
       @apply flex flex-col space-y-2 text-center;
     }
-    
+
     .mobile-group-title {
       @apply text-lg font-bold;
     }
-    
+
     .mobile-group-subtitle {
       @apply text-sm text-gray-600;
     }
-    
+
     .mobile-player-list {
       @apply space-y-3;
     }
-    
+
     .mobile-player-item {
       @apply flex items-center justify-between p-3 rounded-lg border;
     }
-    
+
     .mobile-player-info {
       @apply flex items-center space-x-3;
     }
-    
+
     .mobile-player-avatar {
       @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm;
     }
-    
+
     .mobile-player-details {
       @apply space-y-1;
     }
-    
+
     .mobile-player-name {
       @apply font-medium text-base;
     }
-    
+
     .mobile-player-stats {
       @apply text-sm text-gray-600;
     }
-    
+
     .mobile-player-movement {
       @apply text-right space-y-1;
     }
@@ -297,19 +326,19 @@
     .mobile-admin-item {
       @apply p-4 border rounded-lg space-y-3;
     }
-    
+
     .mobile-admin-header {
       @apply flex items-start justify-between;
     }
-    
+
     .mobile-admin-content {
       @apply space-y-2;
     }
-    
+
     .mobile-admin-actions {
       @apply flex flex-wrap gap-2 mt-3;
     }
-    
+
     .mobile-admin-meta {
       @apply text-xs text-gray-500 space-y-1;
     }
@@ -320,29 +349,29 @@
     .mobile-text-base {
       @apply text-base leading-relaxed;
     }
-    
+
     .mobile-text-sm {
       @apply text-sm leading-relaxed;
     }
-    
+
     .mobile-text-xs {
       @apply text-xs leading-normal;
     }
-    
+
     /* Espaciado entre elementos */
     .mobile-section {
       @apply space-y-4;
     }
-    
+
     .mobile-subsection {
       @apply space-y-3;
     }
-    
+
     /* Márgenes y paddings consistentes */
     .mobile-container {
       @apply px-4 py-6 max-w-none;
     }
-    
+
     .mobile-card-spacing {
       @apply space-y-6;
     }
@@ -353,15 +382,15 @@
     .mobile-loading {
       @apply flex flex-col items-center justify-center py-12 space-y-4;
     }
-    
+
     .mobile-loading-text {
       @apply text-center text-gray-600 text-base;
     }
-    
+
     .mobile-error {
       @apply p-6 text-center space-y-4;
     }
-    
+
     .mobile-empty {
       @apply p-8 text-center space-y-4;
     }
@@ -372,11 +401,11 @@
     .mobile-badge {
       @apply px-2 py-1 text-xs rounded;
     }
-    
+
     .mobile-badge-lg {
       @apply px-3 py-2 text-sm rounded;
     }
-    
+
     .mobile-status-indicator {
       @apply flex items-center space-x-2 text-sm;
     }
@@ -388,12 +417,12 @@
     .mobile-touch-target {
       @apply min-h-[44px] min-w-[44px];
     }
-    
+
     /* Contraste mejorado para pantallas pequeñas */
     .mobile-high-contrast {
       @apply text-gray-900 bg-white border-gray-300;
     }
-    
+
     /* Separación clara entre elementos interactivos */
     .mobile-interactive-spacing {
       @apply space-y-3;
@@ -411,44 +440,56 @@
     -ms-overflow-style: none;
     scrollbar-width: none;
   }
-  
+
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
-  
+
   /* Gradientes personalizados */
   .gradient-brand {
     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   }
-  
+
   .gradient-success {
     background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
   }
-  
+
   .gradient-warning {
     background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
   }
-  
+
   .gradient-error {
     background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
   }
-  
+
+  /* ===== NUEVO: Gradiente PadelRise ===== */
+  .bg-gradient-padel {
+    background: linear-gradient(135deg, #e74c3c 0%, #ff5722 100%);
+  }
+
   /* Sombras sutiles */
   .shadow-card {
     box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
   }
-  
+
   .shadow-card-hover {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
+      0 2px 4px -1px rgba(0, 0, 0, 0.06);
   }
-  
-  /* Estados de focus mejorados */
+
+  /* Estados de focus mejorados (ring acorde a marca) */
   .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
   }
-  
+
   /* Transiciones suaves */
   .transition-smooth {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
+}
+
+/* Selección de texto en tono marca */
+::selection {
+  background: hsl(var(--primary));
+  color: #fff;
 }

@@ -1,4 +1,4 @@
-// app/page.tsx - Nueva página de inicio con clasificaciones públicas
+// app/page.tsx - Home pública / redirección a dashboard
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -8,11 +8,11 @@ export default async function HomePage() {
   const session = await getServerSession(authOptions);
 
   if (session) {
-    // Redirige a la vista correspondiente si ya hay sesión
+    // Ajuste: coincide con tu Navigation (ruta admin = /admin)
     const isAdmin = (session.user as any)?.isAdmin;
-    redirect(isAdmin ? "/admin/dashboard" : "/dashboard");
+    redirect(isAdmin ? "/admin" : "/dashboard");
   }
 
-  // Si NO hay sesión, mostramos la página pública con clasificaciones
+  // Página pública
   return <PublicHome />;
 }

@@ -4,11 +4,13 @@ import { useState } from "react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import MatchGenerationPanel from "@/components/MatchGenerationPanel";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
+import ManualGroupManager from "@/components/ManualGroupManager";
+
 import CloseRoundButton from "@/components/CloseRoundButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Users, CheckCircle, Clock, ArrowLeft, Play, Plus } from "lucide-react";
+import { Calendar, Users, CheckCircle, Clock, ArrowLeft, Play, Plus, Settings } from "lucide-react";
 import { format, differenceInDays, isAfter, isBefore } from "date-fns";
 import { es } from "date-fns/locale";
 import Link from "next/link";
@@ -37,6 +39,7 @@ export default function RoundDetailClient({
   eligiblePlayers: any[];
 }) {
   const [selectedFilter, setSelectedFilter] = useState<"all" | "pending" | "completed">("all");
+  const [useManualManager, setUseManualManager] = useState<boolean>(true);
 
   // Aplanar sets con nº de grupo para la lista compacta
   const allMatches: Match[] = round.groups.flatMap((group: any) =>
@@ -89,6 +92,28 @@ export default function RoundDetailClient({
       if (gp) return gp.player.name;
     }
     return "Jugador desconocido";
+  };
+
+  // Datos serializados para pasar a ambos gestores
+  const mgrGroups = round.groups.map((group: any) => ({
+    id: group.id,
+    number: group.number,
+    level: group.level ?? 0,
+    players: group.players.map((gp: any) => ({
+      id: gp.player.id,
+      name: gp.player.name,
+      position: gp.position,
+    })),
+  }));
+
+  // ✅ FIX: ManualGroupManager espera availablePlayers: Player[]
+  const availablePlayersList = eligiblePlayers.map((p: any) => ({
+    id: p.id ?? p.player?.id ?? p.playerId,
+    name: p.name ?? p.player?.name ?? p.playerName ?? "Jugador",
+  }));
+
+  const onGroupsSaved = async () => {
+    window.location.reload();
   };
 
   return (
@@ -186,28 +211,71 @@ export default function RoundDetailClient({
         </Card>
       )}
 
-      {/* Gestión de grupos */}
-      <GroupManagementPanel
-        roundId={round.id}
-        roundNumber={round.number}
-        tournament={{
-          id: round.tournament.id,
-          title: round.tournament.title,
-          totalPlayers: eligiblePlayers.length,
-        }}
-        groups={round.groups.map((group: any) => ({
-          id: group.id,
-          number: group.number,
-          level: group.level ?? 0,
-          players: group.players.map((gp: any) => ({
-            id: gp.player.id,
-            name: gp.player.name,
-            position: gp.position,
-          })),
-        }))}
-        availablePlayers={eligiblePlayers.length}
-        isAdmin={true}
-      />
+      {/* Selector de modo de gestión de grupos */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Settings className="w-5 h-5" />
+            Gestión de Grupos (Admin)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-sm text-gray-600">
+              Modo actual:{" "}
+              <Badge variant="outline" className="ml-1">
+                {useManualManager ? "Manual (sin drag & drop)" : "Panel clásico"}
+              </Badge>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant={useManualManager ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseManualManager(true)}
+              >
+                Manual
+              </Button>
+              <Button
+                variant={!useManualManager ? "default" : "outline"}
+                size="sm"
+                onClick={() => setUseManualManager(false)}
+              >
+                Panel clásico
+              </Button>
+            </div>
+          </div>
+
+          {useManualManager ? (
+            <ManualGroupManager
+              roundId={round.id}
+              initialGroups={round.groups.map((group: any) => ({
+                id: group.id,
+                level: group.level ?? 0,
+                players: group.players.map((gp: any) => ({
+                  id: gp.player.id,
+                  name: gp.player.name,
+                })),
+              }))}
+              // ✅ ahora pasamos el array de jugadores disponibles
+              availablePlayers={availablePlayersList}
+              onSave={onGroupsSaved}
+            />
+          ) : (
+            <GroupManagementPanel
+              roundId={round.id}
+              roundNumber={round.number}
+              tournament={{
+                id: round.tournament.id,
+                title: round.tournament.title,
+                totalPlayers: eligiblePlayers.length,
+              }}
+              groups={mgrGroups}
+              availablePlayers={eligiblePlayers.length}
+              isAdmin={true}
+            />
+          )}
+        </CardContent>
+      </Card>
 
       {/* Generación de partidos */}
       <MatchGenerationPanel
@@ -229,7 +297,7 @@ export default function RoundDetailClient({
         isAdmin={true}
       />
 
-      {/* Gestión de resultados (lista compacta con filtro) */}
+      {/* Gestión de resultados */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -427,7 +495,6 @@ export default function RoundDetailClient({
                 <Link href="/admin/players">Gestionar Jugadores</Link>
               </Button>
 
-              {/* Acceso directo a Comodines */}
               <Button variant="outline" asChild>
                 <Link href={`/admin/rounds/${round.id}/comodines`}>Gestionar Comodines</Link>
               </Button>

@@ -8,24 +8,33 @@ import { Toaster } from "react-hot-toast";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Escalapp - Gestión de Torneos Escalera de Pádel",
-  description: "Aplicación web para gestionar torneos de pádel con sistema de escalera automático",
-  keywords: "pádel, torneo, escalera, gestión, deportes",
+  title: "PadelRise — Torneo Escalera de Pádel",
+  description:
+    "PadelRise: gestiona tu Torneo Escalera de Pádel con rondas, grupos, resultados y clasificaciones.",
+  keywords: ["pádel", "torneo", "escalera", "gestión", "deportes", "PadelRise"],
+  applicationName: "PadelRise",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#e74c3c" },
+    { media: "(prefers-color-scheme: dark)", color: "#c0392b" },
+  ],
+  icons: { icon: "/favicon.ico" },
+  openGraph: {
+    title: "PadelRise — Torneo Escalera de Pádel",
+    description:
+      "Gestiona tu liga tipo Escalera de Pádel: grupos, rondas, comodines y rankings.",
+    siteName: "PadelRise",
+    type: "website",
+  },
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="es" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
         <Providers>
-          <div className="min-h-screen bg-gray-50">
+          <div className="min-h-screen bg-background">
             <Navigation />
             <main>{children}</main>
-            {/* Mover Toaster al final para evitar problemas de hidratación */}
             <Toaster position="top-center" />
           </div>
         </Providers>

@@ -1,17 +1,28 @@
 "use client";
 
-import { ArrowLeft, Plus, Trophy, Users, Calendar, Settings, Eye, Trash2 } from "lucide-react";
 import Link from "next/link";
-import { format } from "date-fns";
-import { es } from "date-fns/locale";
+import {
+  ArrowLeft,
+  Plus,
+  Trophy,
+  Users,
+  Calendar,
+  Settings,
+  Eye,
+  Trash2,
+  Power,
+  Clock,
+  CheckCircle,
+} from "lucide-react";
 import { useState, useTransition } from "react";
-import DeleteConfirmationModal from "@/components/modals/DeleteConfirmationModal";
 
 type SerializedTournament = {
   id: string;
   title: string;
-  startDate: string;
-  endDate: string;
+  startDateISO: string;
+  endDateISO: string;
+  startDateText: string;
+  endDateText: string;
   totalRounds: number;
   roundDurationDays: number;
   isActive: boolean;
@@ -19,6 +30,8 @@ type SerializedTournament = {
   playersCount: number;
   roundsCount: number;
   status: "active" | "finished" | "upcoming" | "inactive";
+  daysToStart: number | null;
+  daysToEnd: number | null;
 };
 
 type TournamentsClientProps = {
@@ -30,37 +43,52 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
   const [deleteModal, setDeleteModal] = useState<{
     isOpen: boolean;
     tournament: SerializedTournament | null;
-  }>({ isOpen: false, tournament: null });
+  }>({
+    isOpen: false,
+    tournament: null,
+  });
 
   const activeTournament = tournaments.find((t) => t.isActive);
 
-  const getStatusBadge = (tournament: SerializedTournament) => {
-    const baseClasses = "inline-block px-2 py-1 rounded text-xs font-medium";
-
-    switch (tournament.status) {
+  const getStatusBadge = (t: SerializedTournament) => {
+    const base = "inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium";
+    switch (t.status) {
       case "active":
-        return <span className={`${baseClasses} bg-green-100 text-green-700`}>Activo</span>;
+        return (
+          <span className={`${base} bg-green-100 text-green-700`}>
+            <Power className="w-3 h-3" />
+            Activo
+          </span>
+        );
       case "finished":
-        return <span className={`${baseClasses} bg-gray-100 text-gray-700`}>Finalizado</span>;
+        return (
+          <span className={`${base} bg-gray-200 text-gray-800`}>
+            <CheckCircle className="w-3 h-3" />
+            Finalizado
+          </span>
+        );
       case "upcoming":
-        return <span className={`${baseClasses} bg-blue-100 text-blue-700`}>Próximo</span>;
+        return (
+          <span className={`${base} bg-blue-100 text-blue-700`}>
+            <Clock className="w-3 h-3" />
+            Próximo
+          </span>
+        );
       default:
-        return <span className={`${baseClasses} bg-yellow-100 text-yellow-700`}>Inactivo</span>;
+        return <span className={`${base} bg-yellow-100 text-yellow-700`}>Inactivo</span>;
     }
   };
 
   const activateTournament = (tournamentId: string) => {
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/tournaments/${tournamentId}/activate`, {
-          method: "PATCH",
-        });
+        const res = await fetch(`/api/tournaments/${tournamentId}/activate`, { method: "PATCH" });
         if (res.ok) {
           window.location.reload();
         } else {
           alert("Error al activar torneo");
         }
-      } catch (error) {
+      } catch {
         alert("Error de conexión");
       }
     });
@@ -70,29 +98,27 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
     setDeleteModal({ isOpen: true, tournament });
   };
 
-  const confirmDelete = () => {
-    if (!deleteModal.tournament) return;
-
+  const confirmDelete = async () => {
+    const t = deleteModal.tournament;
+    if (!t) return;
     startTransition(async () => {
       try {
-        const res = await fetch(`/api/tournaments/${deleteModal.tournament!.id}`, {
-          method: "DELETE",
-        });
-        
+        const res = await fetch(`/api/tournaments/${t.id}`, { method: "DELETE" });
         const data = await res.json();
-        
         if (res.ok) {
           setDeleteModal({ isOpen: false, tournament: null });
           window.location.reload();
         } else {
           alert(data.error || "Error al eliminar torneo");
         }
-      } catch (error) {
-        console.error("Error deleting tournament:", error);
+      } catch (e) {
+        console.error("Error deleting tournament:", e);
         alert("Error de conexión");
       }
     });
   };
+
+  const modalTournament = deleteModal.tournament; // Narrow para el render
 
   return (
     <div className="w-full max-w-none min-h-screen bg-gray-50 py-10">
@@ -177,15 +203,11 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
                   <div>
                     <span className="text-gray-600">Inicio:</span>
-                    <div className="font-medium">
-                      {format(new Date(activeTournament.startDate), "d MMM yyyy", { locale: es })}
-                    </div>
+                    <div className="font-medium">{activeTournament.startDateText}</div>
                   </div>
                   <div>
                     <span className="text-gray-600">Fin:</span>
-                    <div className="font-medium">
-                      {format(new Date(activeTournament.endDate), "d MMM yyyy", { locale: es })}
-                    </div>
+                    <div className="font-medium">{activeTournament.endDateText}</div>
                   </div>
                   <div>
                     <span className="text-gray-600">Jugadores:</span>
@@ -238,53 +260,49 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
                     </td>
                   </tr>
                 ) : (
-                  tournaments.map((tournament) => (
-                    <tr key={tournament.id} className="border-b hover:bg-gray-50">
+                  tournaments.map((t) => (
+                    <tr key={t.id} className="border-b hover:bg-gray-50">
                       <td className="py-4 px-6">
-                        <div className="font-medium">{tournament.title}</div>
+                        <div className="font-medium">{t.title}</div>
                         <div className="text-xs text-gray-500">
-                          {tournament.totalRounds} rondas • {tournament.roundDurationDays} días/ronda
+                          {t.totalRounds} rondas • {t.roundDurationDays} días/ronda
                         </div>
                       </td>
-                      <td className="py-4 px-6">{getStatusBadge(tournament)}</td>
+                      <td className="py-4 px-6">{getStatusBadge(t)}</td>
                       <td className="py-4 px-6 text-xs">
-                        <div>{format(new Date(tournament.startDate), "d MMM yyyy", { locale: es })}</div>
-                        <div className="text-gray-500">
-                          {format(new Date(tournament.endDate), "d MMM yyyy", { locale: es })}
-                        </div>
+                        <div>{t.startDateText}</div>
+                        <div className="text-gray-500">{t.endDateText}</div>
                       </td>
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-1">
                           <Users className="h-4 w-4 text-gray-400" />
-                          <span>{tournament.playersCount}</span>
+                          <span>{t.playersCount}</span>
                         </div>
                       </td>
                       <td className="py-4 px-6">
                         <div className="text-xs">
-                          {tournament.roundsCount} / {tournament.totalRounds} rondas
+                          {t.roundsCount} / {t.totalRounds} rondas
                         </div>
                         <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
                           <div
                             className="bg-blue-600 h-2 rounded-full"
-                            style={{
-                              width: `${(tournament.roundsCount / tournament.totalRounds) * 100}%`,
-                            }}
-                          ></div>
+                            style={{ width: `${(t.roundsCount / t.totalRounds) * 100}%` }}
+                          />
                         </div>
                       </td>
                       <td className="py-4 px-6">
                         <div className="flex items-center gap-2">
                           <Link
-                            href={`/admin/tournaments/${tournament.id}`}
+                            href={`/admin/tournaments/${t.id}`}
                             className="p-1 text-gray-600 hover:text-blue-600 transition-colors"
                             title="Ver detalle"
                           >
                             <Eye className="h-4 w-4" />
                           </Link>
 
-                          {!tournament.isActive && tournament.status !== "finished" && (
+                          {!t.isActive && t.status !== "finished" && (
                             <button
-                              onClick={() => activateTournament(tournament.id)}
+                              onClick={() => activateTournament(t.id)}
                               disabled={isPending}
                               className="p-1 text-gray-600 hover:text-green-600 transition-colors"
                               title="Activar torneo"
@@ -293,9 +311,9 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
                             </button>
                           )}
 
-                          {tournament.status !== "active" && (
+                          {t.status !== "active" && (
                             <button
-                              onClick={() => handleDeleteClick(tournament)}
+                              onClick={() => setDeleteModal({ isOpen: true, tournament: t })}
                               disabled={isPending}
                               className="p-1 text-gray-600 hover:text-red-600 transition-colors"
                               title="Eliminar torneo"
@@ -314,20 +332,30 @@ export default function TournamentsClient({ tournaments }: TournamentsClientProp
         </div>
 
         {/* Modal de confirmación de eliminación */}
-        {deleteModal.tournament && (
-          <DeleteConfirmationModal
-            isOpen={deleteModal.isOpen}
-            onClose={() => setDeleteModal({ isOpen: false, tournament: null })}
-            onConfirm={confirmDelete}
-            tournament={{
-              title: deleteModal.tournament.title,
-              totalRounds: deleteModal.tournament.totalRounds,
-              playersCount: deleteModal.tournament.playersCount,
-              totalMatches: 0, // En la lista no tenemos estos datos detallados
-              confirmedMatches: 0 // En la lista no tenemos estos datos detallados
-            }}
-            isLoading={isPending}
-          />
+        {modalTournament && (
+          <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg shadow p-6 w-full max-w-md">
+              <h3 className="text-lg font-semibold mb-2">Eliminar torneo</h3>
+              <p className="text-sm text-gray-600 mb-4">
+                ¿Seguro que quieres eliminar <strong>{modalTournament.title}</strong>?
+              </p>
+              <div className="flex justify-end gap-2">
+                <button
+                  className="px-3 py-2 border rounded-md"
+                  onClick={() => setDeleteModal({ isOpen: false, tournament: null })}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="px-3 py-2 bg-red-600 text-white rounded-md"
+                  onClick={confirmDelete}
+                  disabled={isPending}
+                >
+                  {isPending ? "Eliminando..." : "Eliminar"}
+                </button>
+              </div>
+            </div>
+          </div>
         )}
       </div>
     </div>

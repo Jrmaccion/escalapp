@@ -229,25 +229,6 @@ export default async function DashboardPage() {
           </div>
         </section>
       )}
-
-      {/* Accesos directos adicionales */}
-      <section className="bg-white p-6 rounded-lg shadow-sm border">
-        <h3 className="text-lg font-semibold mb-4">Accesos Rápidos</h3>
-        <div className="flex flex-wrap gap-3">
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/diag">
-              <Play className="w-4 h-4 mr-2" />
-              Diagnóstico
-            </Link>
-          </Button>
-          <Button variant="outline" size="sm" asChild>
-            <Link href="/api/health">
-              <Clock className="w-4 h-4 mr-2" />
-              Estado del Sistema
-            </Link>
-          </Button>
-        </div>
-      </section>
     </div>
   );
 }

@@ -1,11 +1,25 @@
-// app/historial/HistorialClient.tsx - ACTUALIZADO CON NUEVO SISTEMA DE MOVIMIENTOS
+// app/historial/HistorialClient.tsx - VERSIÓN MEJORADA CON ICONOS Y PREVIEW
 "use client";
 
 import { useState, useEffect } from "react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { History, ArrowUp, ArrowDown, Minus, Calendar, AlertTriangle, TrendingUp, Trophy } from "lucide-react";
+import { 
+  History, 
+  ArrowUp, 
+  ArrowDown, 
+  Minus, 
+  Calendar, 
+  AlertTriangle, 
+  TrendingUp, 
+  Trophy,
+  Medal,
+  Award,
+  Circle,
+  Star,
+  Search
+} from "lucide-react";
 
 type HistoryData = {
   hasHistory: boolean;
@@ -20,7 +34,7 @@ type HistoryData = {
     position: number;
     points: number;
     movement: 'up' | 'down' | 'same';
-    movementText: string; // Nuevo campo para texto específico del movimiento
+    movementText: string;
     date: string;
     matches: Array<{
       vs: string;
@@ -63,9 +77,8 @@ export default function HistorialClient() {
     fetchData();
   }, []);
 
-  // NUEVA FUNCIÓN: Iconos y textos para el nuevo sistema de movimientos
+  // Iconos y textos para el sistema de movimientos
   const getMovementInfo = (position: number, movement: 'up' | 'down' | 'same') => {
-    // Si hay texto personalizado del servidor, úsalo. Si no, calcula basado en posición
     switch (position) {
       case 1:
         return {
@@ -96,7 +109,6 @@ export default function HistorialClient() {
           bgColor: "bg-red-50 border-red-200"
         };
       default:
-        // Fallback para posiciones imprevistas
         switch (movement) {
           case 'up':
             return {
@@ -123,37 +135,43 @@ export default function HistorialClient() {
     }
   };
 
-  const getPositionBadge = (position: number) => {
+  // ✅ MEJORADO: Reemplazar emojis por iconos confiables
+  const getPositionInfo = (position: number) => {
     switch (position) {
       case 1:
         return {
-          emoji: "🥇",
+          icon: <Trophy className="w-4 h-4 text-yellow-600" />,
           class: "bg-yellow-100 text-yellow-800 border-yellow-300",
-          text: "1º - ¡Campeón del grupo!"
+          text: "1º - ¡Campeón del grupo!",
+          number: "1º"
         };
       case 2:
         return {
-          emoji: "🥈", 
+          icon: <Medal className="w-4 h-4 text-gray-600" />,
           class: "bg-gray-100 text-gray-700 border-gray-300",
-          text: "2º - Subcampeón"
+          text: "2º - Subcampeón",
+          number: "2º"
         };
       case 3:
         return {
-          emoji: "🥉",
+          icon: <Award className="w-4 h-4 text-orange-600" />,
           class: "bg-orange-100 text-orange-700 border-orange-300", 
-          text: "3º - Tercer lugar"
+          text: "3º - Tercer lugar",
+          number: "3º"
         };
       case 4:
         return {
-          emoji: "4️⃣",
+          icon: <Circle className="w-4 h-4 text-red-600" />,
           class: "bg-red-100 text-red-700 border-red-300",
-          text: "4º - Cuarto lugar"
+          text: "4º - Cuarto lugar",
+          number: "4º"
         };
       default:
         return {
-          emoji: `${position}º`,
+          icon: <Circle className="w-4 h-4 text-blue-600" />,
           class: "bg-blue-100 text-blue-700 border-blue-300",
-          text: `${position}º lugar`
+          text: `${position}º lugar`,
+          number: `${position}º`
         };
     }
   };
@@ -166,14 +184,108 @@ export default function HistorialClient() {
     );
   }
 
+  // ✅ MEJORADO: Estado vacío con preview completo
   if (!data?.hasHistory) {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
-        <div className="text-center py-20">
-          <AlertTriangle className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Sin historial disponible</h2>
-          <p className="text-gray-600">{data?.message || "Aún no tienes historial de rondas completadas."}</p>
+        
+        {/* Estado vacío mejorado con preview */}
+        <div className="text-center py-12">
+          <History className="h-16 w-16 text-gray-400 mx-auto mb-6" />
+          <h2 className="text-2xl font-bold text-gray-900 mb-4">Tu historial se está construyendo</h2>
+          <p className="text-gray-600 mb-8 max-w-md mx-auto">
+            {data?.message || "Una vez que participes en rondas completadas, aquí verás tu evolución y progreso en el torneo."}
+          </p>
+
+          {/* Preview de cómo se verá */}
+          <div className="max-w-2xl mx-auto">
+            <h3 className="text-lg font-semibold mb-4 text-gray-800">Así se verá tu historial:</h3>
+            
+            {/* Ejemplo de estadísticas */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="text-xl font-bold text-blue-600">5</div>
+                <div className="text-sm text-blue-700">Rondas jugadas</div>
+              </div>
+              <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                <div className="text-xl font-bold text-green-600">7.8</div>
+                <div className="text-sm text-green-700">Media de puntos</div>
+              </div>
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="text-xl font-bold text-purple-600">39.0</div>
+                <div className="text-sm text-purple-700">Puntos totales</div>
+              </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                <div className="text-xl font-bold text-orange-600">9.5</div>
+                <div className="text-sm text-orange-700">Mejor ronda</div>
+              </div>
+            </div>
+
+            {/* Ejemplo de ronda */}
+            <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6 text-left">
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="font-semibold flex items-center gap-2">
+                  <Calendar className="w-4 h-4" />
+                  Ronda 3 (Ejemplo)
+                </h4>
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-xs">15 Mar 2025</Badge>
+                  <div className="flex items-center gap-1 px-2 py-1 bg-green-50 border border-green-200 rounded-full">
+                    <ArrowUp className="w-3 h-3 text-green-600" />
+                    <span className="text-xs text-green-600 font-medium">Subió 1 grupo</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-4 text-sm">
+                <div>
+                  <div className="text-gray-600">Grupo</div>
+                  <div className="font-semibold">Grupo 2</div>
+                </div>
+                <div>
+                  <div className="text-gray-600">Posición Final</div>
+                  <div className="flex items-center gap-1">
+                    <span className="px-2 py-1 bg-gray-100 border border-gray-300 rounded text-xs font-medium flex items-center gap-1">
+                      <Medal className="w-3 h-3 text-gray-600" />
+                      2º lugar
+                    </span>
+                  </div>
+                </div>
+                <div>
+                  <div className="text-gray-600">Puntos Obtenidos</div>
+                  <div className="font-semibold text-green-600">8.0 pts</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Información del sistema */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
+              <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                Sistema de Escalera
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm text-blue-700">
+                <div className="flex items-center gap-2">
+                  <ArrowUp className="w-4 h-4 text-green-600" />
+                  <span><strong>1º-2º lugar:</strong> Subes de grupo</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <ArrowDown className="w-4 h-4 text-red-600" />
+                  <span><strong>3º-4º lugar:</strong> Bajas de grupo</span>
+                </div>
+              </div>
+              <p className="text-xs text-blue-600 mt-2">
+                Tu progreso se registra automáticamente al finalizar cada ronda
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-8">
+            <p className="text-sm text-gray-500">
+              ¡Participa en tu primera ronda para empezar a ver tu evolución!
+            </p>
+          </div>
         </div>
       </div>
     );
@@ -268,7 +380,7 @@ export default function HistorialClient() {
         
         {data.rounds.map((roundData) => {
           const movementInfo = getMovementInfo(roundData.position, roundData.movement);
-          const positionBadge = getPositionBadge(roundData.position);
+          const positionInfo = getPositionInfo(roundData.position);
           
           return (
             <Card key={roundData.round} className="hover:shadow-md transition-shadow">
@@ -299,13 +411,14 @@ export default function HistorialClient() {
                   </div>
                   <div>
                     <div className="text-sm text-gray-600">Posición Final</div>
-                    <div className={`flex items-center gap-2 font-bold`}>
-                      <span className={`px-2 py-1 rounded border text-sm ${positionBadge.class}`}>
-                        {positionBadge.emoji} {roundData.position}º
+                    <div className="flex items-center gap-2 font-bold">
+                      <span className={`px-2 py-1 rounded border text-sm flex items-center gap-1 ${positionInfo.class}`}>
+                        {positionInfo.icon}
+                        {positionInfo.number}
                       </span>
                     </div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {positionBadge.text}
+                      {positionInfo.text}
                     </div>
                   </div>
                   <div>
