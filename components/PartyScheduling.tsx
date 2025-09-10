@@ -1,4 +1,4 @@
-// components/PartyScheduling.tsx - COMPONENTE MEJORADO CON NUEVA API UNIFICADA
+// components/PartyScheduling.tsx - VERSIÓN EXTENDIDA CON CONTROLES ADMIN
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Calendar,
   Clock,
@@ -16,12 +18,15 @@ import {
   CalendarPlus,
   Play,
   Trophy,
-  RefreshCw
+  RefreshCw,
+  Shield,
+  Zap,
+  Ban
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
-// Tipos actualizados para mayor claridad
+// Tipos extendidos para incluir funcionalidad admin
 export type PartyInfo = {
   groupId: string;
   groupNumber: number;
@@ -46,17 +51,12 @@ export type PartyInfo = {
 };
 
 type PartySchedulingProps = {
-  // Opción 1: Usar PartyInfo existente (compatibilidad)
   party?: PartyInfo;
-  
-  // Opción 2: Solo pasar groupId y el componente carga todo (nueva API)
   groupId?: string;
-  
   currentUserId: string;
   isParticipant: boolean;
+  isAdmin?: boolean; // 🔧 NUEVO: Detección de admin
   onUpdate: () => void;
-  
-  // Props opcionales para personalización
   showCompactView?: boolean;
   enableRefresh?: boolean;
 };
@@ -66,24 +66,31 @@ export default function PartyScheduling({
   groupId,
   currentUserId,
   isParticipant,
+  isAdmin = false, // 🔧 NUEVO
   onUpdate,
   showCompactView = false,
   enableRefresh = true
 }: PartySchedulingProps) {
   const [isPending, startTransition] = useTransition();
   const [showDateForm, setShowDateForm] = useState(false);
+  const [showAdminControls, setShowAdminControls] = useState(false); // 🔧 NUEVO
   const [proposedDate, setProposedDate] = useState("");
   const [proposedTime, setProposedTime] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [internalParty, setInternalParty] = useState<PartyInfo | null>(externalParty || null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Determinar qué party usar y si necesitamos cargar datos
+  // 🔧 NUEVOS: Estados para controles admin
+  const [adminSkipApproval, setAdminSkipApproval] = useState(false);
+  const [adminForceScheduled, setAdminForceScheduled] = useState(false);
+  const [adminNotifyPlayers, setAdminNotifyPlayers] = useState(true);
+
+  // ... (mantener lógica existente de loadPartyData, etc.)
+
   const party = externalParty || internalParty;
   const shouldLoadData = !externalParty && groupId && !internalParty;
   const effectiveGroupId = party?.groupId || groupId;
 
-  // Cargar datos de la nueva API si es necesario
   useEffect(() => {
     if (shouldLoadData && effectiveGroupId) {
       loadPartyData(effectiveGroupId);
@@ -99,7 +106,6 @@ export default function PartyScheduling({
       const data = await response.json();
       
       if (response.ok && data.success) {
-        // Convertir Party a PartyInfo para compatibilidad
         const partyInfo: PartyInfo = {
           groupId: data.party.groupId,
           groupNumber: data.party.groupNumber,
@@ -135,6 +141,216 @@ export default function PartyScheduling({
   const completedSets = party?.sets.filter(s => s.isConfirmed).length || 0;
   const playedSets = party?.sets.filter(s => s.hasResult && !s.isConfirmed).length || 0;
   const totalSets = party?.sets.length || 0;
+
+  // 🔧 NUEVO: Manejar propuesta de fecha (con lógica admin)
+  const handleProposeDate = () => {
+    if (!proposedDate || !proposedTime || !effectiveGroupId) {
+      setError("Selecciona fecha y hora");
+      return;
+    }
+
+    const local = new Date(`${proposedDate}T${proposedTime}`);
+    if (local <= new Date()) {
+      setError("La fecha debe ser futura");
+      return;
+    }
+    const isoUTC = local.toISOString();
+
+    setError(null);
+    startTransition(async () => {
+      try {
+        const payload: any = {
+          proposedDate: isoUTC,
+          message: `Fecha propuesta para el partido del Grupo ${party?.groupNumber}`,
+        };
+
+        // 🔧 NUEVO: Añadir opciones de admin si es necesario
+        if (isAdmin && (adminSkipApproval || adminForceScheduled || !adminNotifyPlayers)) {
+          payload.adminOptions = {
+            skipApproval: adminSkipApproval,
+            forceScheduled: adminForceScheduled,
+            notifyPlayers: adminNotifyPlayers
+          };
+        }
+
+        const response = await fetch(`/api/parties/${effectiveGroupId}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          setShowDateForm(false);
+          setShowAdminControls(false);
+          setProposedDate("");
+          setProposedTime("");
+          
+          if (data.party && !externalParty) {
+            const updatedPartyInfo: PartyInfo = {
+              groupId: data.party.groupId,
+              groupNumber: data.party.groupNumber,
+              roundNumber: data.party.roundNumber,
+              players: data.party.players.map((p: any) => p.name),
+              sets: data.party.sets,
+              scheduleStatus: data.party.schedule.status,
+              proposedDate: data.party.schedule.proposedDate,
+              acceptedDate: data.party.schedule.acceptedDate,
+              proposedBy: data.party.schedule.proposedBy,
+              acceptedCount: data.party.schedule.acceptedCount,
+              proposedByCurrentUser: data.party.schedule.proposedByCurrentUser
+            };
+            setInternalParty(updatedPartyInfo);
+          }
+          
+          onUpdate();
+        } else {
+          throw new Error(data.error || "Error al proponer fecha");
+        }
+      } catch (err: any) {
+        setError(err.message || "Error de conexión");
+      }
+    });
+  };
+
+  // 🔧 NUEVO: Cancelar fecha (solo admin)
+  const handleAdminCancel = () => {
+    if (!effectiveGroupId) return;
+    
+    startTransition(async () => {
+      try {
+        const response = await fetch(`/api/parties/${effectiveGroupId}`, {
+          method: "DELETE",
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          if (data.party && !externalParty) {
+            const updatedPartyInfo: PartyInfo = {
+              groupId: data.party.groupId,
+              groupNumber: data.party.groupNumber,
+              roundNumber: data.party.roundNumber,
+              players: data.party.players.map((p: any) => p.name),
+              sets: data.party.sets,
+              scheduleStatus: data.party.schedule.status,
+              proposedDate: data.party.schedule.proposedDate,
+              acceptedDate: data.party.schedule.acceptedDate,
+              proposedBy: data.party.schedule.proposedBy,
+              acceptedCount: data.party.schedule.acceptedCount,
+              proposedByCurrentUser: data.party.schedule.proposedByCurrentUser
+            };
+            setInternalParty(updatedPartyInfo);
+          }
+          
+          onUpdate();
+        } else {
+          throw new Error(data.error || "Error al cancelar fecha");
+        }
+      } catch (err: any) {
+        setError(err.message || "Error de conexión");
+      }
+    });
+  };
+
+  // 🔧 NUEVO: Forzar programación (solo admin)
+  const handleAdminForceSchedule = () => {
+    if (!proposedDate || !proposedTime || !effectiveGroupId) {
+      setError("Selecciona fecha y hora para forzar programación");
+      return;
+    }
+
+    const local = new Date(`${proposedDate}T${proposedTime}`);
+    const isoUTC = local.toISOString();
+
+    startTransition(async () => {
+      try {
+        const response = await fetch(`/api/parties/${effectiveGroupId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "admin_force_schedule",
+            adminAction: true,
+            forcedDate: isoUTC,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          setShowDateForm(false);
+          setShowAdminControls(false);
+          setProposedDate("");
+          setProposedTime("");
+          
+          if (data.party && !externalParty) {
+            const updatedPartyInfo: PartyInfo = {
+              groupId: data.party.groupId,
+              groupNumber: data.party.groupNumber,
+              roundNumber: data.party.roundNumber,
+              players: data.party.players.map((p: any) => p.name),
+              sets: data.party.sets,
+              scheduleStatus: data.party.schedule.status,
+              proposedDate: data.party.schedule.proposedDate,
+              acceptedDate: data.party.schedule.acceptedDate,
+              proposedBy: data.party.schedule.proposedBy,
+              acceptedCount: data.party.schedule.acceptedCount,
+              proposedByCurrentUser: data.party.schedule.proposedByCurrentUser
+            };
+            setInternalParty(updatedPartyInfo);
+          }
+          
+          onUpdate();
+        } else {
+          throw new Error(data.error || "Error al forzar programación");
+        }
+      } catch (err: any) {
+        setError(err.message || "Error de conexión");
+      }
+    });
+  };
+
+  const handleDateResponse = (action: "accept" | "reject") => {
+    if (!effectiveGroupId) return;
+    
+    startTransition(async () => {
+      try {
+        const response = await fetch(`/api/parties/${effectiveGroupId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+        });
+
+        const data = await response.json();
+
+        if (response.ok && data.success) {
+          if (data.party && !externalParty) {
+            const updatedPartyInfo: PartyInfo = {
+              groupId: data.party.groupId,
+              groupNumber: data.party.groupNumber,
+              roundNumber: data.party.roundNumber,
+              players: data.party.players.map((p: any) => p.name),
+              sets: data.party.sets,
+              scheduleStatus: data.party.schedule.status,
+              proposedDate: data.party.schedule.proposedDate,
+              acceptedDate: data.party.schedule.acceptedDate,
+              proposedBy: data.party.schedule.proposedBy,
+              acceptedCount: data.party.schedule.acceptedCount,
+              proposedByCurrentUser: data.party.schedule.proposedByCurrentUser
+            };
+            setInternalParty(updatedPartyInfo);
+          }
+          
+          onUpdate();
+        } else {
+          throw new Error(data.error || `Error al ${action === "accept" ? "aceptar" : "rechazar"} la fecha`);
+        }
+      } catch (err: any) {
+        setError(err.message || "Error de conexión");
+      }
+    });
+  };
 
   const getStatusInfo = () => {
     if (!party) return { label: "Cargando...", color: "bg-gray-100 text-gray-700", icon: Clock };
@@ -175,109 +391,6 @@ export default function PartyScheduling({
     }
   };
 
-  const handleProposeDate = () => {
-    if (!proposedDate || !proposedTime || !effectiveGroupId) {
-      setError("Selecciona fecha y hora");
-      return;
-    }
-
-    // Crear fecha UTC para evitar problemas de zona horaria
-    const local = new Date(`${proposedDate}T${proposedTime}`);
-    if (local <= new Date()) {
-      setError("La fecha debe ser futura");
-      return;
-    }
-    const isoUTC = local.toISOString();
-
-    setError(null);
-    startTransition(async () => {
-      try {
-        const response = await fetch(`/api/parties/${effectiveGroupId}`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            proposedDate: isoUTC,
-            message: `Fecha propuesta para el partido del Grupo ${party?.groupNumber}`,
-          }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-          setShowDateForm(false);
-          setProposedDate("");
-          setProposedTime("");
-          
-          // Actualizar datos locales si estamos usando API interna
-          if (data.party && !externalParty) {
-            const updatedPartyInfo: PartyInfo = {
-              groupId: data.party.groupId,
-              groupNumber: data.party.groupNumber,
-              roundNumber: data.party.roundNumber,
-              players: data.party.players.map((p: any) => p.name),
-              sets: data.party.sets,
-              scheduleStatus: data.party.schedule.status,
-              proposedDate: data.party.schedule.proposedDate,
-              acceptedDate: data.party.schedule.acceptedDate,
-              proposedBy: data.party.schedule.proposedBy,
-              acceptedCount: data.party.schedule.acceptedCount,
-              proposedByCurrentUser: data.party.schedule.proposedByCurrentUser
-            };
-            setInternalParty(updatedPartyInfo);
-          }
-          
-          onUpdate();
-        } else {
-          throw new Error(data.error || "Error al proponer fecha");
-        }
-      } catch (err: any) {
-        setError(err.message || "Error de conexión");
-      }
-    });
-  };
-
-  const handleDateResponse = (action: "accept" | "reject") => {
-    if (!effectiveGroupId) return;
-    
-    startTransition(async () => {
-      try {
-        const response = await fetch(`/api/parties/${effectiveGroupId}`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok && data.success) {
-          // Actualizar datos locales si estamos usando API interna
-          if (data.party && !externalParty) {
-            const updatedPartyInfo: PartyInfo = {
-              groupId: data.party.groupId,
-              groupNumber: data.party.groupNumber,
-              roundNumber: data.party.roundNumber,
-              players: data.party.players.map((p: any) => p.name),
-              sets: data.party.sets,
-              scheduleStatus: data.party.schedule.status,
-              proposedDate: data.party.schedule.proposedDate,
-              acceptedDate: data.party.schedule.acceptedDate,
-              proposedBy: data.party.schedule.proposedBy,
-              acceptedCount: data.party.schedule.acceptedCount,
-              proposedByCurrentUser: data.party.schedule.proposedByCurrentUser
-            };
-            setInternalParty(updatedPartyInfo);
-          }
-          
-          onUpdate();
-        } else {
-          throw new Error(data.error || `Error al ${action === "accept" ? "aceptar" : "rechazar"} la fecha`);
-        }
-      } catch (err: any) {
-        setError(err.message || "Error de conexión");
-      }
-    });
-  };
-
   const getNextValidDate = () => {
     const tomorrow = new Date();
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -299,7 +412,7 @@ export default function PartyScheduling({
   const statusInfo = getStatusInfo();
   const StatusIcon = statusInfo.icon;
 
-  // Vista compacta
+  // Vista compacta (sin cambios)
   if (showCompactView) {
     return (
       <div className="border rounded-lg p-4 bg-white space-y-3">
@@ -307,6 +420,12 @@ export default function PartyScheduling({
           <div className="flex items-center gap-2">
             <Calendar className="w-4 h-4" />
             <span className="font-medium text-sm">Grupo {party.groupNumber}</span>
+            {isAdmin && (
+              <Badge variant="outline" className="text-xs">
+                <Shield className="w-3 h-3 mr-1" />
+                Admin
+              </Badge>
+            )}
           </div>
           <Badge className={statusInfo.color}>
             <StatusIcon className="w-3 h-3 mr-1" />
@@ -329,12 +448,18 @@ export default function PartyScheduling({
 
   // Vista completa
   return (
-    <Card className="w-full border-purple-200 bg-purple-50">
+    <Card className={`w-full ${isAdmin ? 'border-blue-200 bg-blue-50' : 'border-purple-200 bg-purple-50'}`}>
       <CardHeader>
         <CardTitle className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5" />
             <span>Partido Completo - Grupo {party.groupNumber}</span>
+            {isAdmin && (
+              <Badge variant="secondary" className="ml-2">
+                <Shield className="w-3 h-3 mr-1" />
+                Admin
+              </Badge>
+            )}
           </div>
           <div className="flex items-center gap-2">
             <Badge className={statusInfo.color}>
@@ -403,16 +528,69 @@ export default function PartyScheduling({
             </div>
           </div>
 
-          {isParticipant && (
+          {/* 🔧 NUEVO: Controles específicos de admin */}
+          {isAdmin && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-blue-600" />
+                  <span className="font-medium text-blue-900">Controles de Admin</span>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowAdminControls(!showAdminControls)}
+                >
+                  {showAdminControls ? "Ocultar" : "Mostrar"}
+                </Button>
+              </div>
+
+              {showAdminControls && (
+                <div className="space-y-3">
+                  <div className="text-xs text-blue-700">
+                    Como admin, puedes establecer fechas sin requerir aprobación de jugadores
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-2">
+                    {party.scheduleStatus !== "SCHEDULED" && (
+                      <Button 
+                        size="sm" 
+                        onClick={() => setShowDateForm(true)}
+                        className="bg-blue-600 hover:bg-blue-700"
+                      >
+                        <Zap className="w-4 h-4 mr-2" />
+                        Establecer Fecha
+                      </Button>
+                    )}
+                    
+                    {(party.proposedDate || party.acceptedDate) && (
+                      <Button 
+                        size="sm" 
+                        variant="destructive"
+                        onClick={handleAdminCancel}
+                        disabled={isPending}
+                      >
+                        <Ban className="w-4 h-4 mr-2" />
+                        Cancelar Fecha
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Controles para jugadores (lógica existente con modificaciones) */}
+          {(isParticipant || isAdmin) && (
             <div className="flex flex-wrap gap-2">
-              {party.scheduleStatus === "PENDING" && (
+              {party.scheduleStatus === "PENDING" && !isAdmin && (
                 <Button size="sm" onClick={() => setShowDateForm((v) => !v)} disabled={isPending}>
                   <CalendarPlus className="w-4 h-4 mr-2" />
                   Proponer fecha
                 </Button>
               )}
 
-              {party.scheduleStatus === "DATE_PROPOSED" && !party.proposedByCurrentUser && (
+              {party.scheduleStatus === "DATE_PROPOSED" && !party.proposedByCurrentUser && !isAdmin && (
                 <>
                   <Button size="sm" onClick={() => handleDateResponse("accept")} disabled={isPending}>
                     <CheckCircle className="w-4 h-4 mr-2" />
@@ -430,7 +608,7 @@ export default function PartyScheduling({
                 </>
               )}
 
-              {party.scheduleStatus === "DATE_PROPOSED" && party.proposedByCurrentUser && (
+              {party.scheduleStatus === "DATE_PROPOSED" && party.proposedByCurrentUser && !isAdmin && (
                 <div className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded">
                   Esperando confirmación de otros jugadores ({party.acceptedCount}/4)
                 </div>
@@ -438,8 +616,9 @@ export default function PartyScheduling({
             </div>
           )}
 
-          {isParticipant && showDateForm && party.scheduleStatus !== "SCHEDULED" && (
-            <div className="border rounded-lg p-3 bg-white space-y-3">
+          {/* Formulario de fecha (extendido para admin) */}
+          {((isParticipant && showDateForm) || (isAdmin && showDateForm)) && party.scheduleStatus !== "SCHEDULED" && (
+            <div className={`border rounded-lg p-3 space-y-3 ${isAdmin ? 'bg-blue-50 border-blue-200' : 'bg-white'}`}>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-sm font-medium mb-1">Fecha</label>
@@ -462,18 +641,81 @@ export default function PartyScheduling({
                 </div>
               </div>
 
+              {/* 🔧 NUEVO: Opciones específicas de admin */}
+              {isAdmin && (
+                <div className="space-y-3 bg-blue-100 p-3 rounded border border-blue-300">
+                  <div className="text-sm font-medium text-blue-900">Opciones de Admin</div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="skip-approval"
+                      checked={adminSkipApproval}
+                      onCheckedChange={setAdminSkipApproval}
+                    />
+                    <Label htmlFor="skip-approval" className="text-sm">
+                      Proponer sin requerir aprobación
+                    </Label>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="force-scheduled"
+                      checked={adminForceScheduled}
+                      onCheckedChange={setAdminForceScheduled}
+                    />
+                    <Label htmlFor="force-scheduled" className="text-sm">
+                      Marcar como confirmado automáticamente
+                    </Label>
+                  </div>
+                  
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="notify-players"
+                      checked={adminNotifyPlayers}
+                      onCheckedChange={setAdminNotifyPlayers}
+                    />
+                    <Label htmlFor="notify-players" className="text-sm">
+                      Notificar a jugadores
+                    </Label>
+                  </div>
+                </div>
+              )}
+
               <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded">
-                Se programarán los 3 sets para la misma fecha. Todos los jugadores deben
-                confirmar.
+                {isAdmin && adminForceScheduled 
+                  ? "Se programarán los 3 sets para la fecha seleccionada sin requerir confirmación de jugadores."
+                  : "Se programarán los 3 sets para la misma fecha. Todos los jugadores deben confirmar."
+                }
               </div>
 
               <div className="flex gap-2">
-                <Button onClick={handleProposeDate} disabled={isPending} size="sm">
-                  {isPending ? "Enviando..." : "Proponer fecha"}
-                </Button>
+                {isAdmin ? (
+                  <>
+                    <Button onClick={handleProposeDate} disabled={isPending} size="sm">
+                      {isPending ? "Aplicando..." : adminForceScheduled ? "Programar Directamente" : "Proponer Fecha"}
+                    </Button>
+                    {adminForceScheduled && (
+                      <Button 
+                        onClick={handleAdminForceSchedule} 
+                        disabled={isPending} 
+                        size="sm"
+                        className="bg-orange-600 hover:bg-orange-700"
+                      >
+                        <Zap className="w-4 h-4 mr-2" />
+                        {isPending ? "Forzando..." : "Forzar Programación"}
+                      </Button>
+                    )}
+                  </>
+                ) : (
+                  <Button onClick={handleProposeDate} disabled={isPending} size="sm">
+                    {isPending ? "Enviando..." : "Proponer fecha"}
+                  </Button>
+                )}
+                
                 <Button
                   onClick={() => {
                     setShowDateForm(false);
+                    setShowAdminControls(false);
                     setProposedDate("");
                     setProposedTime("");
                     setError(null);
@@ -489,7 +731,7 @@ export default function PartyScheduling({
           )}
         </div>
 
-        {!isParticipant && (
+        {!isParticipant && !isAdmin && (
           <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3">
             <div className="flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-yellow-600" />

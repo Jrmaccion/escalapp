@@ -215,6 +215,7 @@
 \components\RoundsMatchesOverview.tsx
 \components\tournament
 \components\tournament\TournamentTimeline.tsx
+\components\TournamentSelector.tsx
 \components\ui
 \components\ui\badge.tsx
 \components\ui\button.tsx

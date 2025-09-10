@@ -1,6 +1,7 @@
+// app/admin/rounds/[id]/RoundDetailClient.tsx - CORREGIDO
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import MatchGenerationPanel from "@/components/MatchGenerationPanel";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
@@ -10,7 +11,18 @@ import CloseRoundButton from "@/components/CloseRoundButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Calendar, Users, CheckCircle, Clock, ArrowLeft, Play, Plus, Settings } from "lucide-react";
+import {
+  Calendar,
+  Users,
+  CheckCircle,
+  Clock,
+  ArrowLeft,
+  Plus,
+  Settings,
+  Send,
+  Shield,
+  Ban,
+} from "lucide-react";
 import { format, differenceInDays, isAfter, isBefore } from "date-fns";
 import { es } from "date-fns/locale";
 import Link from "next/link";
@@ -49,8 +61,14 @@ export default function RoundDetailClient({
     }))
   );
 
-  // Estadísticas de estado
-  const now = new Date();
+  // =========================
+  // FIX HIDRATACIÓN: usar flag mounted para evitar desajustes SSR/CSR
+  // =========================
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // En SSR usamos una referencia estable (startDate) para no depender de "ahora".
+  const now = mounted ? new Date() : new Date(round.startDate);
   const daysToEnd = differenceInDays(new Date(round.endDate), now);
   const daysToStart = differenceInDays(new Date(round.startDate), now);
 
@@ -116,6 +134,212 @@ export default function RoundDetailClient({
     window.location.reload();
   };
 
+  // =============== CORREGIDO: Panel de Programación (Admin) ===============
+  type AdminScheduleState = Record<
+    string,
+    {
+      inputValue: string; // siempre string
+      loading: boolean;
+      msg?: { type: "success" | "error"; text: string };
+    }
+  >;
+
+  const initialAdminState: AdminScheduleState = useMemo(() => {
+    const obj: AdminScheduleState = {};
+    for (const g of round.groups) {
+      const first = g.matches?.[0];
+
+      // ✅ evita usar && / || que introducen booleanos al tipo
+      let baseDate = "";
+      if (first?.acceptedDate) {
+        baseDate = toLocalInputValue(new Date(first.acceptedDate));
+      } else if (first?.proposedDate) {
+        baseDate = toLocalInputValue(new Date(first.proposedDate));
+      }
+
+      obj[g.id] = {
+        inputValue: baseDate, // siempre string
+        loading: false,
+      };
+    }
+    return obj;
+  }, [round.groups]);
+
+  const [adminSchedule, setAdminSchedule] = useState<AdminScheduleState>(initialAdminState);
+
+  function toLocalInputValue(date: Date): string {
+    // convierte Date a "YYYY-MM-DDTHH:mm" para <input type="datetime-local">
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const yyyy = date.getFullYear();
+    const mm = pad(date.getMonth() + 1);
+    const dd = pad(date.getDate());
+    const hh = pad(date.getHours());
+    const mi = pad(date.getMinutes());
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+  }
+
+  function fromLocalInputValue(value: string): Date | null {
+    // crea Date local desde "YYYY-MM-DDTHH:mm"
+    if (!value) return null;
+    const d = new Date(value);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // 🔧 CORREGIDO: Usar endpoint correcto /api/parties/[groupId]
+  const handlePropose = async (groupId: string) => {
+    const st = adminSchedule[groupId];
+    const date = fromLocalInputValue(st?.inputValue || "");
+    if (!date) {
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: { ...s[groupId], msg: { type: "error", text: "Selecciona una fecha válida." } },
+      }));
+      return;
+    }
+
+    setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: true, msg: undefined } }));
+
+    try {
+      const response = await fetch(`/api/parties/${groupId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proposedDate: date.toISOString(),
+          adminOptions: {
+            skipApproval: false,
+            forceScheduled: false,
+            notifyPlayers: false,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: {
+          ...s[groupId],
+          loading: false,
+          msg: {
+            type: data.success ? "success" : "error",
+            text: data.message || (data.success ? "Propuesta enviada." : "Error al proponer."),
+          },
+        },
+      }));
+
+      if (data.success) {
+        setTimeout(() => window.location.reload(), 1000);
+      }
+    } catch (error) {
+      console.error("Error proposing date:", error);
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: {
+          ...s[groupId],
+          loading: false,
+          msg: { type: "error", text: "Error de conexión" },
+        },
+      }));
+    }
+  };
+
+  const handleForceSchedule = async (groupId: string) => {
+    const st = adminSchedule[groupId];
+    const date = fromLocalInputValue(st?.inputValue || "");
+    if (!date) {
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: { ...s[groupId], msg: { type: "error", text: "Selecciona una fecha válida." } },
+      }));
+      return;
+    }
+
+    setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: true, msg: undefined } }));
+
+    try {
+      const response = await fetch(`/api/parties/${groupId}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          proposedDate: date.toISOString(),
+          adminOptions: {
+            skipApproval: true,
+            forceScheduled: true,
+            notifyPlayers: false,
+          },
+        }),
+      });
+
+      const data = await response.json();
+
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: {
+          ...s[groupId],
+          loading: false,
+          msg: {
+            type: data.success ? "success" : "error",
+            text:
+              data.message ||
+              (data.success ? "Partido programado (forzado por admin)." : "Error al forzar programación."),
+          },
+        },
+      }));
+
+      if (data.success) {
+        setTimeout(() => window.location.reload(), 1000);
+      }
+    } catch (error) {
+      console.error("Error forcing schedule:", error);
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: {
+          ...s[groupId],
+          loading: false,
+          msg: { type: "error", text: "Error de conexión" },
+        },
+      }));
+    }
+  };
+
+  const handleCancel = async (groupId: string) => {
+    setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: true, msg: undefined } }));
+
+    try {
+      const response = await fetch(`/api/parties/${groupId}`, {
+        method: "DELETE",
+      });
+
+      const data = await response.json();
+
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: {
+          ...s[groupId],
+          loading: false,
+          msg: {
+            type: data.success ? "success" : "error",
+            text: data.message || (data.success ? "Fecha cancelada." : "Error al cancelar fecha."),
+          },
+        },
+      }));
+
+      if (data.success) {
+        setTimeout(() => window.location.reload(), 1000);
+      }
+    } catch (error) {
+      console.error("Error canceling date:", error);
+      setAdminSchedule((s) => ({
+        ...s,
+        [groupId]: {
+          ...s[groupId],
+          loading: false,
+          msg: { type: "error", text: "Error de conexión" },
+        },
+      }));
+    }
+  };
+
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto space-y-6">
       <Breadcrumbs items={breadcrumbItems} />
@@ -157,10 +381,15 @@ export default function RoundDetailClient({
               <div>
                 {status === "closed" && <Badge className="bg-gray-200 text-gray-800">Cerrada</Badge>}
                 {status === "upcoming" && (
-                  <Badge className="bg-blue-100 text-blue-700">Próxima ({daysToStart} días)</Badge>
+                  <Badge className="bg-blue-100 text-blue-700">
+                    {/* En SSR no mostramos números dependientes del reloj */}
+                    {mounted ? `Próxima (${daysToStart} días)` : "Próxima"}
+                  </Badge>
                 )}
                 {status === "active" && (
-                  <Badge className="bg-green-100 text-green-700">Activa ({daysToEnd} días restantes)</Badge>
+                  <Badge className="bg-green-100 text-green-700">
+                    {mounted ? `Activa (${daysToEnd} días restantes)` : "Activa"}
+                  </Badge>
                 )}
                 {status === "overdue" && <Badge variant="destructive">Fuera de plazo</Badge>}
               </div>
@@ -276,6 +505,105 @@ export default function RoundDetailClient({
           )}
         </CardContent>
       </Card>
+
+      {/* CORREGIDO: Panel de Programación por Grupo (Admin) */}
+      {!round.isClosed && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Programación de Partidos (Admin)
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-gray-600">
+              Establece una fecha por grupo. Puedes <strong>proponer</strong> o <strong>forzar</strong> la
+              programación (marca el partido como <em>SCHEDULED</em>). También puedes <strong>cancelar</strong> una
+              fecha propuesta/aceptada.
+            </div>
+
+            <div className="space-y-3">
+              {round.groups.map((g: any) => {
+                const st = adminSchedule[g.id] || ({ inputValue: "", loading: false } as any);
+                const first = g.matches?.[0];
+                const info =
+                  first?.acceptedDate
+                    ? `Programado: ${format(new Date(first.acceptedDate), "d MMM yyyy HH:mm", { locale: es })}`
+                    : first?.proposedDate
+                    ? `Propuesto: ${format(new Date(first.proposedDate), "d MMM yyyy HH:mm", { locale: es })}`
+                    : "Sin fecha";
+
+                return (
+                  <div
+                    key={g.id}
+                    className="flex flex-col md:flex-row items-center gap-3 p-3 border rounded-lg bg-gray-50"
+                  >
+                    <div className="w-full md:w-40 shrink-0">
+                      <Badge variant="outline" className="w-full justify-center">
+                        Grupo {g.number}
+                      </Badge>
+                      <div className="text-xs text-gray-500 mt-1 text-center">{info}</div>
+                    </div>
+
+                    <input
+                      type="datetime-local"
+                      className="w-full md:w-64 border rounded-lg px-3 py-2"
+                      value={st.inputValue || ""}
+                      onChange={(e) =>
+                        setAdminSchedule((s) => ({
+                          ...s,
+                          [g.id]: { ...s[g.id], inputValue: e.target.value, msg: undefined },
+                        }))
+                      }
+                      disabled={st.loading}
+                    />
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={st.loading}
+                        onClick={() => handlePropose(g.id)}
+                      >
+                        <Send className="w-4 h-4 mr-2" />
+                        {st.loading ? "..." : "Proponer"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="default"
+                        disabled={st.loading}
+                        onClick={() => handleForceSchedule(g.id)}
+                      >
+                        <Shield className="w-4 h-4 mr-2" />
+                        {st.loading ? "..." : "Forzar programado"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        disabled={st.loading}
+                        onClick={() => handleCancel(g.id)}
+                      >
+                        <Ban className="w-4 h-4 mr-2" />
+                        {st.loading ? "..." : "Cancelar"}
+                      </Button>
+                    </div>
+
+                    {st.msg && (
+                      <div
+                        className={`text-sm ${
+                          st.msg.type === "success" ? "text-green-600" : "text-red-600"
+                        }`}
+                      >
+                        {st.msg.text}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Generación de partidos */}
       <MatchGenerationPanel

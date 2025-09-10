@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useCallback, useState, useMemo } from "react";
+import { useEffect, useCallback, useState, useMemo, useRef } from "react";
 import { useSession } from "next-auth/react";
 import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,32 +11,169 @@ import {
   Users,
   CheckCircle,
   Play,
-  CalendarPlus,
   ArrowUp,
   ArrowDown,
   Target,
   Flame,
   RefreshCw,
   Crown,
-  Star
+  Star,
+  AlertTriangle,
+  Trophy,
+  ChevronDown
 } from "lucide-react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import UseComodinButton from "@/components/player/UseComodinButton";
-import { useGroupData } from "@/hooks/useApiState";
+import PartyScheduling from "@/components/PartyScheduling";
 import { LoadingState, ErrorState, EmptyState, UpdateBadge } from "@/components/ApiStateComponents";
 
 /* =========
-   Tipos simplificados
+   Hook personalizado CORREGIDO - Sin bucle infinito
    ========= */
+function useGroupDataWithTournament(tournamentId?: string) {
+  const [data, setData] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasError, setHasError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasUpdates, setHasUpdates] = useState(false);
+  
+  // Referencias estables para evitar dependencias circulares
+  const dataRef = useRef<any>(null);
+  const tournamentIdRef = useRef<string | undefined>(tournamentId);
+  const isMountedRef = useRef(true);
+  
+  // Función de fetch estable usando useRef
+  const fetchDataRef = useRef<(silent?: boolean) => Promise<void>>();
+  
+  // Actualizar la referencia del tournamentId
+  useEffect(() => {
+    tournamentIdRef.current = tournamentId;
+  }, [tournamentId]);
+  
+  // Crear función de fetch estable
+  fetchDataRef.current = async (silent = false) => {
+    if (!isMountedRef.current) return;
+    
+    if (!silent) {
+      setIsLoading(true);
+      setHasError(false);
+      setError(null);
+    }
+
+    try {
+      const url = tournamentIdRef.current 
+        ? `/api/player/group?tournamentId=${tournamentIdRef.current}`
+        : '/api/player/group';
+      
+      console.log(`[useGroupDataWithTournament] Fetching: ${url}`);
+      
+      const response = await fetch(url, { 
+        cache: "no-store",
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      });
+      
+      if (!response.ok) {
+        throw new Error(`Error ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (!isMountedRef.current) return;
+      
+      console.log(`[useGroupDataWithTournament] Data received:`, result);
+      
+      const prev = dataRef.current;
+      setData(result);
+      dataRef.current = result;
+      setHasError(false);
+      setError(null);
+      
+      // Solo marcar updates si hay datos previos y estamos en modo silencioso
+      if (silent && prev && JSON.stringify(prev) !== JSON.stringify(result)) {
+        setHasUpdates(true);
+      }
+    } catch (err: any) {
+      if (!isMountedRef.current) return;
+      
+      console.error('[useGroupDataWithTournament] Error:', err);
+      setHasError(true);
+      setError(err.message || 'Error al cargar datos del grupo');
+      if (!silent) {
+        setData(null);
+        dataRef.current = null;
+      }
+    } finally {
+      if (!silent && isMountedRef.current) {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  // Funciones estables sin dependencias problemáticas
+  const retry = useCallback(() => {
+    console.log('[useGroupDataWithTournament] Manual retry triggered');
+    fetchDataRef.current?.(false);
+  }, []);
+
+  const refresh = useCallback(() => {
+    console.log('[useGroupDataWithTournament] Silent refresh triggered');
+    fetchDataRef.current?.(true);
+  }, []);
+
+  const clearUpdates = useCallback(() => {
+    setHasUpdates(false);
+  }, []);
+
+  // Fetch inicial solo cuando cambie tournamentId
+  useEffect(() => {
+    console.log(`[useGroupDataWithTournament] Tournament changed to: ${tournamentId}`);
+    fetchDataRef.current?.(false);
+  }, [tournamentId]);
+
+  // Cleanup al desmontar
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
+  return {
+    data,
+    isLoading,
+    hasError,
+    error,
+    retry,
+    refresh,
+    hasUpdates,
+    clearUpdates,
+    loadingMessage: "Cargando información del grupo..."
+  };
+}
+
+/* =========
+   Tipos
+   ========= */
+type Tournament = {
+  id: string;
+  title: string;
+  isActive: boolean;
+  isCurrent: boolean;
+};
+
 type GroupData = {
   hasGroup: boolean;
   roundId?: string;
   message?: string;
   tournament?: {
+    id: string;
     title: string;
     currentRound: number;
   };
   group?: {
+    id: string;
     number: number;
     level: string;
     totalPlayers: number;
@@ -53,108 +190,45 @@ type GroupData = {
     position: number;
     isCurrentUser: boolean;
   }>;
-  allMatches?: Array<{
+  party?: {
     id: string;
-    setNumber: number;
-    partner: string;
-    opponents: string[];
-    hasResult: boolean;
-    isPending: boolean;
-    isConfirmed: boolean;
-    status?: string;
-    proposedDate?: string | null;
-    acceptedDate?: string | null;
-    acceptedCount?: number;
-    team1Player1Name?: string;
-    team1Player2Name?: string;
-    team2Player1Name?: string;
-    team2Player2Name?: string;
-    team1Games?: number | null;
-    team2Games?: number | null;
-  }>;
+    groupId: string;
+    status: string;
+    proposedDate: string | null;
+    acceptedDate: string | null;
+    acceptedCount: number;
+    needsScheduling: boolean;
+    canSchedule: boolean;
+    allSetsCompleted: boolean;
+    completedSets: number;
+    totalSets: number;
+    sets: Array<{
+      id: string;
+      setNumber: number;
+      team1Player1Name: string;
+      team1Player2Name: string;
+      team2Player1Name: string;
+      team2Player2Name: string;
+      team1Games: number | null;
+      team2Games: number | null;
+      tiebreakScore: string | null;
+      isConfirmed: boolean;
+      hasResult: boolean;
+      isPending: boolean;
+    }>;
+  };
+  availableTournaments?: Tournament[];
+  allMatches?: Array<any>;
+  _metadata?: {
+    usePartyData: boolean;
+    partyApiVersion: string;
+    hasPartyScheduling: boolean;
+    tournamentSelectionEnabled: boolean;
+  };
 };
 
-// Tipo para los matches con tipos explícitos
-type MatchType = NonNullable<GroupData["allMatches"]>[0];
+type MatchType = NonNullable<GroupData["party"]>["sets"][0];
 type PlayerType = NonNullable<GroupData["players"]>[0];
-
-/* =========
-   Datos de preview
-   ========= */
-const PREVIEW_DATA: GroupData = {
-  hasGroup: true,
-  tournament: {
-    title: "Torneo Escalera Primavera 2025",
-    currentRound: 2,
-  },
-  group: {
-    number: 2,
-    level: "Nivel Medio",
-    totalPlayers: 4,
-  },
-  myStatus: {
-    position: 1,
-    points: 8.5,
-    streak: 2,
-  },
-  players: [
-    { id: "you", name: "Tu Nombre", points: 8.5, position: 1, isCurrentUser: true },
-    { id: "2", name: "Ana García", points: 7.2, position: 2, isCurrentUser: false },
-    { id: "3", name: "Miguel López", points: 6.8, position: 3, isCurrentUser: false },
-    { id: "4", name: "Laura Rodríguez", points: 5.1, position: 4, isCurrentUser: false },
-  ],
-  allMatches: [
-    {
-      id: "1",
-      setNumber: 1,
-      partner: "Laura Rodríguez",
-      opponents: ["Ana García", "Miguel López"],
-      hasResult: true,
-      isPending: false,
-      isConfirmed: true,
-      status: "SCHEDULED",
-      team1Player1Name: "Tu Nombre",
-      team1Player2Name: "Laura Rodríguez",
-      team2Player1Name: "Ana García",
-      team2Player2Name: "Miguel López",
-      team1Games: 4,
-      team2Games: 2,
-    },
-    {
-      id: "2",
-      setNumber: 2,
-      partner: "Miguel López",
-      opponents: ["Ana García", "Laura Rodríguez"],
-      hasResult: true,
-      isPending: false,
-      isConfirmed: false,
-      status: "DATE_PROPOSED",
-      acceptedCount: 3,
-      team1Player1Name: "Tu Nombre",
-      team1Player2Name: "Miguel López",
-      team2Player1Name: "Ana García",
-      team2Player2Name: "Laura Rodríguez",
-      team1Games: 5,
-      team2Games: 4,
-    },
-    {
-      id: "3",
-      setNumber: 3,
-      partner: "Ana García",
-      opponents: ["Miguel López", "Laura Rodríguez"],
-      hasResult: false,
-      isPending: true,
-      isConfirmed: false,
-      status: "PENDING",
-      team1Player1Name: "Tu Nombre",
-      team1Player2Name: "Ana García",
-      team2Player1Name: "Miguel López",
-      team2Player2Name: "Laura Rodríguez",
-      team1Games: null,
-      team2Games: null,
-    },
-  ],
-};
 
 function round1(n: number) {
   return Math.round(n * 10) / 10;
@@ -163,7 +237,11 @@ function round1(n: number) {
 export default function MiGrupoClient() {
   const { data: session } = useSession();
   
-  // HOOK UNIFICADO
+  // Estado del torneo seleccionado
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string | undefined>(undefined);
+  const [showTournamentSelector, setShowTournamentSelector] = useState(false);
+
+  // Hook corregido
   const {
     data,
     isLoading,
@@ -172,74 +250,106 @@ export default function MiGrupoClient() {
     retry,
     hasUpdates,
     loadingMessage
-  } = useGroupData();
+  } = useGroupDataWithTournament(selectedTournamentId);
 
-  // CRÍTICO: Estado para manejar refreshTrigger del comodín
+  // Estado para manejar refreshTrigger del comodín
   const [comodinRefreshTrigger, setComodinRefreshTrigger] = useState(0);
   const [lastComodinAction, setLastComodinAction] = useState<string | null>(null);
   const [showActionFeedback, setShowActionFeedback] = useState(false);
 
+  // Refs para auto-refresh
+  const autoRefreshRef = useRef<NodeJS.Timeout>();
+  const hasInitialized = useRef(false);
+
   const isPreviewMode = !data?.hasGroup;
-  const groupData = data?.hasGroup ? data : PREVIEW_DATA;
+  const groupData: GroupData = data || { hasGroup: false };
 
-  // ✅ FORMATEADOR FIJO TZ MADRID PARA EVITAR HYDRATION MISMATCH
-  const madridFormatter = useMemo(
-    () =>
-      new Intl.DateTimeFormat("es-ES", {
-        timeZone: "Europe/Madrid",
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-        hour12: false,
-      }),
-    []
-  );
+  // Auto-activar selector si hay múltiples torneos (solo una vez)
+  useEffect(() => {
+    if (data?.availableTournaments?.length > 1 && !selectedTournamentId && !hasInitialized.current) {
+      console.log("[MiGrupoClient] Multiple tournaments detected, showing selector");
+      setShowTournamentSelector(true);
+      hasInitialized.current = true;
+    }
+  }, [data?.availableTournaments?.length, selectedTournamentId]);
 
-  const formatDate = useCallback(
-    (dateStr?: string | null) => {
-      if (!dateStr) return "";
-      const d = new Date(dateStr);
-      if (Number.isNaN(d.getTime())) return "";
-      return madridFormatter.format(d);
-    },
-    [madridFormatter]
-  );
+  // Determinar qué datos usar: party o allMatches (fallback legacy)
+  const matches = useMemo(() => {
+    if (groupData._metadata?.usePartyData && groupData.party?.sets) {
+      return groupData.party.sets;
+    }
+    // Fallback a allMatches si no hay party data
+    return (groupData.allMatches || []).map(match => ({
+      id: match.id,
+      setNumber: match.setNumber,
+      team1Player1Name: match.team1Player1Name || "",
+      team1Player2Name: match.team1Player2Name || "",
+      team2Player1Name: match.team2Player1Name || "",
+      team2Player2Name: match.team2Player2Name || "",
+      team1Games: match.team1Games,
+      team2Games: match.team2Games,
+      tiebreakScore: match.tiebreakScore || null,
+      isConfirmed: match.isConfirmed || false,
+      hasResult: match.hasResult || (match.team1Games !== null && match.team2Games !== null),
+      isPending: match.isPending || (!match.isConfirmed && (match.team1Games === null || match.team2Games === null))
+    }));
+  }, [groupData]);
 
-  // CRÍTICO: Callback corregido para cuando se usa comodín
+  // Callback para cambio de torneo
+  const handleTournamentChange = useCallback((tournamentId: string) => {
+    if (tournamentId !== selectedTournamentId) {
+      console.log('[MiGrupoClient] Cambiando a torneo:', tournamentId);
+      setSelectedTournamentId(tournamentId);
+      setShowTournamentSelector(false);
+    }
+  }, [selectedTournamentId]);
+
+  // Callback para cuando se usa comodín
   const handleComodinAction = useCallback(() => {
     console.log('[MiGrupoClient] Comodin action triggered');
     
-    // Incrementar el trigger para forzar refresh en UseComodinButton
     setComodinRefreshTrigger(prev => prev + 1);
-    
-    // Guardar información de la acción para feedback visual
     setLastComodinAction('aplicado');
     setShowActionFeedback(true);
     
-    // Ocultar feedback después de 3 segundos
     setTimeout(() => {
       setShowActionFeedback(false);
     }, 3000);
 
-    // Refresco manual del estado del grupo tras un delay
     setTimeout(() => {
-      console.log('[MiGrupoClient] Triggering group data refresh');
+      console.log('[MiGrupoClient] Triggering group data refresh after comodin');
       retry();
     }, 1500);
   }, [retry]);
 
-  // Auto-refresh periódico cada 30 segundos si hay datos
-  useEffect(() => {
-    if (!isPreviewMode && data?.hasGroup) {
-      const interval = setInterval(() => {
-        retry();
-      }, 30000);
+  // Callback para actualizar después de programar fecha
+  const handlePartyUpdate = useCallback(() => {
+    console.log('[MiGrupoClient] Party updated, refreshing data');
+    retry();
+  }, [retry]);
 
-      return () => clearInterval(interval);
+  // Auto-refresh mejorado sin dependencias problemáticas
+  useEffect(() => {
+    // Limpiar interval anterior
+    if (autoRefreshRef.current) {
+      clearInterval(autoRefreshRef.current);
     }
-  }, [isPreviewMode, data?.hasGroup, retry]);
+    
+    if (!isPreviewMode && data?.hasGroup && !isLoading) {
+      console.log('[MiGrupoClient] Setting up auto-refresh timer');
+      autoRefreshRef.current = setInterval(() => {
+        console.log('[MiGrupoClient] Auto-refresh triggered');
+        retry();
+      }, 90000); // 90 segundos para reducir la frecuencia
+    }
+    
+    return () => {
+      if (autoRefreshRef.current) {
+        console.log('[MiGrupoClient] Clearing auto-refresh timer');
+        clearInterval(autoRefreshRef.current);
+      }
+    };
+  }, [isPreviewMode, data?.hasGroup, isLoading]); // Solo estas dependencias
 
   const getMatchStatusInfo = (match: MatchType) => {
     if (match.isConfirmed) {
@@ -258,42 +368,11 @@ export default function MiGrupoClient() {
       };
     }
 
-    switch (match.status) {
-      case "SCHEDULED":
-        return {
-          label: "Programado",
-          color: "bg-blue-100 text-blue-700 border-blue-200",
-          icon: Calendar,
-        };
-      case "DATE_PROPOSED":
-        return {
-          label: `Fecha propuesta (${match.acceptedCount || 0}/4)`,
-          color: "bg-purple-100 text-purple-700 border-purple-200",
-          icon: Calendar,
-        };
-      default:
-        return {
-          label: "Sin programar",
-          color: "bg-gray-100 text-gray-700 border-gray-200",
-          icon: CalendarPlus,
-        };
-    }
-  };
-
-  // ✅ FIX 4: Botones inteligentes según estado
-  const getSmartButtonText = (match: MatchType): string => {
-    if (match.isConfirmed) return "Ver Resultado";
-    if (match.hasResult) return "Confirmar Resultado";
-
-    switch (match.status) {
-      case "SCHEDULED":
-        return "Jugar Set";
-      case "DATE_PROPOSED":
-        return "Responder Fecha";
-      case "PENDING":
-      default:
-        return "Programar Fecha";
-    }
+    return {
+      label: "Pendiente",
+      color: "bg-gray-100 text-gray-700 border-gray-200",
+      icon: Play,
+    };
   };
 
   const getMovementIcon = (position: number) => {
@@ -346,21 +425,16 @@ export default function MiGrupoClient() {
   };
 
   // Datos memoizados para optimización
-  const { matches, completedMatches, groupInfo, GroupIcon } = useMemo(() => {
-    const sortedMatches = (groupData.allMatches || [])
-      .slice()
-      .sort((a: MatchType, b: MatchType) => a.setNumber - b.setNumber);
-    
-    const completed = sortedMatches.filter((m: MatchType) => m.isConfirmed);
+  const { completedMatches, groupInfo, GroupIcon } = useMemo(() => {
+    const completed = matches.filter((m: MatchType) => m.isConfirmed);
     const info = getGroupLevelInfo(groupData.group?.number || 2);
     
     return {
-      matches: sortedMatches,
       completedMatches: completed,
       groupInfo: info,
       GroupIcon: info.icon
     };
-  }, [groupData.allMatches, groupData.group?.number]);
+  }, [matches, groupData.group?.number]);
 
   // Estados de carga unificados
   if (isLoading) {
@@ -381,21 +455,59 @@ export default function MiGrupoClient() {
     );
   }
 
-  if (!groupData) {
+  if (!groupData.hasGroup) {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
-        <EmptyState 
-          message="No se pudo cargar la información del grupo"
-          icon={Users}
-          action={<Button onClick={retry}>Reintentar</Button>}
-        />
+        
+        {/* Si hay torneos disponibles pero no grupo actual */}
+        {groupData.availableTournaments && groupData.availableTournaments.length > 0 ? (
+          <Card className="border-yellow-200 bg-yellow-50">
+            <CardContent className="p-6 text-center">
+              <Trophy className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
+              <h3 className="text-lg font-semibold text-yellow-800 mb-2">
+                Selecciona un Torneo
+              </h3>
+              <p className="text-yellow-700 mb-4">
+                Estás participando en {groupData.availableTournaments.length} torneos. 
+                Selecciona uno para ver tu grupo:
+              </p>
+              
+              <div className="space-y-2 max-w-md mx-auto">
+                {groupData.availableTournaments.map((tournament) => (
+                  <Button
+                    key={tournament.id}
+                    variant={tournament.isActive ? "default" : "outline"}
+                    className="w-full justify-between"
+                    onClick={() => handleTournamentChange(tournament.id)}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4" />
+                      {tournament.title}
+                    </div>
+                    {tournament.isActive && (
+                      <Badge className="bg-green-100 text-green-700">
+                        Activo
+                      </Badge>
+                    )}
+                  </Button>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        ) : (
+          <EmptyState 
+            message={groupData.message || "No tienes un grupo asignado"}
+            icon={Users}
+            action={<Button onClick={retry}>Reintentar</Button>}
+          />
+        )}
       </div>
     );
   }
 
   return (
-    <div className={`px-4 py-6 max-w-6xl mx-auto space-y-6 ${isPreviewMode ? "opacity-75" : ""}`}>
+    <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
       <Breadcrumbs />
 
       {/* BADGE DE ACTUALIZACIONES DISPONIBLES */}
@@ -413,7 +525,7 @@ export default function MiGrupoClient() {
         </div>
       )}
 
-      {/* Header con botón de refresh manual */}
+      {/* Header con botón de refresh manual y selector de torneo */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
@@ -426,12 +538,67 @@ export default function MiGrupoClient() {
         </div>
 
         <div className="flex items-center gap-3">
-          {isPreviewMode && (
-            <div className="text-right">
-              <Badge variant="secondary" className="mb-2">
-                Vista Previa
-              </Badge>
-              <p className="text-sm text-gray-500">Datos de ejemplo</p>
+          {/* Selector de torneo (si hay múltiples) */}
+          {groupData.availableTournaments && groupData.availableTournaments.length > 1 && (
+            <div className="relative">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowTournamentSelector(!showTournamentSelector)}
+                className="flex items-center gap-2"
+              >
+                <Trophy className="w-4 h-4" />
+                Cambiar Torneo
+                <ChevronDown className={`w-4 h-4 transition-transform ${showTournamentSelector ? "rotate-180" : ""}`} />
+              </Button>
+              
+              {showTournamentSelector && (
+                <div className="absolute top-full right-0 z-50 mt-1 w-80">
+                  <Card className="border shadow-lg">
+                    <CardHeader>
+                      <CardTitle className="text-sm">Seleccionar Torneo</CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-3">
+                      <div className="space-y-2">
+                        {groupData.availableTournaments.map((tournament) => (
+                          <button
+                            key={tournament.id}
+                            onClick={() => handleTournamentChange(tournament.id)}
+                            className={`w-full text-left p-3 rounded-lg hover:bg-gray-50 transition-colors ${
+                              tournament.isCurrent ? "bg-blue-50 border border-blue-200" : ""
+                            }`}
+                          >
+                            <div className="flex items-center justify-between">
+                              <div className="flex items-center gap-3">
+                                <Trophy className="w-4 h-4" />
+                                <div>
+                                  <div className="font-medium text-sm">
+                                    {tournament.title}
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    {tournament.isActive ? "Torneo activo" : "Torneo finalizado"}
+                                  </div>
+                                </div>
+                              </div>
+                              {tournament.isCurrent && (
+                                <Badge className="bg-blue-100 text-blue-700">
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                  Actual
+                                </Badge>
+                              )}
+                              {tournament.isActive && !tournament.isCurrent && (
+                                <Badge className="bg-green-100 text-green-700">
+                                  Activo
+                                </Badge>
+                              )}
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              )}
             </div>
           )}
 
@@ -447,6 +614,43 @@ export default function MiGrupoClient() {
           </Button>
         </div>
       </div>
+
+      {/* SISTEMA DE PROGRAMACIÓN DE PARTIDO COMPLETO */}
+      {groupData.party?.groupId && (
+        <div>
+          <div className="mb-4">
+            <h2 className="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+              <Calendar className="w-5 h-5" />
+              Programación del Partido Completo
+            </h2>
+            <p className="text-sm text-gray-600">
+              Coordina una fecha para los 3 sets del partido. Todos los jugadores deben confirmar.
+            </p>
+          </div>
+          <PartyScheduling
+            groupId={groupData.party.groupId}
+            currentUserId={session?.user?.id || ""}
+            isParticipant={true}
+            onUpdate={handlePartyUpdate}
+            enableRefresh={true}
+          />
+        </div>
+      )}
+
+      {/* Warning si no hay party data */}
+      {!groupData.party?.groupId && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+            <div>
+              <p className="font-medium text-yellow-900">Sistema de programación no disponible</p>
+              <p className="text-sm text-yellow-800 mt-1">
+                No se pudo cargar la información del partido. Los sets se pueden jugar individualmente.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tarjeta de grupo */}
       <Card className={`${groupInfo.color} border-2 bg-gradient-to-br ${groupInfo.gradient} shadow-lg`}>
@@ -538,8 +742,8 @@ export default function MiGrupoClient() {
             ))}
           </div>
 
-          {/* Sistema de comodín - CRÍTICO: Pasar refreshTrigger correctamente */}
-          {!isPreviewMode && groupData.roundId && (
+          {/* Sistema de comodín */}
+          {groupData.roundId && (
             <div className="mt-6">
               <UseComodinButton
                 roundId={groupData.roundId}
@@ -551,17 +755,28 @@ export default function MiGrupoClient() {
           )}
 
           {/* Mensaje si no hay roundId */}
-          {!isPreviewMode && !groupData.roundId && (
+          {!groupData.roundId && (
             <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-              <p className="text-sm text-amber-800">
-                <strong>Comodín no disponible:</strong> No se pudo obtener la información de la ronda actual.
-              </p>
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5" />
+                <div>
+                  <p className="text-sm text-amber-800">
+                    <strong>Comodín no disponible:</strong> No se pudo obtener la información de la ronda actual.
+                  </p>
+                  <button 
+                    onClick={retry}
+                    className="text-sm text-amber-700 underline mt-1 hover:text-amber-800"
+                  >
+                    Reintentar carga
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </CardContent>
       </Card>
 
-      {/* Info de movimientos */}
+       {/* Info de movimientos */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
@@ -619,14 +834,17 @@ export default function MiGrupoClient() {
         </Card>
       </div>
 
-      {/* Sets */}
+      {/* Sets - Solo visualización, sin botones de programación */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Play className="w-5 h-5" />
             Mis Sets de la Ronda
           </CardTitle>
-          <p className="text-sm text-gray-600">Los 4 jugadores del grupo juegan 3 sets con rotación de parejas</p>
+          <p className="text-sm text-gray-600">
+            Los 3 sets se programan juntos como un partido completo. 
+            Usa el sistema de programación arriba para coordinar la fecha.
+          </p>
         </CardHeader>
         <CardContent>
           {matches.length === 0 ? (
@@ -662,27 +880,18 @@ export default function MiGrupoClient() {
                         </Badge>
                       </div>
 
-                      {/* CTA inteligente según estado */}
-                      {!isPreviewMode && !match.isConfirmed && (
-                        <Link href={`/match/${match.id}`}>
-                          <Button size="sm">
-                            {getSmartButtonText(match)}
-                          </Button>
-                        </Link>
-                      )}
-                      {isPreviewMode && !match.isConfirmed && (
-                        <Button size="sm" disabled>
-                          {getSmartButtonText(match)}
+                      {/* Solo botón para ver/confirmar resultado */}
+                      <Link href={`/match/${match.id}`}>
+                        <Button size="sm" variant={match.isConfirmed ? "outline" : "default"}>
+                          {match.isConfirmed ? "Ver Resultado" : match.hasResult ? "Confirmar" : "Jugar Set"}
                         </Button>
-                      )}
+                      </Link>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
                       <div className="text-center">
                         <div className="font-semibold text-blue-700 mb-1">
-                          {match.team1Player1Name || match.partner
-                            ? `${match.team1Player1Name} + ${match.team1Player2Name}`
-                            : `Tú + ${match.partner}`}
+                          {match.team1Player1Name} + {match.team1Player2Name}
                         </div>
                         {match.hasResult && <div className="text-2xl font-bold">{match.team1Games}</div>}
                       </div>
@@ -700,37 +909,11 @@ export default function MiGrupoClient() {
 
                       <div className="text-center">
                         <div className="font-semibold text-red-700 mb-1">
-                          {match.team2Player1Name && match.team2Player2Name
-                            ? `${match.team2Player1Name} + ${match.team2Player2Name}`
-                            : match.opponents?.join(" + ") || "Oponentes"}
+                          {match.team2Player1Name} + {match.team2Player2Name}
                         </div>
                         {match.hasResult && <div className="text-2xl font-bold">{match.team2Games}</div>}
                       </div>
                     </div>
-
-                    {/* Información adicional del partido */}
-                    {match.status === "SCHEDULED" && match.acceptedDate && (
-                      <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded">
-                        <div className="flex items-center gap-2 text-blue-700 text-sm">
-                          <Calendar className="w-4 h-4" />
-                          <span className="font-medium">Programado para:</span>
-                          <span>{formatDate(match.acceptedDate)}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {match.status === "DATE_PROPOSED" && match.proposedDate && (
-                      <div className="mt-4 p-3 bg-purple-50 border border-purple-200 rounded">
-                        <div className="flex items-center gap-2 text-purple-700 text-sm">
-                          <Calendar className="w-4 h-4" />
-                          <span className="font-medium">Fecha propuesta:</span>
-                          <span>{formatDate(match.proposedDate)}</span>
-                        </div>
-                        <div className="text-purple-600 text-xs mt-1">
-                          Confirmado por {match.acceptedCount || 0} de 4 jugadores
-                        </div>
-                      </div>
-                    )}
                   </div>
                 );
               })}
@@ -738,20 +921,6 @@ export default function MiGrupoClient() {
           )}
         </CardContent>
       </Card>
-
-      {/* CTA para preview */}
-      {isPreviewMode && (
-        <Card className="border-dashed border-2 border-blue-300 bg-blue-50">
-          <CardContent className="p-8 text-center">
-            <Target className="h-12 w-12 text-blue-500 mx-auto mb-4" />
-            <h3 className="text-xl font-bold text-blue-900 mb-2">¡Ve Tu Grupo Real!</h3>
-            <p className="text-blue-700 mb-6">
-              Estos son datos de ejemplo. Únete a un torneo para competir en tu grupo real.
-            </p>
-            <Button variant="default">Contactar Administrador</Button>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

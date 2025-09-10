@@ -1,4 +1,4 @@
-// app/match/[id]/MatchDetailClient.tsx - FLUJO SIMPLIFICADO SIN LÓGICA CONFUSA
+// app/match/[id]/MatchDetailClient.tsx - SIN PROGRAMACIÓN INDIVIDUAL DE FECHAS
 "use client";
 
 import { useState, useTransition } from "react";
@@ -16,7 +16,8 @@ import {
   Info,
   Clock,
   Play,
-  Save
+  Save,
+  AlertTriangle
 } from "lucide-react";
 import PartyScheduling from "@/components/PartyScheduling";
 import { MatchData } from "@/types/match";
@@ -50,7 +51,7 @@ type MatchDetailClientProps = {
   };
 };
 
-// Estados simplificados del partido
+// Estados simplificados del set
 type MatchState = 
   | 'NOT_PLAYED'        // Sin resultado
   | 'REPORTED'          // Un jugador reportó resultado
@@ -91,39 +92,37 @@ export default function MatchDetailClient({
     if (!isParticipant && !isAdmin) return 'ADMIN_ONLY';
     return 'NOT_PLAYED';
   };
+
   const handleReportError = () => {
-  startTransition(async () => {
-    try {
-      const response = await fetch(`/api/matches/${match.id}/reject`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reason: "Resultado incorrecto reportado por jugador contrario",
-          reportedBy: currentUserId
-        }),
-      });
-      
-      const data = await response.json();
-      if (response.ok) {
-        alert("Error reportado. El resultado será revisado por un administrador.");
-        router.refresh();
-      } else {
-        setErrors({ general: data?.error || "No se pudo reportar el error" });
+    startTransition(async () => {
+      try {
+        const response = await fetch(`/api/matches/${match.id}/reject`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            reason: "Resultado incorrecto reportado por jugador contrario",
+            reportedBy: currentUserId
+          }),
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+          alert("Error reportado. El resultado será revisado por un administrador.");
+          router.refresh();
+        } else {
+          setErrors({ general: data?.error || "No se pudo reportar el error" });
+        }
+      } catch {
+        setErrors({ general: "Error de conexión" });
       }
-    } catch {
-      setErrors({ general: "Error de conexión" });
-    }
-  });
-};
+    });
+  };
+
   const matchState = getMatchState();
   const hasResult = match.team1Games != null && match.team2Games != null;
 
   const goBack = () => {
     if (isAdmin && match?.round?.id) {
-      // ANTES:
-      // router.push(`/admin/rounds/${match.round.id}`);
-      
-      // DESPUÉS:
       window.location.href = `/admin/rounds/${match.round.id}`;
       return;
     }
@@ -200,7 +199,7 @@ export default function MatchDetailClient({
         }
 
         if (isAdmin) {
-          router.refresh(); // Invalida cache primero
+          router.refresh();
           setTimeout(() => {
             router.push(`/admin/rounds/${match.round.id}`);
           }, 100);
@@ -465,14 +464,24 @@ export default function MatchDetailClient({
           </div>
         </div>
 
-        {/* Programación del partido (si existe) */}
+        {/* Programación del partido completo (si existe) */}
         {partyData && (
-          <PartyScheduling
-            party={partyData}
-            currentUserId={currentUserId || ""}
-            isParticipant={isParticipant}
-            onUpdate={handlePartyUpdate}
-          />
+          <div>
+            <div className="mb-4">
+              <h2 className="text-lg font-semibold text-gray-800 mb-2">
+                📅 Programación del Partido Completo
+              </h2>
+              <p className="text-sm text-gray-600">
+                Los 3 sets se programan juntos. La fecha acordada aquí aplicará para todos los sets.
+              </p>
+            </div>
+            <PartyScheduling
+              party={partyData}
+              currentUserId={currentUserId || ""}
+              isParticipant={isParticipant}
+              onUpdate={handlePartyUpdate}
+            />
+          </div>
         )}
 
         {/* Información del set */}
@@ -511,10 +520,26 @@ export default function MatchDetailClient({
                 </div>
               </div>
             </div>
+
+            {/* Nota sobre programación */}
+            {!match.isConfirmed && (
+              <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-5 h-5 text-purple-600 mt-0.5" />
+                  <div className="text-sm">
+                    <p className="font-medium text-purple-900 mb-1">Programación de Fechas</p>
+                    <p className="text-purple-700">
+                      Las fechas se coordinan a nivel de partido completo (3 sets) usando el sistema de arriba.
+                      Aquí solo reportas el resultado individual de este set.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {/* Estado del partido - Card principal */}
+        {/* Estado del set - Card principal */}
         {renderStateCard()}
 
         {/* Enlaces de navegación */}
