@@ -1,7 +1,6 @@
-// app/admin/tournaments/[id]/TournamentDetailClient.tsx - CORREGIDO SIN ERRORES DE HIDRATACIÓN
 "use client";
 
-import { useState, useTransition, useEffect } from "react";
+import { useState, useTransition, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,11 +21,10 @@ import {
   Zap,
   RefreshCw,
 } from "lucide-react";
-// Importaciones de gestión
+// Gestión
 import TournamentPlayersManager from "./TournamentPlayersManager";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
 import ComodinSettings from "@/components/admin/ComodinSettings";
-// Configuración de rachas
 import StreakSettings from "@/components/admin/StreakSettings";
 import AdminSubstituteManager from "@/components/admin/AdminSubstituteManager";
 
@@ -106,12 +104,88 @@ export default function TournamentDetailClient({
   const [isPending, startTransition] = useTransition();
   const [isClient, setIsClient] = useState(false);
 
-  // ✅ CORREGIDO: Usar useEffect para operaciones de cliente (evita mismatches de hidratación)
+  // Modal "Extender rondas"
+  const [extendRoundsModal, setExtendRoundsModal] = useState(false);
+  const [additionalRounds, setAdditionalRounds] = useState<number>(1);
+
+  // Formatter consistente Europe/Madrid para evitar hydration drift
+  const madridFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat("es-ES", {
+        timeZone: "Europe/Madrid",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      }),
+    []
+  );
+
+  const formatDate = useCallback(
+    (dateStr: string) => {
+      try {
+        const d = new Date(dateStr);
+        if (Number.isNaN(d.getTime())) return "";
+        return madridFormatter.format(d);
+      } catch {
+        return "";
+      }
+    },
+    [madridFormatter]
+  );
+
+  const extendTournament = useCallback(() => {
+    if (!tournament) return;
+
+    if (additionalRounds < 1 || additionalRounds > 10) {
+      alert("Debes añadir entre 1 y 10 rondas");
+      return;
+    }
+    if (
+      !confirm(
+        `¿Seguro que quieres añadir ${additionalRounds} ronda${
+          additionalRounds > 1 ? "s" : ""
+        } al torneo?`
+      )
+    ) {
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        const res = await fetch(
+          `/api/tournaments/${tournament.id}/extend-rounds`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ additionalRounds }),
+          }
+        );
+
+        if (res.ok) {
+          alert(
+            `¡Torneo extendido! Se añadieron ${additionalRounds} ronda${
+              additionalRounds > 1 ? "s" : ""
+            } más.`
+          );
+          setExtendRoundsModal(false);
+          setAdditionalRounds(1);
+          router.refresh();
+        } else {
+          const data = await res.json().catch(() => ({}));
+          alert(data.error || "Error al extender torneo");
+        }
+      } catch {
+        alert("Error de conexión");
+      }
+    });
+  }, [additionalRounds, router, startTransition, tournament]);
+
+  // Evitar mismatches de hidratación con estados dependientes del cliente
   useEffect(() => {
     setIsClient(true);
   }, []);
 
-  // Fallbacks seguros que son consistentes en servidor y cliente
+  // Fallbacks seguros
   if (!tournament) {
     return (
       <div className="space-y-6">
@@ -127,18 +201,25 @@ export default function TournamentDetailClient({
 
   const safeRounds = rounds || [];
   const safePlayers = players || [];
-  const safeStats = stats || {
-    totalPlayers: 0,
-    totalRounds: 0,
-    activeRounds: 0,
-    totalMatches: 0,
-    confirmedMatches: 0,
-    pendingMatches: 0,
-    completionPercentage: 0,
-    averagePlayersPerRound: 0,
-  };
+  const safeStats: Stats =
+    stats || {
+      totalPlayers: 0,
+      totalRounds: 0,
+      activeRounds: 0,
+      totalMatches: 0,
+      confirmedMatches: 0,
+      pendingMatches: 0,
+      completionPercentage: 0,
+      averagePlayersPerRound: 0,
+    };
 
-  type TabId = "overview" | "rounds" | "players" | "comodines" | "rachas" | "settings";
+  type TabId =
+    | "overview"
+    | "rounds"
+    | "players"
+    | "comodines"
+    | "rachas"
+    | "settings";
   const [activeTab, setActiveTab] = useState<TabId>("overview");
 
   const [selectedRoundId, setSelectedRoundId] = useState<string | null>(() => {
@@ -146,10 +227,14 @@ export default function TournamentDetailClient({
     return safeRounds.find((r) => !r.isClosed)?.id ?? safeRounds[0]?.id ?? null;
   });
 
-  const selectedRound = safeRounds?.find((r) => r.id === selectedRoundId) || null;
+  const selectedRound =
+    safeRounds?.find((r) => r.id === selectedRoundId) || null;
+
   const currentRound =
     safeRounds?.find((r) => !r.isClosed) ||
-    (safeRounds && safeRounds.length > 0 ? safeRounds[safeRounds.length - 1] : undefined);
+    (safeRounds && safeRounds.length > 0
+      ? safeRounds[safeRounds.length - 1]
+      : undefined);
 
   const handlePlayersUpdated = () => {
     router.refresh();
@@ -178,7 +263,12 @@ export default function TournamentDetailClient({
   };
 
   const deleteTournament = () => {
-    if (!confirm("¿SEGURO que quieres eliminar este torneo? Esta acción es irreversible.")) return;
+    if (
+      !confirm(
+        "¿SEGURO que quieres eliminar este torneo? Esta acción es irreversible."
+      )
+    )
+      return;
 
     startTransition(async () => {
       try {
@@ -189,7 +279,7 @@ export default function TournamentDetailClient({
         if (res.ok) {
           router.push("/admin/tournaments");
         } else {
-          const data = await res.json();
+          const data = await res.json().catch(() => ({}));
           alert(data.error || "Error al eliminar torneo");
         }
       } catch (error) {
@@ -199,33 +289,17 @@ export default function TournamentDetailClient({
     });
   };
 
-  // ✅ CORREGIDO: Formateo de fechas consistente (SSR y primer render del cliente iguales)
-  const formatDate = (dateStr: string) => {
-    if (!isClient) {
-      // En el servidor y durante la hidratación en el cliente (primer render), usar formato estable
-      return new Date(dateStr).toISOString().split("T")[0];
-    }
-    // Tras montar en cliente, podemos usar formato localizado
-    return new Date(dateStr).toLocaleDateString("es-ES", {
-      day: "numeric",
-      month: "short",
-      year: "numeric",
-    });
-  };
-
+  // Estado de una ronda (evitar depender de "now" en SSR para no desincronizar)
   const getRoundStatus = (round: SerializedRound) => {
     if (round.isClosed) return { label: "Cerrada", variant: "secondary" as const };
-
-    if (!isClient) {
-      // En SSR/primer render, evitar depender de la hora actual para no desincronizar
-      return { label: "En curso", variant: "default" as const };
-    }
+    if (!isClient) return { label: "En curso", variant: "default" as const };
 
     const now = new Date();
     const start = new Date(round.startDate);
     const end = new Date(round.endDate);
 
-    if (now >= start && now <= end) return { label: "En curso", variant: "default" as const };
+    if (now >= start && now <= end)
+      return { label: "En curso", variant: "default" as const };
     if (now < start) return { label: "Próxima", variant: "outline" as const };
     return { label: "Fuera de plazo", variant: "destructive" as const };
   };
@@ -301,7 +375,7 @@ export default function TournamentDetailClient({
           </div>
         </CardHeader>
         <CardContent>
-          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabId)}>
+          <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
             <TabsList className="grid w-full grid-cols-6">
               <TabsTrigger value="overview">Resumen</TabsTrigger>
               <TabsTrigger value="rounds">Rondas</TabsTrigger>
@@ -451,9 +525,7 @@ export default function TournamentDetailClient({
                   {selectedRound && (
                     <div className="mt-4 p-4 bg-gray-50 rounded-lg">
                       <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-medium">
-                          Ronda {selectedRound.number}
-                        </h4>
+                        <h4 className="font-medium">Ronda {selectedRound.number}</h4>
                         <Button size="sm" asChild>
                           <Link href={`/admin/rounds/${selectedRound.id}`}>
                             Abrir Vista Completa
@@ -470,15 +542,11 @@ export default function TournamentDetailClient({
                         </div>
                         <div>
                           <span className="text-gray-600">Grupos:</span>
-                          <div className="font-medium">
-                            {selectedRound.groupsCount}
-                          </div>
+                          <div className="font-medium">{selectedRound.groupsCount}</div>
                         </div>
                         <div>
                           <span className="text-gray-600">Jugadores:</span>
-                          <div className="font-medium">
-                            {selectedRound.playersCount}
-                          </div>
+                          <div className="font-medium">{selectedRound.playersCount}</div>
                         </div>
                         <div>
                           <span className="text-gray-600">Pendientes:</span>
@@ -534,12 +602,9 @@ export default function TournamentDetailClient({
                             const status = getRoundStatus(round);
                             return (
                               <tr key={round.id} className="hover:bg-gray-50">
-                                <td className="px-3 py-3 font-medium">
-                                  #{round.number}
-                                </td>
+                                <td className="px-3 py-3 font-medium">#{round.number}</td>
                                 <td className="px-3 py-3 text-xs">
-                                  {formatDate(round.startDate)} -{" "}
-                                  {formatDate(round.endDate)}
+                                  {formatDate(round.startDate)} - {formatDate(round.endDate)}
                                 </td>
                                 <td className="px-3 py-3">
                                   <Badge variant={status.variant} className="text-xs">
@@ -565,9 +630,7 @@ export default function TournamentDetailClient({
                                 </td>
                                 <td className="px-3 py-3 text-center">
                                   <Button size="sm" variant="outline" asChild>
-                                    <Link href={`/admin/rounds/${round.id}`}>
-                                      Gestionar
-                                    </Link>
+                                    <Link href={`/admin/rounds/${round.id}`}>Gestionar</Link>
                                   </Button>
                                 </td>
                               </tr>
@@ -575,10 +638,7 @@ export default function TournamentDetailClient({
                           })
                         ) : (
                           <tr>
-                            <td
-                              className="px-3 py-3 text-sm text-gray-500"
-                              colSpan={7}
-                            >
+                            <td className="px-3 py-3 text-sm text-gray-500" colSpan={7}>
                               No hay rondas registradas.
                             </td>
                           </tr>
@@ -632,8 +692,7 @@ export default function TournamentDetailClient({
                             <div>
                               <div className="font-medium">Ronda {round.number}</div>
                               <div className="text-sm text-gray-600">
-                                {formatDate(round.startDate)} -{" "}
-                                {formatDate(round.endDate)}
+                                {formatDate(round.startDate)} - {formatDate(round.endDate)}
                               </div>
                             </div>
                             <div className="text-right">
@@ -664,7 +723,7 @@ export default function TournamentDetailClient({
                 </Card>
               </div>
 
-              {/* NUEVA SECCIÓN: Gestión de Sustitutos por Admin */}
+              {/* Gestión de Sustitutos por Admin */}
               {selectedRound && (
                 <div className="mt-8">
                   <AdminSubstituteManager
@@ -679,7 +738,7 @@ export default function TournamentDetailClient({
                 </div>
               )}
 
-              {/* Información sobre comodines */}
+              {/* Info comodines */}
               <Card className="bg-blue-50 border-blue-200">
                 <CardHeader>
                   <CardTitle className="text-blue-900">Sistema de Comodines</CardTitle>
@@ -728,7 +787,6 @@ export default function TournamentDetailClient({
                 }}
               />
             </TabsContent>
-            
 
             {/* =================== PESTAÑA: CONFIGURACIÓN =================== */}
             <TabsContent value="settings" className="space-y-6 mt-6">
@@ -740,6 +798,7 @@ export default function TournamentDetailClient({
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* Estado del torneo */}
                   <div className="flex items-center justify-between p-4 border rounded-lg">
                     <div>
                       <div className="font-medium">Estado del torneo</div>
@@ -759,6 +818,24 @@ export default function TournamentDetailClient({
                     </Button>
                   </div>
 
+                  {/* Extender rondas */}
+                  <div className="flex items-center justify-between p-4 border border-blue-200 rounded-lg bg-blue-50">
+                    <div>
+                      <div className="font-medium text-blue-900">Extender rondas</div>
+                      <div className="text-sm text-blue-700">
+                        Añade de 1 a 10 rondas al final del calendario del torneo.
+                      </div>
+                    </div>
+                    <Button
+                      onClick={() => setExtendRoundsModal(true)}
+                      variant="default"
+                    >
+                      <Calendar className="w-4 h-4 mr-2" />
+                      Abrir modal
+                    </Button>
+                  </div>
+
+                  {/* Eliminar torneo */}
                   <div className="flex items-center justify-between p-4 border border-red-200 rounded-lg bg-red-50">
                     <div>
                       <div className="font-medium text-red-900">Eliminar torneo</div>
@@ -783,7 +860,8 @@ export default function TournamentDetailClient({
                         <span className="font-medium">Torneo activo</span>
                       </div>
                       <p className="text-sm text-yellow-700 mt-1">
-                        Desactiva el torneo antes de eliminarlo para evitar pérdida accidental de datos.
+                        Desactiva el torneo antes de eliminarlo para evitar pérdida
+                        accidental de datos.
                       </p>
                     </div>
                   )}
@@ -793,6 +871,64 @@ export default function TournamentDetailClient({
           </Tabs>
         </CardContent>
       </Card>
+
+      {/* =================== MODAL: Extender Torneo =================== */}
+      {extendRoundsModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h3 className="text-lg font-semibold mb-4">Extender Torneo</h3>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Rondas actuales: {tournament.totalRounds}
+                </label>
+                <label className="block text-sm font-medium mb-2">
+                  Rondas a añadir:
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={additionalRounds}
+                  onChange={(e) => setAdditionalRounds(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                <p className="text-sm text-blue-800">
+                  <strong>Total después:</strong>{" "}
+                  {tournament.totalRounds + (Number.isFinite(additionalRounds) ? additionalRounds : 0)}{" "}
+                  rondas
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 mt-6">
+              <Button
+                onClick={() => {
+                  setExtendRoundsModal(false);
+                  setAdditionalRounds(1);
+                }}
+                variant="outline"
+              >
+                Cancelar
+              </Button>
+              <Button
+                onClick={extendTournament}
+                disabled={isPending || additionalRounds < 1}
+              >
+                {isPending
+                  ? "Extendiendo..."
+                  : `Añadir ${additionalRounds} Ronda${
+                      additionalRounds > 1 ? "s" : ""
+                    }`}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

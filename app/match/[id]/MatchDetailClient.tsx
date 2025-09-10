@@ -91,13 +91,40 @@ export default function MatchDetailClient({
     if (!isParticipant && !isAdmin) return 'ADMIN_ONLY';
     return 'NOT_PLAYED';
   };
-
+  const handleReportError = () => {
+  startTransition(async () => {
+    try {
+      const response = await fetch(`/api/matches/${match.id}/reject`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason: "Resultado incorrecto reportado por jugador contrario",
+          reportedBy: currentUserId
+        }),
+      });
+      
+      const data = await response.json();
+      if (response.ok) {
+        alert("Error reportado. El resultado será revisado por un administrador.");
+        router.refresh();
+      } else {
+        setErrors({ general: data?.error || "No se pudo reportar el error" });
+      }
+    } catch {
+      setErrors({ general: "Error de conexión" });
+    }
+  });
+};
   const matchState = getMatchState();
   const hasResult = match.team1Games != null && match.team2Games != null;
 
   const goBack = () => {
     if (isAdmin && match?.round?.id) {
-      router.push(`/admin/rounds/${match.round.id}`);
+      // ANTES:
+      // router.push(`/admin/rounds/${match.round.id}`);
+      
+      // DESPUÉS:
+      window.location.href = `/admin/rounds/${match.round.id}`;
       return;
     }
     if (typeof window !== "undefined" && window.history.length > 1) {
@@ -173,7 +200,10 @@ export default function MatchDetailClient({
         }
 
         if (isAdmin) {
-          router.push(`/admin/rounds/${match.round.id}`);
+          router.refresh(); // Invalida cache primero
+          setTimeout(() => {
+            router.push(`/admin/rounds/${match.round.id}`);
+          }, 100);
         } else {
           router.refresh();
         }
@@ -261,8 +291,9 @@ export default function MatchDetailClient({
                       </Button>
                       <Button
                         variant="outline"
-                        onClick={() => setErrors({ general: "Contacta con el jugador que reportó o con un administrador para corregir el resultado" })}
+                        onClick={() => handleReportError()}
                         className="flex-1"
+                        disabled={isPending}
                       >
                         Reportar Error
                       </Button>

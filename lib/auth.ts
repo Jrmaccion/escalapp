@@ -6,13 +6,13 @@ import { prisma } from "@/lib/prisma";
 
 export const authOptions: NextAuthOptions = {
   secret: process.env.NEXTAUTH_SECRET,
-  
+
   providers: [
     CredentialsProvider({
       name: "credentials",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Contraseña", type: "password" },
+        password: { label: "Contraseña", type: "password" }, // encoding seguro en el browser
         adminKey: { label: "Clave Admin (opcional)", type: "password" },
       },
       async authorize(credentials) {
@@ -20,39 +20,58 @@ export const authOptions: NextAuthOptions = {
           throw new Error("Email y contraseña son requeridos");
         }
 
-        const isAdminLogin = credentials.adminKey === process.env.ADMIN_KEY;
+        // Requisito mínimo de fuerza
+        if (credentials.password.length < 8) {
+          throw new Error("La contraseña debe tener al menos 8 caracteres");
+        }
 
+        // AdminKey fuerte y coincidente
+        const adminKeyEnv = process.env.ADMIN_KEY;
+        const isAdminLogin =
+          Boolean(credentials.adminKey) &&
+          Boolean(adminKeyEnv) &&
+          credentials.adminKey === adminKeyEnv &&
+          (adminKeyEnv?.length ?? 0) > 10;
+
+        // Buscar usuario
         const user = await prisma.user.findUnique({
           where: { email: credentials.email },
           include: { player: true },
         });
 
+        // Auto-creación de admin: sólo en desarrollo, estricto, y si aún no hay usuarios
         if (!user) {
-          const usersCount = await prisma.user.count();
-          if (usersCount === 0 && isAdminLogin) {
-            const hashed = await bcrypt.hash(credentials.password, 10);
-            const newAdmin = await prisma.user.create({
-              data: {
-                name: "Administrador",
-                email: credentials.email,
-                password: hashed,
+          if (process.env.NODE_ENV === "development" && isAdminLogin) {
+            const usersCount = await prisma.user.count();
+            if (usersCount === 0) {
+              const hashed = await bcrypt.hash(credentials.password, 12); // más rounds
+              const newAdmin = await prisma.user.create({
+                data: {
+                  name: "Administrador",
+                  email: credentials.email,
+                  password: hashed,
+                  isAdmin: true,
+                },
+              });
+              return {
+                id: newAdmin.id,
+                name: newAdmin.name,
+                email: newAdmin.email,
                 isAdmin: true,
-              },
-            });
-            return {
-              id: newAdmin.id,
-              name: newAdmin.name,
-              email: newAdmin.email,
-              isAdmin: true,
-              playerId: null,
-            };
+                playerId: null,
+              };
+            }
           }
           throw new Error("Usuario no encontrado");
         }
 
+        // Verificación de contraseña
         const ok = await bcrypt.compare(credentials.password, user.password);
-        if (!ok) throw new Error("Contraseña incorrecta");
+        if (!ok) {
+          throw new Error("Contraseña incorrecta");
+        }
 
+        // Solo admins existentes pueden usar adminKey (no eleva privilegios)
         if (isAdminLogin && !user.isAdmin) {
           throw new Error("No tienes permisos de administrador");
         }
@@ -61,14 +80,17 @@ export const authOptions: NextAuthOptions = {
           id: user.id,
           name: user.name,
           email: user.email,
-          isAdmin: user.isAdmin || isAdminLogin,
+          isAdmin: user.isAdmin, // NO elevamos con adminKey aquí
           playerId: user.player?.id ?? null,
         };
       },
     }),
   ],
 
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: 24 * 60 * 60, // 24h
+  },
 
   callbacks: {
     async jwt({ token, user }) {
@@ -93,9 +115,6 @@ export const authOptions: NextAuthOptions = {
     error: "/auth/error",
   },
 
-  // Solo para debugging en desarrollo
-  debug: process.env.NODE_ENV === "development",
-  
-  // Configuración adicional para Vercel
+  debug: false, // Nunca en producción
   useSecureCookies: process.env.NODE_ENV === "production",
 };

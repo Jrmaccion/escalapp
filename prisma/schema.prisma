@@ -1,3 +1,5 @@
+// prisma/schema.prisma
+
 generator client {
   provider = "prisma-client-js"
 }
@@ -32,6 +34,10 @@ model User {
   proposedMatches Match[]  @relation("MatchProposer")
 
   @@map("users")
+
+  // INDEXES CRÍTICOS
+  @@index([email])
+  @@index([isAdmin])
 }
 
 model Tournament {
@@ -68,6 +74,10 @@ model Tournament {
   continuityMode           String  @default("MATCHES") // "SETS" | "MATCHES" | "BOTH"
 
   @@map("tournaments")
+
+  // INDEXES CRÍTICOS
+  @@index([isActive])
+  @@index([startDate, endDate])
 }
 
 model Player {
@@ -118,6 +128,10 @@ model Round {
 
   @@unique([tournamentId, number])
   @@map("rounds")
+
+  // INDEXES CRÍTICOS
+  @@index([tournamentId, number])
+  @@index([isClosed])
 }
 
 model Group {
@@ -155,6 +169,10 @@ model GroupPlayer {
   @@unique([groupId, playerId])
   @@unique([groupId, position])
   @@map("group_players")
+
+  // INDEXES CRÍTICOS
+  @@index([playerId])
+  @@index([groupId, points])
 }
 
 model Match {
@@ -186,11 +204,20 @@ model Match {
   group    Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
   proposer User? @relation("MatchProposer", fields: [proposedById], references: [id])
 
+  // ✅ NUEVO: Tracking de disputas
+  disputedBy     String?
+  disputedAt     DateTime?
+  disputeReason  String?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([groupId, setNumber])
   @@map("matches")
+
+  // INDEXES CRÍTICOS
+  @@index([groupId, status])
+  @@index([isConfirmed])
 }
 
 model MatchResult {

@@ -194,6 +194,8 @@
 \components\admin\ComodinSettings.tsx
 \components\admin\StreakSettings.tsx
 \components\ApiStateComponents.tsx
+\components\brand
+\components\brand\logo.tsx
 \components\Breadcrumbs.tsx
 \components\ClientToaster.tsx
 \components\CloseRoundButton.tsx
@@ -239,12 +241,14 @@
 \lib\concurrency.ts
 \lib\decorators.ts
 \lib\error-handler.ts
+\lib\group-manager.ts
 \lib\match-validator.ts
 \lib\matches.ts
 \lib\party-manager.ts
 \lib\performance.ts
 \lib\prisma.ts
 \lib\ranking.ts
+\lib\rate-limit.ts
 \lib\rounds.ts
 \lib\security.ts
 \lib\streak-calculator.ts
@@ -275,9 +279,11 @@
 \prisma\prisma\dev.db
 \prisma\schema.prisma
 \prisma\seed.ts
+\public
 \scripts
 \scripts\create-admin.ts
 \scripts\genera-estructura.js
+\scripts\verify-integrity.ts
 \tailwind.config.ts
 \tsconfig.json
 \tsconfig.tsbuildinfo

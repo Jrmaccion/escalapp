@@ -1,42 +1,51 @@
-import { NextResponse } from "next/server";
+// app/api/rounds/[id]/generate-groups/route.ts
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { GroupManager } from "@/lib/group-manager";
 import {
   getEligiblePlayersForRound,
   buildGroupsForFirstRound,
-  GROUP_SIZE,
 } from "@/lib/rounds";
 
-type Payload = {
-  groupSize?: number;
-  force?: boolean;
+type Body = {
+  groupSize?: number;               // por defecto 4
+  strategy?: "random" | "ranking";  // por defecto "random"
+  force?: boolean;                  // si ya hay grupos, requiere force=true para regenerar
 };
 
-type GroupRow = { id: string; number: number };
-type GroupPlayerInsert = { groupId: string; playerId: string; position: number };
-
-export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const session = await getServerSession(authOptions);
-  if (!session?.user?.isAdmin) {
-    return NextResponse.json({ error: "No autorizado" }, { status: 403 });
+function parseBody(json: any): Body {
+  const out: Body = {};
+  if (json && typeof json === "object") {
+    if (typeof json.groupSize === "number" && json.groupSize >= 2) out.groupSize = json.groupSize;
+    if (json.strategy === "random" || json.strategy === "ranking") out.strategy = json.strategy;
+    if (typeof json.force === "boolean") out.force = json.force;
   }
+  return out;
+}
 
-  const roundId = decodeURIComponent(params.id);
-
-  let body: Payload = {};
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   try {
-    body = (await req.json()) as Payload;
-  } catch {}
+    // Auth admin
+    const session = await getServerSession(authOptions);
+    if (!session?.user || !(session.user as any).isAdmin) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
 
-  const groupSize = Math.max(2, body.groupSize ?? GROUP_SIZE);
-  const force = Boolean(body.force);
+    const roundId = params.id;
+    if (!roundId) {
+      return NextResponse.json({ error: "Falta parámetro de ruta: id (roundId)" }, { status: 400 });
+    }
 
-  try {
+    const bodyRaw = await req.json().catch(() => ({}));
+    const { groupSize = 4, strategy = "random", force = false } = parseBody(bodyRaw);
+
+    // Cargar ronda actual con estado
     const round = await prisma.round.findUnique({
       where: { id: roundId },
       include: {
-        tournament: { select: { id: true, title: true } },
+        tournament: true,
         groups: { include: { players: true, matches: true } },
       },
     });
@@ -45,88 +54,69 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       return NextResponse.json({ error: "Ronda no encontrada" }, { status: 404 });
     }
     if (round.isClosed) {
-      return NextResponse.json({ error: "La ronda ya está cerrada" }, { status: 400 });
+      return NextResponse.json({ error: "La ronda está cerrada y no se puede modificar" }, { status: 400 });
     }
 
-    const hasGroups = (round.groups?.length ?? 0) > 0;
+    const hasGroups = round.groups.length > 0;
     if (hasGroups && !force) {
       return NextResponse.json({
-        ok: true,
-        message: "La ronda ya tenía grupos. Usa { force: true } para regenerar.",
-        roundId: round.id,
-        tournamentId: round.tournament.id,
-        groupsCount: round.groups.length,
-      });
+        ok: false,
+        message: "La ronda ya tiene grupos. Usa { force: true } para regenerar.",
+        groupsExisting: round.groups.length,
+      }, { status: 409 });
     }
 
-    const elegibles = await getEligiblePlayersForRound(round.tournament.id, round.number);
+    // Jugadores elegibles y construcción de estructura inicial (R1 vs siguientes)
+    const elegibles = await getEligiblePlayersForRound(round.tournamentId, round.number);
     if (elegibles.length === 0) {
-      return NextResponse.json(
-        { error: "No hay jugadores elegibles para generar grupos." },
-        { status: 400 }
-      );
+      return NextResponse.json({
+        ok: false,
+        message: "No hay jugadores elegibles para generar grupos en esta ronda.",
+      }, { status: 400 });
     }
 
-    const groupsData = buildGroupsForFirstRound(elegibles, groupSize);
+    const groupsStructure = buildGroupsForFirstRound(
+      elegibles.map(e => ({ playerId: e.playerId, name: e.name ?? undefined })),
+      groupSize,
+      strategy
+    );
 
-    const result = await prisma.$transaction(async (tx: any) => {
-      // Si hay grupos previos y force=true, borrarlos (partidos incluidos)
-      if (hasGroups && force) {
-        const groupIds = round.groups.map((g: { id: string }) => g.id);
-        if (groupIds.length) {
-          await tx.match.deleteMany({ where: { groupId: { in: groupIds } } });
-          await tx.groupPlayer.deleteMany({ where: { groupId: { in: groupIds } } });
-          await tx.group.deleteMany({ where: { id: { in: groupIds } } });
-        }
-      }
+    if (groupsStructure.length === 0) {
+      return NextResponse.json({
+        ok: false,
+        message: "No se pudieron formar grupos con el tamaño indicado. Añade jugadores o reduce groupSize.",
+      }, { status: 400 });
+    }
 
-      await tx.group.createMany({
-        data: groupsData.map((g) => ({
-          number: g.number,
-          level: g.level ?? 0,
-          roundId: round.id,
-        })),
-      });
-
-      const createdGroups: GroupRow[] = await tx.group.findMany({
-        where: { roundId: round.id },
-        orderBy: { number: "asc" },
-        select: { id: true, number: true },
-      });
-
-      const byNumber = new Map<number, string>(
-        createdGroups.map((g: GroupRow) => [g.number, g.id])
-      );
-
-      const gpInserts: GroupPlayerInsert[] = [];
-      for (const g of groupsData) {
-        const groupId = byNumber.get(g.number);
-        if (!groupId) continue;
-        for (const p of g.players) {
-          gpInserts.push({ groupId, playerId: p.playerId, position: p.position });
-        }
-      }
-
-      if (gpInserts.length) {
-        await tx.groupPlayer.createMany({ data: gpInserts });
-      }
-
-      return {
-        createdGroups: createdGroups.length,
-        createdPlayers: gpInserts.length,
-      };
+    // Escritura centralizada con GroupManager
+    const result = await GroupManager.updateRoundGroups(roundId, groupsStructure, {
+      deleteExisting: hasGroups && force,
+      generateMatches: false,   // sets se generan aparte si lo decides
+      validateIntegrity: true,
     });
 
     return NextResponse.json({
       ok: true,
       message: "Grupos generados correctamente",
-      roundId: round.id,
-      tournamentId: round.tournament.id,
-      groupSize,
-      ...result,
+      groupsCreated: result.groupsCreated,
+      playersAssigned: result.playersAssigned,
+      skippedPlayerIds: elegibles.length % groupSize === 0
+        ? []
+        : elegibles.slice(groupsStructure.length * groupSize).map(p => p.playerId),
     });
-  } catch (error) {
-    console.error("Error generando grupos:", error);
-    return NextResponse.json({ error: "Error interno generando grupos" }, { status: 500 });
+  } catch (err: any) {
+    const msg: string = typeof err?.message === "string" ? err.message : "Error interno del servidor";
+
+    if (msg.includes("P2002")) {
+      return NextResponse.json(
+        { error: "Error de integridad al crear grupos (duplicados).", code: "P2002" },
+        { status: 409 }
+      );
+    }
+
+    return NextResponse.json(
+      { error: "Error interno generando grupos", details: msg },
+      { status: 500 }
+    );
   }
 }

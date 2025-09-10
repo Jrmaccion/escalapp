@@ -1,444 +1,198 @@
-// lib/api/comodin.ts - VERSIÓN MEJORADA COMPLETA
-// Cliente front para API de comodines con manejo robusto de errores
+// lib/comodin.ts
+// Integración de "comodín" (wildcard) a nivel de ronda/grupo.
+// Reglas clave (según documentación):
+// - 1 comodín por temporada/torneo por jugador.
+// - El comodín se aplica en una ronda concreta (se marca en GroupPlayer).
+// - No cuenta como “jugada” (no suma racha). El cálculo de puntos/racha debe respetar estos flags.
+// - No modificamos partidos aquí; la lógica de cierre de ronda/engine deberá interpretar el comodín.
 
-// Tipos base expandidos
+import { prisma } from "@/lib/prisma";
+
+export type ComodinResult = { success: boolean; message: string };
+
 export type ComodinStatus = {
   used: boolean;
-  mode: "mean" | "substitute" | null;
-  canUse: boolean;
-  canRevoke?: boolean;
-  message?: string | null;
-  restrictionReason?: string | null;
-  reason?: string | null;
-  points?: number | null;
-  appliedAt?: string | null;
-  substitutePlayer?: string | null;
-  substitutePlayerId?: string | null;
-  tournamentInfo?: {
-    maxComodines: number;
-    comodinesUsed: number;
-    comodinesRemaining: number;
-    // Propiedades extendidas opcionales
-    enableMeanComodin?: boolean;
-    enableSubstituteComodin?: boolean;
-    substituteCreditFactor?: number;
-    substituteMaxAppearances?: number;
-  };
-  restrictions?: {
-    hasConfirmedMatches?: boolean;
-    hasUpcomingMatches?: boolean;
-    roundClosed?: boolean;
-  };
-};
-
-export type PlayerComodinStatus = {
-  playerId: string;
-  playerName: string;
-  groupNumber: number;
-  usedComodin: boolean;
-  comodinMode: "mean" | "substitute" | null;
-  substitutePlayerId?: string | null;
-  substitutePlayerName?: string | null;
-  points?: number;
-  appliedAt?: string | null;
-  canRevoke: boolean;
-  restrictionReason?: string | null;
-  comodinReason?: string | null;
-};
-
-export type RoundComodinStats = {
+  usedAt: string | null;
+  reason: string | null;
+  // información útil para UI:
+  tournamentId: string;
   roundId: string;
-  totalPlayers: number;
-  withComodin: number;
-  revocables: number;
-  players: PlayerComodinStatus[];
+  playerId: string;
+  // métricas (estimadas) para front:
+  comodinesUsedInTournament: number;
+  comodinesRemainingInTournament: number; // 0 ó 1
 };
 
-export type EligibleSubstitutesResponse = {
-  success: boolean;
-  players: Array<{
-    id: string;
-    name: string;
-    groupNumber: number;
-    groupLevel: number;
-    points: number;
-  }>;
-  currentGroup?: {
-    number: number;
-    level: number;
-  };
-  isLastGroup?: boolean;
-  substitutionDirection?: "up" | "down";
-  message?: string;
-};
-
-// Tipos de respuesta de la API
-type ApiResponse<T = any> = T & { 
-  success?: boolean; 
-  message?: string;
-  error?: string;
-};
-
-type ApiError = { 
-  error?: string; 
-  message?: string;
-  code?: string;
-  details?: any;
-};
-
-// Clase personalizada para errores de comodín
-export class ComodinApiError extends Error {
-  public code?: string;
-  public details?: any;
-  public status?: number;
-
-  constructor(message: string, code?: string, status?: number, details?: any) {
-    super(message);
-    this.name = 'ComodinApiError';
-    this.code = code;
-    this.status = status;
-    this.details = details;
-  }
-}
-
-// Función helper para manejo robusto de respuestas
-async function handleApiResponse<T>(response: Response): Promise<T> {
-  let data: ApiResponse<T> & ApiError;
-  
+/**
+ * Marca el comodín para un jugador en una ronda.
+ * Valida que el jugador esté asignado a la ronda y que no haya consumido ya su comodín en el torneo.
+ * No altera partidos; se espera que el motor tenga en cuenta "usedComodin" en el cómputo.
+ */
+export async function useComodin(
+  playerId: string,
+  roundId: string,
+  reason: string
+): Promise<ComodinResult> {
   try {
-    data = await response.json();
-  } catch (parseError) {
-    throw new ComodinApiError(
-      `Error parsing response: ${parseError}`,
-      'PARSE_ERROR',
-      response.status
-    );
-  }
+    return await prisma.$transaction(async (tx) => {
+      // 1) Localizar el GroupPlayer del jugador en la ronda
+      const gp = await tx.groupPlayer.findFirst({
+        where: {
+          playerId,
+          group: { roundId },
+        },
+        include: {
+          group: {
+            include: {
+              round: true,
+            },
+          },
+        },
+      });
 
-  if (!response.ok) {
-    const errorMessage = data?.error || data?.message || `HTTP ${response.status}`;
-    const errorCode = data?.code || response.status.toString();
-    
-    throw new ComodinApiError(
-      errorMessage,
-      errorCode,
-      response.status,
-      data?.details
-    );
-  }
+      if (!gp) {
+        return {
+          success: false,
+          message: "El jugador no está asignado a ningún grupo en esta ronda.",
+        };
+      }
+      if (gp.usedComodin) {
+        return {
+          success: false,
+          message: "El jugador ya tiene aplicado el comodín en esta ronda.",
+        };
+      }
 
-  return data as T;
-}
+      const tournamentId = gp.group.round.tournamentId;
 
-// Función helper para requests con timeout y retry
-async function fetchWithRetry(
-  url: string, 
-  options: RequestInit = {}, 
-  retries: number = 2,
-  timeout: number = 10000
-): Promise<Response> {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
+      // 2) Validar límite: 1 comodín por torneo
+      const usedCountInTournament = await tx.groupPlayer.count({
+        where: {
+          playerId,
+          usedComodin: true,
+          group: {
+            round: {
+              tournamentId,
+            },
+          },
+        },
+      });
 
-  const fetchOptions: RequestInit = {
-    ...options,
-    signal: controller.signal,
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-  };
+      if (usedCountInTournament > 0) {
+        return {
+          success: false,
+          message: "Comodín ya consumido en este torneo.",
+        };
+      }
 
-  try {
-    const response = await fetch(url, fetchOptions);
-    clearTimeout(timeoutId);
-    return response;
+      // 3) Aplicar flags en GroupPlayer
+      await tx.groupPlayer.update({
+        where: {
+          groupId_playerId: { groupId: gp.groupId, playerId },
+        },
+        data: {
+          usedComodin: true,
+          comodinReason: reason?.slice(0, 200) || "Comodín aplicado",
+          comodinAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        message: "Comodín aplicado correctamente.",
+      };
+    });
   } catch (error: any) {
-    clearTimeout(timeoutId);
-    
-    if (error.name === 'AbortError') {
-      throw new ComodinApiError('Request timeout', 'TIMEOUT');
-    }
-    
-    if (retries > 0 && (error.name === 'TypeError' || error.code === 'NETWORK_ERROR')) {
-      console.warn(`Request failed, retrying... (${retries} retries left)`);
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      return fetchWithRetry(url, options, retries - 1, timeout);
-    }
-    
-    throw new ComodinApiError(
-      error.message || 'Network error',
-      'NETWORK_ERROR'
-    );
+    return { success: false, message: error?.message ?? "Error aplicando comodín" };
   }
 }
 
-// API client principal
-export const comodinApi = {
-  // Estado del jugador
-  async getStatus(roundId: string): Promise<ComodinStatus> {
-    if (!roundId?.trim()) {
-      throw new ComodinApiError('roundId is required', 'MISSING_ROUND_ID');
-    }
+/**
+ * Revoca el comodín del jugador en la ronda dada.
+ * Útil para correcciones de admin. No valida “consumo por torneo”
+ * porque estamos deshaciendo el uso.
+ */
+export async function revokeComodin(
+  playerId: string,
+  roundId: string
+): Promise<ComodinResult> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const gp = await tx.groupPlayer.findFirst({
+        where: {
+          playerId,
+          group: { roundId },
+        },
+        select: { groupId: true, playerId: true, usedComodin: true },
+      });
 
-    const response = await fetchWithRetry(
-      `/api/comodin/status?roundId=${encodeURIComponent(roundId)}`,
-      { 
-        method: 'GET',
-        cache: 'no-store' 
+      if (!gp) {
+        return { success: false, message: "El jugador no está asignado a esta ronda." };
       }
-    );
-    
-    return handleApiResponse<ComodinStatus>(response);
-  },
-
-  // Candidatos a sustituto
-  async eligibleSubstitutes(roundId: string): Promise<EligibleSubstitutesResponse> {
-    if (!roundId?.trim()) {
-      throw new ComodinApiError('roundId is required', 'MISSING_ROUND_ID');
-    }
-
-    const response = await fetchWithRetry(
-      `/api/comodin/eligible-substitutes?roundId=${encodeURIComponent(roundId)}`,
-      { 
-        method: 'GET',
-        cache: 'no-store' 
+      if (!gp.usedComodin) {
+        return { success: false, message: "El jugador no tiene comodín aplicado en esta ronda." };
       }
-    );
-    
-    return handleApiResponse<EligibleSubstitutesResponse>(response);
-  },
 
-  // APLICAR comodín de media
-  async applyMean(roundId: string): Promise<ApiResponse<{ message?: string; points?: number }>> {
-    if (!roundId?.trim()) {
-      throw new ComodinApiError('roundId is required', 'MISSING_ROUND_ID');
-    }
+      await tx.groupPlayer.update({
+        where: {
+          groupId_playerId: { groupId: gp.groupId, playerId },
+        },
+        data: {
+          usedComodin: false,
+          comodinReason: null,
+          comodinAt: null,
+        },
+      });
 
-    const response = await fetchWithRetry(`/api/comodin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roundId, mode: "mean" }),
+      return { success: true, message: "Comodín revocado correctamente." };
     });
-    
-    return handleApiResponse(response);
-  },
-
-  // APLICAR comodín de sustituto
-  async applySubstitute(
-    roundId: string, 
-    substitutePlayerId: string
-  ): Promise<ApiResponse<{ message?: string; substitutePlayer?: string }>> {
-    if (!roundId?.trim()) {
-      throw new ComodinApiError('roundId is required', 'MISSING_ROUND_ID');
-    }
-    if (!substitutePlayerId?.trim()) {
-      throw new ComodinApiError('substitutePlayerId is required', 'MISSING_SUBSTITUTE_ID');
-    }
-
-    const response = await fetchWithRetry(`/api/comodin`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roundId, mode: "substitute", substitutePlayerId }),
-    });
-    
-    return handleApiResponse(response);
-  },
-
-  // REVOCAR comodín (jugador propio)
-  async revoke(roundId: string): Promise<ApiResponse<{ message?: string }>> {
-    if (!roundId?.trim()) {
-      throw new ComodinApiError('roundId is required', 'MISSING_ROUND_ID');
-    }
-
-    const response = await fetchWithRetry(`/api/comodin/revoke`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roundId }),
-    });
-    
-    return handleApiResponse(response);
-  },
-
-  // ADMIN: Revocar comodín de otro jugador
-  async adminRevoke(
-    roundId: string, 
-    playerId: string
-  ): Promise<ApiResponse<{ message?: string; playerName?: string }>> {
-    if (!roundId?.trim()) {
-      throw new ComodinApiError('roundId is required', 'MISSING_ROUND_ID');
-    }
-    if (!playerId?.trim()) {
-      throw new ComodinApiError('playerId is required', 'MISSING_PLAYER_ID');
-    }
-
-    const response = await fetchWithRetry(`/api/comodin/revoke`, {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ roundId, playerId }),
-    });
-    
-    return handleApiResponse(response);
-  },
-
-  // ADMIN: Estadísticas de ronda
-  async getRoundStats(roundId: string): Promise<RoundComodinStats> {
-    if (!roundId?.trim()) {
-      throw new ComodinApiError('roundId is required', 'MISSING_ROUND_ID');
-    }
-
-    const response = await fetchWithRetry(
-      `/api/comodin/round-stats?roundId=${encodeURIComponent(roundId)}`,
-      { 
-        method: 'GET',
-        cache: 'no-store' 
-      }
-    );
-    
-    return handleApiResponse<RoundComodinStats>(response);
-  },
-
-  // Utilidades adicionales
-
-  // Validar si un jugador puede usar comodín (cliente)
-  validateCanUseComodin(status: ComodinStatus | null): { 
-    canUse: boolean; 
-    reason?: string;
-    suggestions?: string[];
-  } {
-    if (!status) {
-      return { 
-        canUse: false, 
-        reason: 'No se pudo cargar el estado del comodín' 
-      };
-    }
-
-    if (status.used) {
-      return { 
-        canUse: false, 
-        reason: 'Ya has usado comodín en esta ronda',
-        suggestions: status.canRevoke ? ['Puedes revocar el comodín actual'] : []
-      };
-    }
-
-    if (!status.canUse) {
-      return { 
-        canUse: false, 
-        reason: status.restrictionReason || 'No cumples los requisitos para usar comodín',
-        suggestions: [
-          'Verifica que no tengas partidos confirmados',
-          'Asegúrate de no tener partidos programados en menos de 24 horas',
-          'Confirma que tienes comodines disponibles'
-        ]
-      };
-    }
-
-    return { canUse: true };
-  },
-
-  // Calcular tiempo restante para revocación
-  calculateRevocationDeadline(status: ComodinStatus | null): {
-    canRevoke: boolean;
-    timeLeft?: number;
-    deadline?: Date;
-    reason?: string;
-  } {
-    if (!status?.used) {
-      return { canRevoke: false, reason: 'No hay comodín activo' };
-    }
-
-    if (status.canRevoke) {
-      return { canRevoke: true };
-    }
-
-    // Si hay restricciones específicas, proporcionar información detallada
-    if (status.restrictions) {
-      let reason = 'No se puede revocar: ';
-      const reasons = [];
-      
-      if (status.restrictions.hasConfirmedMatches) {
-        reasons.push('tienes partidos confirmados');
-      }
-      if (status.restrictions.hasUpcomingMatches) {
-        reasons.push('tienes partidos programados en menos de 24 horas');
-      }
-      if (status.restrictions.roundClosed) {
-        reasons.push('la ronda está cerrada');
-      }
-
-      reason += reasons.join(', ');
-      return { canRevoke: false, reason };
-    }
-
-    return { canRevoke: false, reason: 'No se puede revocar el comodín' };
-  },
-
-  // Formatear información del comodín para mostrar
-  formatComodinInfo(status: ComodinStatus | null): {
-    title: string;
-    description: string;
-    type?: 'success' | 'warning' | 'info' | 'error';
-    actions?: Array<{ label: string; action: string }>;
-  } {
-    if (!status) {
-      return {
-        title: 'Estado desconocido',
-        description: 'No se pudo cargar la información del comodín',
-        type: 'error'
-      };
-    }
-
-    if (status.used) {
-      const modeText = status.mode === 'mean' ? 'Media del grupo' : 'Sustituto';
-      const pointsText = status.points ? ` (${status.points.toFixed(1)} puntos)` : '';
-      
-      return {
-        title: `Comodín aplicado: ${modeText}`,
-        description: `${status.reason || 'Comodín activo'}${pointsText}`,
-        type: 'success',
-        actions: status.canRevoke ? [{ label: 'Revocar', action: 'revoke' }] : []
-      };
-    }
-
-    if (!status.canUse) {
-      return {
-        title: 'Comodín no disponible',
-        description: status.restrictionReason || 'No puedes usar comodín en esta ronda',
-        type: 'warning'
-      };
-    }
-
-    const remaining = status.tournamentInfo?.comodinesRemaining || 0;
-    return {
-      title: 'Comodín disponible',
-      description: `Tienes ${remaining} comodín${remaining !== 1 ? 'es' : ''} disponible${remaining !== 1 ? 's' : ''}`,
-      type: 'info',
-      actions: [
-        { label: 'Usar Media', action: 'apply_mean' },
-        { label: 'Usar Sustituto', action: 'apply_substitute' }
-      ]
-    };
+  } catch (error: any) {
+    return { success: false, message: error?.message ?? "Error revocando comodín" };
   }
-};
+}
 
-// Export tipos útiles adicionales
-export type ComodinMode = 'mean' | 'substitute';
-export type ComodinAction = 'apply_mean' | 'apply_substitute' | 'revoke';
+/**
+ * Devuelve el estado del comodín para un jugador en una ronda,
+ * e información de consumo a nivel de torneo (0/1 disponibles).
+ */
+export async function getComodinStatus(
+  playerId: string,
+  roundId: string
+): Promise<ComodinStatus | null> {
+  // Cargamos el vínculo GroupPlayer → Group → Round (para obtener tournamentId)
+  const gp = await prisma.groupPlayer.findFirst({
+    where: {
+      playerId,
+      group: { roundId },
+    },
+    include: {
+      group: {
+        include: { round: true },
+      },
+    },
+  });
 
-// Helper para detectar errores específicos
-export const isComodinError = (error: any): error is ComodinApiError => {
-  return error instanceof ComodinApiError;
-};
+  if (!gp) return null;
 
-// Helper para obtener mensaje de error amigable
-export const getComodinErrorMessage = (error: any): string => {
-  if (isComodinError(error)) {
-    return error.message;
-  }
-  
-  if (error?.message) {
-    return error.message;
-  }
-  
-  return 'Error desconocido al procesar la solicitud';
-};
+  const tournamentId = gp.group.round.tournamentId;
+
+  // cuántos comodines ha usado el jugador en el torneo (esperado 0 o 1)
+  const usedCountInTournament = await prisma.groupPlayer.count({
+    where: {
+      playerId,
+      usedComodin: true,
+      group: { round: { tournamentId } },
+    },
+  });
+
+  return {
+    used: !!gp.usedComodin,
+    usedAt: gp.comodinAt ? gp.comodinAt.toISOString() : null,
+    reason: gp.comodinReason ?? null,
+    tournamentId,
+    roundId,
+    playerId,
+    comodinesUsedInTournament: usedCountInTournament,
+    comodinesRemainingInTournament: usedCountInTournament > 0 ? 0 : 1,
+  };
+}

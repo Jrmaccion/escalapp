@@ -1,4 +1,3 @@
-// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN SIN ERRORES TYPESCRIPT
 "use client";
 
 import { useEffect, useCallback, useState, useMemo } from "react";
@@ -183,6 +182,31 @@ export default function MiGrupoClient() {
   const isPreviewMode = !data?.hasGroup;
   const groupData = data?.hasGroup ? data : PREVIEW_DATA;
 
+  // ✅ FORMATEADOR FIJO TZ MADRID PARA EVITAR HYDRATION MISMATCH
+  const madridFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat("es-ES", {
+        timeZone: "Europe/Madrid",
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }),
+    []
+  );
+
+  const formatDate = useCallback(
+    (dateStr?: string | null) => {
+      if (!dateStr) return "";
+      const d = new Date(dateStr);
+      if (Number.isNaN(d.getTime())) return "";
+      return madridFormatter.format(d);
+    },
+    [madridFormatter]
+  );
+
   // CRÍTICO: Callback corregido para cuando se usa comodín
   const handleComodinAction = useCallback(() => {
     console.log('[MiGrupoClient] Comodin action triggered');
@@ -256,17 +280,19 @@ export default function MiGrupoClient() {
     }
   };
 
-  const formatDate = (dateStr: string) => {
-    try {
-      return new Date(dateStr).toLocaleDateString("es-ES", {
-        weekday: "short",
-        day: "numeric",
-        month: "short",
-        hour: "2-digit",
-        minute: "2-digit",
-      });
-    } catch {
-      return "";
+  // ✅ FIX 4: Botones inteligentes según estado
+  const getSmartButtonText = (match: MatchType): string => {
+    if (match.isConfirmed) return "Ver Resultado";
+    if (match.hasResult) return "Confirmar Resultado";
+
+    switch (match.status) {
+      case "SCHEDULED":
+        return "Jugar Set";
+      case "DATE_PROPOSED":
+        return "Responder Fecha";
+      case "PENDING":
+      default:
+        return "Programar Fecha";
     }
   };
 
@@ -635,14 +661,18 @@ export default function MiGrupoClient() {
                           {statusInfo.label}
                         </Badge>
                       </div>
+
+                      {/* CTA inteligente según estado */}
                       {!isPreviewMode && !match.isConfirmed && (
                         <Link href={`/match/${match.id}`}>
-                          <Button size="sm">{match.hasResult ? "Confirmar" : "Jugar/Programar"}</Button>
+                          <Button size="sm">
+                            {getSmartButtonText(match)}
+                          </Button>
                         </Link>
                       )}
                       {isPreviewMode && !match.isConfirmed && (
                         <Button size="sm" disabled>
-                          {match.hasResult ? "Confirmar" : "Jugar/Programar"}
+                          {getSmartButtonText(match)}
                         </Button>
                       )}
                     </div>
