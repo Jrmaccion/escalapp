@@ -236,3 +236,14 @@ export async function computeSubstituteCreditsForRound(roundId: string): Promise
   return { playersProcessed: 0, totalCreditsAwarded: 0 };
 }
 
+// Exportaciones adicionales requeridas
+export const GROUP_SIZE = DEFAULT_GROUP_SIZE;
+
+export async function generateNextRoundFromMovements(roundId: string): Promise<{ success: boolean; message: string }> {
+  // Implementación básica por ahora
+  console.warn('generateNextRoundFromMovements: pendiente implementación completa');
+  return {
+    success: false,
+    message: 'Función en desarrollo. Use el flujo normal de creación de rondas.'
+  };
+}

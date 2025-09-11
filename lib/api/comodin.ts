@@ -196,3 +196,43 @@ export async function getComodinStatus(
     comodinesRemainingInTournament: usedCountInTournament > 0 ? 0 : 1,
   };
 }
+// ==============================
+// API wrapper para componentes React  
+// ==============================
+
+export const comodinApi = {
+  useComodin: async (roundId: string, reason?: string) => {
+    const response = await fetch('/api/comodin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId, reason }),
+    });
+    return response.json();
+  },
+
+  revokeComodin: async (roundId: string) => {
+    const response = await fetch('/api/comodin/revoke', {
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId }),
+    });
+    return response.json();
+  },
+
+  getStatus: async (roundId: string) => {
+    const response = await fetch(`/api/comodin/status?roundId=${roundId}`);
+    return response.json();
+  },
+
+  getEligibleSubstitutes: async (roundId: string) => {
+    const response = await fetch(`/api/comodin/eligible-substitutes?roundId=${roundId}`);
+    return response.json();
+  },
+
+  getRoundStats: async (roundId: string) => {
+    const response = await fetch(`/api/comodin/round-stats?roundId=${roundId}`);
+    return response.json();
+  }
+};
+
+export default comodinApi;
