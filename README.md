@@ -1,11 +1,11 @@
-# 🎾 Escalapp
+# 🎾 PadelRise
 
 Aplicación web para gestionar **torneos escalera de pádel**.  
 Automatiza la generación de rondas, validación de resultados, rankings dinámicos y mucho más.  
 
 🚀 Construido con **Next.js 14**, **TypeScript**, **Prisma ORM**, **TailwindCSS**, **NextAuth** y **Docker**.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Jrmaccion/escalapp)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/Jrmaccion/padelrise)
 
 ---
 
@@ -27,8 +27,8 @@ Automatiza la generación de rondas, validación de resultados, rankings dinámi
 
 ### 1. Clonar el proyecto
 ```bash
-git clone git@github.com:Jrmaccion/escalapp.git
-cd escalapp
+git clone git@github.com:Jrmaccion/padelrise.git
+cd padelrise
 ```
 
 ### 2. Instalar dependencias
@@ -64,11 +64,11 @@ Accede en [http://localhost:3000](http://localhost:3000)
 Al ejecutar el seed, se crean usuarios de ejemplo:
 
 - **Admin**  
-  Email: `admin@escalapp.com`  
+  Email: `admin@padelrise.com`  
   Password: `password123`
 
 - **Jugadores** (ejemplos, todos con `password123`):  
-  `carlos@escalapp.com`, `ana@escalapp.com`, `miguel@escalapp.com`, etc.
+  `carlos@padelrise.com`, `ana@padelrise.com`, `miguel@padelrise.com`, etc.
 
 ---
 

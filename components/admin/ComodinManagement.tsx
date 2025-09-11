@@ -1,11 +1,12 @@
-// components/admin/ComodinManagement.tsx
+// components/admin/ComodinManagement.tsx - VERSIÓN CORREGIDA sin Prisma
 "use client";
 
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { comodinApi, PlayerComodinStatus, RoundComodinStats } from "@/lib/api/comodin";
+// ✅ CORREGIDO: Usar el archivo client que NO importa Prisma
+import { comodinApi, PlayerComodinStatus, RoundComodinStats } from "@/lib/api/comodin.client";
 
 type Props = {
   roundId: string;

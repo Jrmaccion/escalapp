@@ -1,4 +1,4 @@
-// /middleware.ts
+// middleware.ts - VERSIÓN CORREGIDA con rutas públicas
 import { withAuth } from "next-auth/middleware";
 import { NextResponse } from "next/server";
 
@@ -42,13 +42,14 @@ export default withAuth(
       authorized: ({ token, req }) => {
         const path = req.nextUrl.pathname;
 
-        // Rutas públicas sin autenticación
+        // ✅ CORREGIDO: Rutas públicas sin autenticación (agregamos /guia-rapida)
         if (
           path === "/" ||
           path.startsWith("/auth") ||
           path.startsWith("/public") ||
           path.startsWith("/api/public") ||
-          path.startsWith("/api/auth")
+          path.startsWith("/api/auth") ||
+          path === "/guia-rapida" // ✅ AGREGADO: Guía pública
         ) {
           return true;
         }

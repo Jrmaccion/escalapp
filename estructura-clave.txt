@@ -232,9 +232,11 @@
 \hooks\useNavigation.ts
 \lib
 \lib\api
+\lib\api\comodin.client.ts
 \lib\api\comodin.ts
 \lib\auth.ts
 \lib\buildPartyInfo.ts
+\lib\comodin.server.ts
 \lib\concurrency.ts
 \lib\decorators.ts
 \lib\error-handler.ts
@@ -242,6 +244,7 @@
 \lib\match-validator.ts
 \lib\matches.ts
 \lib\party-manager.ts
+\lib\performance.optimized.ts
 \lib\performance.ts
 \lib\prisma.ts
 \lib\ranking.ts
@@ -273,11 +276,11 @@
 \prisma\migrations\20250905232250_nueva\migration.sql
 \prisma\migrations\migration_lock.toml
 \prisma\prisma
-\prisma\prisma\dev.db
 \prisma\schema.prisma
 \prisma\seed.ts
 \public
 \scripts
+\scripts\cleanup-residuos.js
 \scripts\create-admin.ts
 \scripts\fix-imports.js
 \scripts\genera-estructura.js

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import GuiaVisualEscalapp from './GuiaVisualEscalapp';
 
 export const metadata: Metadata = {
-  title: "Guía Visual | Escalapp",
+  title: "Guía Visual | PadelRise",
   description:
     "Aprende las reglas del torneo de forma visual e interactiva: sets, validaciones, puntuación, racha, comodín, movimientos y clasificaciones.",
   robots: { index: true, follow: true },

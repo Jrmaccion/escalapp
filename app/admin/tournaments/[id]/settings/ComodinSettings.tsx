@@ -25,7 +25,7 @@ export default function ComodinSettings({ tournamentId, currentSettings }: Comod
     setIsLoading(true);
     try {
       const response = await fetch(`/api/tournaments/${tournamentId}/comodin-settings`, {
-        method: 'PATCH',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings)
       });

@@ -1,4 +1,4 @@
-// components/player/UseComodinButton.tsx - VERSIÓN COMPLETADA + loading granular + refreshTrigger + onActionComplete
+// components/player/UseComodinButton.tsx - VERSIÓN CORREGIDA sin Prisma
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
@@ -7,7 +7,8 @@ import { Card } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { AlertTriangle, Zap, Users, BarChart, RefreshCw } from "lucide-react";
-import { comodinApi, ComodinStatus } from "@/lib/api/comodin";
+// ✅ CORREGIDO: Usar el archivo client que NO importa Prisma
+import { comodinApi, ComodinStatus } from "@/lib/api/comodin.client";
 
 type Props = {
   roundId: string;

@@ -1,30 +1,49 @@
+// app/api/comodin/status/route.ts - IMPLEMENTACIÓN REAL
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
-import { prisma } from "@/lib/prisma";
+// ✅ CORREGIDO: Usar el archivo server que tiene las funciones de Prisma
+import { getComodinStatus } from "@/lib/comodin.server";
+
+export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
   try {
     const session = await getServerSession(authOptions);
-    const user = session?.user as { id?: string; email?: string | null } | undefined;
-    if (!user) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    const user = session?.user as { id?: string; email?: string | null; playerId?: string } | undefined;
+    
+    if (!user) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    // Obtener playerId desde la sesión
+    const playerId = (user as any)?.playerId as string | undefined;
+    if (!playerId) {
+      return NextResponse.json({ error: "No se encontró información del jugador" }, { status: 400 });
+    }
 
     const url = new URL(req.url);
     const roundId = url.searchParams.get("roundId");
-    if (!roundId) return NextResponse.json({ error: "Falta roundId" }, { status: 400 });
+    
+    if (!roundId) {
+      return NextResponse.json({ error: "Falta roundId" }, { status: 400 });
+    }
 
-    // TODO: Implementar con tu schema. Stub seguro:
-    return NextResponse.json({
-      used: false,
-      mode: null,
-      canUseMean: true,
-      canUseSubstitute: false,
-      message: "Estado simulado. Envíame tu schema para persistencia real.",
-      tournamentInfo: { maxComodines: 1, comodinesUsed: 0, comodinesRemaining: 1 },
-      substitutePlayerId: null,
-      substitutePlayerName: null,
-    });
+    // ✅ CORREGIDO: Usar la función real del servidor
+    const status = await getComodinStatus(playerId, roundId);
+    
+    if (!status) {
+      return NextResponse.json({ 
+        error: "No se encontró información del comodín para esta ronda" 
+      }, { status: 404 });
+    }
+
+    return NextResponse.json(status);
+    
   } catch (err: any) {
-    return NextResponse.json({ error: err?.message ?? "Error inesperado" }, { status: 500 });
+    console.error("[COMODIN STATUS] Error:", err);
+    return NextResponse.json({ 
+      error: err?.message ?? "Error inesperado al obtener estado del comodín" 
+    }, { status: 500 });
   }
 }
