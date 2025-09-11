@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 
 export const metadata: Metadata = {
-  title: "Error de autenticación | Escalapp",
+  title: "Error de autenticación | PadelRise",
   description: "Ha ocurrido un error durante el inicio de sesión",
 };
 

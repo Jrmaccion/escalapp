@@ -5,7 +5,7 @@ import { Metadata } from "next";
 import AdminResultsClient from "./AdminResultsClient";
 
 export const metadata: Metadata = {
-  title: "Gestión de Resultados | Escalapp",
+  title: "Gestión de Resultados | PadelRise",
   description: "Gestionar, validar y corregir todos los resultados del sistema",
 };
 

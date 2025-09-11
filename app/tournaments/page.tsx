@@ -6,7 +6,7 @@ import { format } from "date-fns";
 import { es } from "date-fns/locale";
 
 export const metadata = {
-  title: "Torneos | Escalapp",
+  title: "Torneos | PadelRise",
   description: "Accede a los torneos disponibles",
 };
 

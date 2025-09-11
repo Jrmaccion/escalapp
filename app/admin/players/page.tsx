@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 import PlayersClient from "./PlayersClient";
 
 export const metadata: Metadata = {
-  title: "Jugadores | Escalapp",
+  title: "Jugadores | PadelRise",
   description: "Gestión de jugadores del torneo",
 };
 

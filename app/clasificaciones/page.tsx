@@ -2,7 +2,7 @@ import Breadcrumbs from "@/components/Breadcrumbs";
 import ClasificacionesClient from "./ClasificacionesClient";
 
 export const metadata = {
-  title: "Clasificaciones | Escalapp",
+  title: "Clasificaciones | PadelRise",
   description: "Ranking oficial por promedio e Ironman por puntos totales",
 };
 

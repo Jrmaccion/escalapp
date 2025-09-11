@@ -7,7 +7,7 @@ import { prisma } from "@/lib/prisma";
 import PlayersManager from "@/app/admin/players/PlayersManager";
 
 export const metadata = {
-  title: "Gestión de jugadores | Escalapp (Admin)",
+  title: "Gestión de jugadores | PadelRise(Admin)",
   description: "Alta/baja y gestión de jugadores por torneo.",
 };
 

@@ -6,7 +6,7 @@ import type { Metadata } from "next";
 import RankingsClient from "./RankingsClient";
 
 export const metadata: Metadata = {
-  title: "Rankings | Escalapp (Admin)",
+  title: "Rankings | PadelRise (Admin)",
   description: "Clasificaciones y ranking del torneo",
 };
 

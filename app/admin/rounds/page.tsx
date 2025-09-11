@@ -12,7 +12,7 @@ import Link from "next/link";
 import Breadcrumbs from "@/components/Breadcrumbs";
 
 export const metadata: Metadata = {
-  title: "Rondas | Escalapp",
+  title: "Rondas | PadelRise",
   description: "Gestión de rondas del torneo",
 };
 

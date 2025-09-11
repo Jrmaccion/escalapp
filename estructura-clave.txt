@@ -54,6 +54,10 @@
 \app\api\admin\results\route.ts
 \app\api\admin\substitute
 \app\api\admin\substitute\route.ts
+\app\api\admin\tournaments
+\app\api\admin\tournaments\[id]
+\app\api\admin\tournaments\[id]\stats
+\app\api\admin\tournaments\[id]\stats\route.ts
 \app\api\auth
 \app\api\auth\[...nextauth]
 \app\api\auth\[...nextauth]\route.ts
@@ -233,7 +237,6 @@
 \lib
 \lib\api
 \lib\api\comodin.client.ts
-\lib\api\comodin.ts
 \lib\auth.ts
 \lib\buildPartyInfo.ts
 \lib\comodin.server.ts

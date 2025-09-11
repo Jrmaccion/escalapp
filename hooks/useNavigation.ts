@@ -34,7 +34,7 @@ export function useNavigation() {
     
     // Títulos para páginas públicas
     if (currentPath === "/" || !session) {
-      return 'Escalapp - Torneos de Pádel';
+      return 'PadelRise - Torneos de Pádel';
     }
     
     const titles: Record<string, string> = {
@@ -52,7 +52,7 @@ export function useNavigation() {
       '/admin/rankings': 'Rankings y Clasificaciones',
     };
 
-    return titles[currentPath] || 'Escalapp';
+    return titles[currentPath] || 'PadelRise';
   };
 
   const getBreadcrumbItems = (path?: string) => {

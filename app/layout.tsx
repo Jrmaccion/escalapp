@@ -11,18 +11,18 @@ export const metadata: Metadata = {
   title: "PadelRise — Torneo Escalera de Pádel",
   description:
     "PadelRise: gestiona tu Torneo Escalera de Pádel con rondas, grupos, resultados y clasificaciones.",
-  keywords: ["pádel", "torneo", "escalera", "gestión", "deportes", "PadelRise"],
-  applicationName: "PadelRise",
+  keywords: ["pádel", "torneo", "escalera", "gestión", "deportes", "PadelRis"],
+  applicationName: "PadelRis",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#e74c3c" },
-    { media: "(prefers-color-scheme: dark)", color: "#c0392b" },
+    { media: "(prefers-color-scheme: light)", color: "#ff5722" },
+    { media: "(prefers-color-scheme: dark)", color: "#f4511e" },
   ],
   icons: { icon: "/favicon.ico" },
   openGraph: {
-    title: "PadelRise — Torneo Escalera de Pádel",
+    title: "PadelRis— Torneo Escalera de Pádel",
     description:
       "Gestiona tu liga tipo Escalera de Pádel: grupos, rondas, comodines y rankings.",
-    siteName: "PadelRise",
+    siteName: "PadelRis",
     type: "website",
   },
 };
@@ -31,10 +31,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="es" suppressHydrationWarning>
       <body className={inter.className} suppressHydrationWarning>
+        {/* Skip link para accesibilidad */}
+        <a href="#main" className="skip-link">Saltar al contenido</a>
         <Providers>
           <div className="min-h-screen bg-background">
             <Navigation />
-            <main>{children}</main>
+            <main id="main" role="main">
+              {children}
+            </main>
             <Toaster position="top-center" />
           </div>
         </Providers>

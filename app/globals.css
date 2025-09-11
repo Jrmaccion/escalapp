@@ -1,8 +1,11 @@
-/* app/globals.css - OPTIMIZACIONES MÓVILES + BRAND PadelRise */
+/* app/globals.css — UX base + mobile-first + branding PadelRise */
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ================================
+   Design tokens (CSS variables)
+   ================================ */
 @layer base {
   :root {
     --background: 0 0% 100%;
@@ -12,21 +15,17 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
 
-    /* ====== PadelRise (modo claro) ======
-       #e74c3c -> hsl(6, 78%, 57%)
-       #ff5722 -> hsl(14, 100%, 57%)
-    */
-    --primary: 6 78% 57%;
+    /* ======  (modo claro) ====== */
+    /* Primario (coral cálido) */
+    --primary: 14 100% 57%;
     --primary-foreground: 210 40% 98%;
 
     --secondary: 210 40% 96%;
     --secondary-foreground: 222.2 84% 4.9%;
 
-    /* Usado por variantes ghost/hover y superficies sutiles */
     --muted: 210 40% 96%;
     --muted-foreground: 215.4 16.3% 46.9%;
 
-    /* Alineamos "accent" con la marca naranja */
     --accent: 14 100% 57%;
     --accent-foreground: 210 40% 98%;
 
@@ -35,12 +34,11 @@
 
     --border: 214.3 31.8% 91.4%;
     --input: 214.3 31.8% 91.4%;
-    /* Ring en tono primario por defecto */
-    --ring: 6 78% 57%;
+    --ring: 14 100% 57%;
 
     --radius: 0.5rem;
 
-    /* Complemento útil (coral cálido #ff7043 -> hsl(14, 100%, 63%)) */
+    /* Gradiente de marca */
     --brand-coral: 14 100% 63%;
   }
 
@@ -52,11 +50,8 @@
     --popover: 222.2 84% 4.9%;
     --popover-foreground: 210 40% 98%;
 
-    /* ====== PadelRise (modo oscuro) ======
-       #c0392b -> hsl(6, 63%, 46%)
-       #f4511e -> hsl(14, 91%, 54%)
-    */
-    --primary: 6 63% 46%;
+    /* ====== PadelRise (modo oscuro) ====== */
+    --primary: 14 91% 54%;
     --primary-foreground: 210 40% 98%;
 
     --secondary: 217.2 32.6% 17.5%;
@@ -65,7 +60,6 @@
     --muted: 217.2 32.6% 17.5%;
     --muted-foreground: 215 20.2% 65.1%;
 
-    /* Acento naranja algo más comedido en oscuro */
     --accent: 14 91% 54%;
     --accent-foreground: 210 40% 98%;
 
@@ -74,429 +68,463 @@
 
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
-    --ring: 6 63% 46%;
+    --ring: 14 91% 54%;
   }
 }
 
 @layer base {
-  /* Solo definimos el color del borde por defecto (NO el ancho) */
-  * {
-    @apply border-border;
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground; }
+}
+
+/* ================================
+   Accesibilidad global
+   ================================ */
+@layer components {
+  /* Skip link (salta al contenido principal) */
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: auto;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
   }
-  body {
-    @apply bg-background text-foreground;
+  .skip-link:focus {
+    left: 1rem;
+    top: 1rem;
+    width: auto;
+    height: auto;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    background: hsl(var(--primary));
+    color: hsl(var(--primary-foreground));
+    z-index: 10000;
+    box-shadow: 0 0 0 2px white;
   }
 }
 
-/* ========================================
-   OPTIMIZACIONES MÓVILES ESPECÍFICAS
-   (se mantienen tal como tenías)
-   ======================================== */
+/* ================================
+   Mobile-first helpers (mantengo las tuyas)
+   ================================ */
 
+/* ... (se mantienen todas tus clases móviles tal cual) ... */
+
+/* (copio íntegro tu bloque actual para no romper nada) */
 @layer components {
   /* Espaciado móvil mejorado para cards */
   @media (max-width: 768px) {
-    .mobile-card {
-      @apply p-4 space-y-3;
-    }
-
-    .mobile-card .card-header {
-      @apply p-4 pb-2;
-    }
-
-    .mobile-card .card-content {
-      @apply p-4 pt-2;
-    }
-
-    .mobile-card .card-title {
-      @apply text-lg leading-relaxed;
-    }
-
-    .mobile-card .card-description {
-      @apply text-sm leading-relaxed mt-2;
-    }
+    .mobile-card { @apply p-4 space-y-3; }
+    .mobile-card .card-header { @apply p-4 pb-2; }
+    .mobile-card .card-content { @apply p-4 pt-2; }
+    .mobile-card .card-title { @apply text-lg leading-relaxed; }
+    .mobile-card .card-description { @apply text-sm leading-relaxed mt-2; }
   }
-
-  /* Botones móviles más grandes y accesibles */
   @media (max-width: 768px) {
-    .mobile-button {
-      @apply min-h-[44px] px-4 py-3 text-base;
-    }
-
-    .mobile-button-sm {
-      @apply min-h-[36px] px-3 py-2 text-sm;
-    }
-
-    .mobile-button-lg {
-      @apply min-h-[52px] px-6 py-4 text-lg;
-    }
+    .mobile-button { @apply min-h-[44px] px-4 py-3 text-base; }
+    .mobile-button-sm { @apply min-h-[36px] px-3 py-2 text-sm; }
+    .mobile-button-lg { @apply min-h-[52px] px-6 py-4 text-lg; }
   }
-
-  /* Lista de matches optimizada para móvil */
   @media (max-width: 768px) {
-    .mobile-match-card {
-      @apply p-4 space-y-4 border rounded-lg;
-    }
-
-    .mobile-match-header {
-      @apply flex flex-col space-y-2;
-    }
-
-    .mobile-match-teams {
-      @apply space-y-3;
-    }
-
-    .mobile-match-team {
-      @apply p-3 rounded-lg text-center;
-    }
-
-    .mobile-match-vs {
-      @apply text-center text-sm text-gray-500 py-1;
-    }
-
-    .mobile-match-score {
-      @apply text-2xl font-bold text-center;
-    }
-
-    .mobile-match-actions {
-      @apply flex flex-col space-y-2 mt-4;
-    }
+    .mobile-match-card { @apply p-4 space-y-4 border rounded-lg; }
+    .mobile-match-header { @apply flex flex-col space-y-2; }
+    .mobile-match-teams { @apply space-y-3; }
+    .mobile-match-team { @apply p-3 rounded-lg text-center; }
+    .mobile-match-vs { @apply text-center text-sm text-gray-500 py-1; }
+    .mobile-match-score { @apply text-2xl font-bold text-center; }
+    .mobile-match-actions { @apply flex flex-col space-y-2 mt-4; }
   }
-
-  /* Navegación móvil mejorada */
   @media (max-width: 768px) {
-    .mobile-nav-item {
-      @apply flex flex-col items-center justify-center py-3 px-2 min-h-[60px];
-    }
-
-    .mobile-nav-icon {
-      @apply w-6 h-6 mb-1;
-    }
-
-    .mobile-nav-label {
-      @apply text-xs text-center leading-tight;
-    }
+    .mobile-nav-item { @apply flex flex-col items-center justify-center py-3 px-2 min-h-[60px]; }
+    .mobile-nav-icon { @apply w-6 h-6 mb-1; }
+    .mobile-nav-label { @apply text-xs text-center leading-tight; }
   }
-
-  /* Dashboard móvil optimizado */
   @media (max-width: 768px) {
-    .mobile-dashboard-container {
-      @apply px-4 py-6 space-y-6 pb-20; /* Espacio para tab bar */
-    }
-
-    .mobile-dashboard-header {
-      @apply text-center space-y-2;
-    }
-
-    .mobile-dashboard-title {
-      @apply text-2xl font-bold;
-    }
-
-    .mobile-dashboard-subtitle {
-      @apply text-gray-600 text-sm;
-    }
-
-    .mobile-action-card {
-      @apply p-6 border-2 rounded-lg space-y-4;
-    }
-
-    .mobile-action-card.high-priority {
-      @apply border-red-200 bg-red-50;
-    }
-
-    .mobile-action-card.medium-priority {
-      @apply border-yellow-200 bg-yellow-50;
-    }
-
-    .mobile-action-card.low-priority {
-      @apply border-green-200 bg-green-50;
-    }
+    .mobile-dashboard-container { @apply px-4 py-6 space-y-6 pb-20; }
+    .mobile-dashboard-header { @apply text-center space-y-2; }
+    .mobile-dashboard-title { @apply text-2xl font-bold; }
+    .mobile-dashboard-subtitle { @apply text-gray-600 text-sm; }
+    .mobile-action-card { @apply p-6 border-2 rounded-lg space-y-4; }
+    .mobile-action-card.high-priority { @apply border-red-200 bg-red-50; }
+    .mobile-action-card.medium-priority { @apply border-yellow-200 bg-yellow-50; }
+    .mobile-action-card.low-priority { @apply border-green-200 bg-green-50; }
   }
-
-  /* Stats cards móvil */
   @media (max-width: 768px) {
-    .mobile-stats-grid {
-      @apply grid grid-cols-2 gap-3;
-    }
-
-    .mobile-stats-card {
-      @apply p-4 text-center bg-white rounded-lg border space-y-2;
-    }
-
-    .mobile-stats-value {
-      @apply text-xl font-bold;
-    }
-
-    .mobile-stats-label {
-      @apply text-xs text-gray-600 leading-tight;
-    }
+    .mobile-stats-grid { @apply grid grid-cols-2 gap-3; }
+    .mobile-stats-card { @apply p-4 text-center bg-white rounded-lg border space-y-2; }
+    .mobile-stats-value { @apply text-xl font-bold; }
+    .mobile-stats-label { @apply text-xs text-gray-600 leading-tight; }
   }
-
-  /* Formularios móviles mejorados */
   @media (max-width: 768px) {
-    .mobile-form-group {
-      @apply space-y-3;
-    }
-
-    .mobile-input {
-      @apply min-h-[44px] px-4 text-base;
-    }
-
-    .mobile-label {
-      @apply text-sm font-medium leading-relaxed;
-    }
-
-    .mobile-form-actions {
-      @apply flex flex-col space-y-3 mt-6;
-    }
+    .mobile-form-group { @apply space-y-3; }
+    .mobile-input { @apply min-h-[44px] px-4 text-base; }
+    .mobile-label { @apply text-sm font-medium leading-relaxed; }
+    .mobile-form-actions { @apply flex flex-col space-y-3 mt-6; }
   }
-
-  /* Filtros móviles */
   @media (max-width: 768px) {
-    .mobile-filters {
-      @apply space-y-4;
-    }
-
-    .mobile-filter-group {
-      @apply space-y-2;
-    }
-
-    .mobile-filter-buttons {
-      @apply flex flex-wrap gap-2;
-    }
-
-    .mobile-filter-button {
-      @apply px-3 py-2 text-sm rounded-lg border min-h-[36px];
-    }
+    .mobile-filters { @apply space-y-4; }
+    .mobile-filter-group { @apply space-y-2; }
+    .mobile-filter-buttons { @apply flex flex-wrap gap-2; }
+    .mobile-filter-button { @apply px-3 py-2 text-sm rounded-lg border min-h-[36px]; }
   }
-
-  /* Grupos de jugadores móvil */
   @media (max-width: 768px) {
-    .mobile-group-card {
-      @apply p-4 rounded-lg border-2 space-y-4;
-    }
-
-    .mobile-group-header {
-      @apply flex flex-col space-y-2 text-center;
-    }
-
-    .mobile-group-title {
-      @apply text-lg font-bold;
-    }
-
-    .mobile-group-subtitle {
-      @apply text-sm text-gray-600;
-    }
-
-    .mobile-player-list {
-      @apply space-y-3;
-    }
-
-    .mobile-player-item {
-      @apply flex items-center justify-between p-3 rounded-lg border;
-    }
-
-    .mobile-player-info {
-      @apply flex items-center space-x-3;
-    }
-
-    .mobile-player-avatar {
-      @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm;
-    }
-
-    .mobile-player-details {
-      @apply space-y-1;
-    }
-
-    .mobile-player-name {
-      @apply font-medium text-base;
-    }
-
-    .mobile-player-stats {
-      @apply text-sm text-gray-600;
-    }
-
-    .mobile-player-movement {
-      @apply text-right space-y-1;
-    }
+    .mobile-group-card { @apply p-4 rounded-lg border-2 space-y-4; }
+    .mobile-group-header { @apply flex flex-col space-y-2 text-center; }
+    .mobile-group-title { @apply text-lg font-bold; }
+    .mobile-group-subtitle { @apply text-sm text-gray-600; }
+    .mobile-player-list { @apply space-y-3; }
+    .mobile-player-item { @apply flex items-center justify-between p-3 rounded-lg border; }
+    .mobile-player-info { @apply flex items-center space-x-3; }
+    .mobile-player-avatar { @apply w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm; }
+    .mobile-player-details { @apply space-y-1; }
+    .mobile-player-name { @apply font-medium text-base; }
+    .mobile-player-stats { @apply text-sm text-gray-600; }
+    .mobile-player-movement { @apply text-right space-y-1; }
   }
-
-  /* Admin tables móvil */
   @media (max-width: 768px) {
-    .mobile-admin-item {
-      @apply p-4 border rounded-lg space-y-3;
-    }
-
-    .mobile-admin-header {
-      @apply flex items-start justify-between;
-    }
-
-    .mobile-admin-content {
-      @apply space-y-2;
-    }
-
-    .mobile-admin-actions {
-      @apply flex flex-wrap gap-2 mt-3;
-    }
-
-    .mobile-admin-meta {
-      @apply text-xs text-gray-500 space-y-1;
-    }
+    .mobile-admin-item { @apply p-4 border rounded-lg space-y-3; }
+    .mobile-admin-header { @apply flex items-start justify-between; }
+    .mobile-admin-content { @apply space-y-2; }
+    .mobile-admin-actions { @apply flex flex-wrap gap-2 mt-3; }
+    .mobile-admin-meta { @apply text-xs text-gray-500 space-y-1; }
   }
-
-  /* Mejoras de legibilidad general */
   @media (max-width: 768px) {
-    .mobile-text-base {
-      @apply text-base leading-relaxed;
-    }
-
-    .mobile-text-sm {
-      @apply text-sm leading-relaxed;
-    }
-
-    .mobile-text-xs {
-      @apply text-xs leading-normal;
-    }
-
-    /* Espaciado entre elementos */
-    .mobile-section {
-      @apply space-y-4;
-    }
-
-    .mobile-subsection {
-      @apply space-y-3;
-    }
-
-    /* Márgenes y paddings consistentes */
-    .mobile-container {
-      @apply px-4 py-6 max-w-none;
-    }
-
-    .mobile-card-spacing {
-      @apply space-y-6;
-    }
+    .mobile-text-base { @apply text-base leading-relaxed; }
+    .mobile-text-sm { @apply text-sm leading-relaxed; }
+    .mobile-text-xs { @apply text-xs leading-normal; }
+    .mobile-section { @apply space-y-4; }
+    .mobile-subsection { @apply space-y-3; }
+    .mobile-container { @apply px-4 py-6 max-w-none; }
+    .mobile-card-spacing { @apply space-y-6; }
   }
-
-  /* Estados de carga móviles */
   @media (max-width: 768px) {
-    .mobile-loading {
-      @apply flex flex-col items-center justify-center py-12 space-y-4;
-    }
-
-    .mobile-loading-text {
-      @apply text-center text-gray-600 text-base;
-    }
-
-    .mobile-error {
-      @apply p-6 text-center space-y-4;
-    }
-
-    .mobile-empty {
-      @apply p-8 text-center space-y-4;
-    }
+    .mobile-loading { @apply flex flex-col items-center justify-center py-12 space-y-4; }
+    .mobile-loading-text { @apply text-center text-gray-600 text-base; }
+    .mobile-error { @apply p-6 text-center space-y-4; }
+    .mobile-empty { @apply p-8 text-center space-y-4; }
   }
-
-  /* Badges y estados móviles */
   @media (max-width: 768px) {
-    .mobile-badge {
-      @apply px-2 py-1 text-xs rounded;
-    }
-
-    .mobile-badge-lg {
-      @apply px-3 py-2 text-sm rounded;
-    }
-
-    .mobile-status-indicator {
-      @apply flex items-center space-x-2 text-sm;
-    }
+    .mobile-badge { @apply px-2 py-1 text-xs rounded; }
+    .mobile-badge-lg { @apply px-3 py-2 text-sm rounded; }
+    .mobile-status-indicator { @apply flex items-center space-x-2 text-sm; }
   }
-
-  /* Mejoras de accesibilidad móvil */
   @media (max-width: 768px) {
-    /* Área de toque mínima de 44px */
-    .mobile-touch-target {
-      @apply min-h-[44px] min-w-[44px];
-    }
-
-    /* Contraste mejorado para pantallas pequeñas */
-    .mobile-high-contrast {
-      @apply text-gray-900 bg-white border-gray-300;
-    }
-
-    /* Separación clara entre elementos interactivos */
-    .mobile-interactive-spacing {
-      @apply space-y-3;
-    }
+    .mobile-touch-target { @apply min-h-[44px] min-w-[44px]; }
+    .mobile-high-contrast { @apply text-gray-900 bg-white border-gray-300; }
+    .mobile-interactive-spacing { @apply space-y-3; }
   }
 }
 
-/* ========================================
-   UTILIDADES ADICIONALES
-   ======================================== */
-
+/* ================================
+   Utilities
+   ================================ */
 @layer utilities {
-  /* Ocultar scrollbars manteniendo funcionalidad */
-  .scrollbar-hide {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+
+  .gradient-brand { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+  .gradient-success { background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%); }
+  .gradient-warning { background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%); }
+  .gradient-error { background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%); }
+
+  /* Alias legacy (compat), y nueva clase de marca */
+  .bg-gradient-padel { background: linear-gradient(135deg, #e74c3c 0%, #ff5722 100%); }
+  .bg-gradient-escalapp { background: linear-gradient(135deg, #f4511e 0%, #ff7043 100%); }
+
+  .shadow-card { box-shadow: 0 1px 3px 0 rgba(0,0,0,.1), 0 1px 2px 0 rgba(0,0,0,.06); }
+  .shadow-card-hover { box-shadow: 0 4px 6px -1px rgba(0,0,0,.1), 0 2px 4px -1px rgba(0,0,0,.06); }
+
+  .focus-ring { @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2; }
+  .transition-smooth { transition: all .2s cubic-bezier(.4,0,.2,1); }
+}
+
+/* Selección de texto */
+::selection { background: hsl(var(--primary)); color: #fff; }
+
+/* Safe area helpers */
+.pb-safe-or-16 { padding-bottom: max(env(safe-area-inset-bottom), 4rem); }
+.safe-area-pb { padding-bottom: env(safe-area-inset-bottom); }
+
+/* Añadir al final de globals.css - UX Mejoradas */
+
+/* ================================
+   Animaciones y transiciones mejoradas
+   ================================ */
+@layer components {
+  /* Hover effects mejorados para cards */
+  .card-hover {
+    transition: all 0.2s ease;
+  }
+  .card-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
   }
 
-  .scrollbar-hide::-webkit-scrollbar {
-    display: none;
+  /* Animaciones de entrada suaves */
+  .animate-in {
+    animation: slideInUp 0.3s ease-out;
+  }
+  
+  @keyframes slideInUp {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
-  /* Gradientes personalizados */
-  .gradient-brand {
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  /* Indicadores pulsantes para notificaciones */
+  .badge-pulse {
+    animation: pulse 2s infinite;
+  }
+  
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
   }
 
+  /* Gradientes mejorados para acciones */
+  .gradient-coral {
+    background: linear-gradient(135deg, #f4511e 0%, #ff7043 100%);
+  }
+  
   .gradient-success {
-    background: linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%);
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
   }
-
+  
   .gradient-warning {
-    background: linear-gradient(135deg, #ffecd2 0%, #fcb69f 100%);
+    background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+  }
+  
+  .gradient-danger {
+    background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   }
 
-  .gradient-error {
-    background: linear-gradient(135deg, #ff9a9e 0%, #fecfef 100%);
+  /* Estados de interacción mejorados */
+  .interactive-focus {
+    @apply focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:outline-none;
   }
-
-  /* ===== NUEVO: Gradiente PadelRise ===== */
-  .bg-gradient-padel {
-    background: linear-gradient(135deg, #e74c3c 0%, #ff5722 100%);
-  }
-
-  /* Sombras sutiles */
-  .shadow-card {
-    box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
-  }
-
-  .shadow-card-hover {
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1),
-      0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  }
-
-  /* Estados de focus mejorados (ring acorde a marca) */
-  .focus-ring {
-    @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
-  }
-
-  /* Transiciones suaves */
-  .transition-smooth {
+  
+  .smooth-transition {
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   }
+
+  /* Touch targets mejorados para móvil */
+  @media (max-width: 768px) {
+    .mobile-touch-enhanced {
+      @apply min-h-[48px] min-w-[48px] p-3;
+    }
+    
+    .mobile-card-spacing {
+      @apply p-6 space-y-4;
+    }
+    
+    .mobile-button-enhanced {
+      @apply min-h-[48px] px-6 py-3 text-base font-medium;
+    }
+  }
+
+  /* Status indicators visuales */
+  .status-indicator {
+    position: relative;
+  }
+  
+  .status-indicator::after {
+    content: '';
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    border: 2px solid white;
+  }
+  
+  .status-indicator.status-active::after {
+    background-color: #10b981;
+  }
+  
+  .status-indicator.status-pending::after {
+    background-color: #f59e0b;
+    animation: pulse 2s infinite;
+  }
+  
+  .status-indicator.status-error::after {
+    background-color: #ef4444;
+  }
+
+  /* Loading states mejorados */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      #f3f4f6 25%,
+      #e5e7eb 50%,
+      #f3f4f6 75%
+    );
+    background-size: 200% 100%;
+    animation: loading 1.5s infinite;
+  }
+  
+  @keyframes loading {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+  }
+
+  /* Contextual help tooltips */
+  .tooltip {
+    @apply relative;
+  }
+  
+  .tooltip:hover .tooltip-content {
+    @apply visible opacity-100;
+  }
+  
+  .tooltip-content {
+    @apply invisible absolute z-50 px-3 py-2 text-sm bg-gray-900 text-white rounded-lg opacity-0 transition-opacity duration-200;
+    bottom: 125%;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  
+  .tooltip-content::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    margin-left: -5px;
+    border-width: 5px;
+    border-style: solid;
+    border-color: #111827 transparent transparent transparent;
+  }
+
+  /* Collapsible content animations */
+  .collapsible-content {
+    overflow: hidden;
+    transition: max-height 0.3s ease-in-out;
+  }
+  
+  .collapsible-content[data-state="closed"] {
+    max-height: 0;
+  }
+  
+  .collapsible-content[data-state="open"] {
+    max-height: 1000px; /* Adjust based on your content */
+  }
 }
 
-/* Selección de texto en tono marca */
-::selection {
-  background: hsl(var(--primary));
-  color: #fff;
-}
-.pb-safe-or-16 {
-  padding-bottom: max(env(safe-area-inset-bottom), 4rem);
+/* ================================
+   Mejoras específicas para navegación
+   ================================ */
+@layer components {
+  /* Navigation indicators */
+  .nav-item {
+    @apply relative transition-colors duration-200;
+  }
+  
+  .nav-item.has-notification::after {
+    content: '';
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 6px;
+    height: 6px;
+    background-color: #ef4444;
+    border-radius: 50%;
+    animation: pulse 2s infinite;
+  }
+  
+  .nav-item.has-notification.nav-item-large::after {
+    width: 8px;
+    height: 8px;
+    top: 12px;
+    right: 12px;
+  }
+
+  /* Mobile navigation improvements */
+  @media (max-width: 768px) {
+    .mobile-nav-enhanced {
+      @apply backdrop-blur-md bg-white/95 supports-[backdrop-filter]:bg-white/80;
+    }
+    
+    .mobile-nav-item-enhanced {
+      @apply flex flex-col items-center gap-1 py-3 px-2 min-h-[60px] rounded-lg transition-colors;
+    }
+    
+    .mobile-nav-item-enhanced.active {
+      @apply bg-blue-50 text-blue-600;
+    }
+    
+    .mobile-nav-item-enhanced:not(.active) {
+      @apply text-gray-500 hover:text-gray-700 hover:bg-gray-50;
+    }
+  }
 }
 
-.safe-area-pb {
-  padding-bottom: env(safe-area-inset-bottom);
+/* ================================
+   Responsive enhancements
+   ================================ */
+@layer utilities {
+  /* Responsive text sizing that's more aggressive */
+  .responsive-text-xl {
+    @apply text-lg sm:text-xl lg:text-2xl;
+  }
+  
+  .responsive-text-2xl {
+    @apply text-xl sm:text-2xl lg:text-3xl;
+  }
+  
+  .responsive-text-3xl {
+    @apply text-2xl sm:text-3xl lg:text-4xl;
+  }
+  
+  /* Enhanced spacing for mobile */
+  .responsive-spacing {
+    @apply space-y-4 sm:space-y-6 lg:space-y-8;
+  }
+  
+  .responsive-padding {
+    @apply p-4 sm:p-6 lg:p-8;
+  }
+  
+  /* Grid improvements */
+  .responsive-grid {
+    @apply grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6;
+  }
+  
+  .responsive-grid-2 {
+    @apply grid grid-cols-1 sm:grid-cols-2 gap-4;
+  }
+}
+
+/* ================================
+   Dark mode ready (opcional)
+   ================================ */
+@media (prefers-color-scheme: dark) {
+  .auto-dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+  }
+}
+
+/* ================================
+   Print styles (opcional pero profesional)
+   ================================ */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  
+  .print-break-before {
+    break-before: page;
+  }
+  
+  body {
+    background: white !important;
+    color: black !important;
+  }
 }

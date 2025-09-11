@@ -23,7 +23,7 @@ type TournamentDTO = {
 };
 
 export const metadata = {
-  title: "Gestión de jugadores | Escalapp (Admin)",
+  title: "Gestión de jugadores | PadelRise (Admin)",
   description: "Alta/baja y gestión de jugadores del torneo activo.",
 };
 

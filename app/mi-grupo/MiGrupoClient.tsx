@@ -20,7 +20,12 @@ import {
   Star,
   AlertTriangle,
   Trophy,
-  ChevronDown
+  ChevronDown,
+  Clock,
+  Info,
+  Settings,
+  ChevronUp,
+  HelpCircle
 } from "lucide-react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import UseComodinButton from "@/components/player/UseComodinButton";
@@ -28,7 +33,7 @@ import PartyScheduling from "@/components/PartyScheduling";
 import { LoadingState, ErrorState, EmptyState, UpdateBadge } from "@/components/ApiStateComponents";
 
 /* =========
-   Hook personalizado CORREGIDO - Con soporte para múltiples torneos
+   Hook personalizado - MANTENIDO IGUAL
    ========= */
 function useGroupDataWithTournament(tournamentId?: string) {
   const [data, setData] = useState<any>(null);
@@ -37,20 +42,15 @@ function useGroupDataWithTournament(tournamentId?: string) {
   const [error, setError] = useState<string | null>(null);
   const [hasUpdates, setHasUpdates] = useState(false);
   
-  // Referencias estables para evitar dependencias circulares
   const dataRef = useRef<any>(null);
   const tournamentIdRef = useRef<string | undefined>(tournamentId);
   const isMountedRef = useRef(true);
-  
-  // Función de fetch estable usando useRef
   const fetchDataRef = useRef<(silent?: boolean) => Promise<void>>();
   
-  // Actualizar la referencia del tournamentId
   useEffect(() => {
     tournamentIdRef.current = tournamentId;
   }, [tournamentId]);
   
-  // Crear función de fetch estable
   fetchDataRef.current = async (silent = false) => {
     if (!isMountedRef.current) return;
     
@@ -65,13 +65,9 @@ function useGroupDataWithTournament(tournamentId?: string) {
         ? `/api/player/group?tournamentId=${tournamentIdRef.current}`
         : '/api/player/group';
       
-      console.log(`[useGroupDataWithTournament] Fetching: ${url}`);
-      
       const response = await fetch(url, { 
         cache: "no-store",
-        headers: {
-          'Cache-Control': 'no-cache'
-        }
+        headers: { 'Cache-Control': 'no-cache' }
       });
       
       if (!response.ok) {
@@ -82,22 +78,18 @@ function useGroupDataWithTournament(tournamentId?: string) {
       
       if (!isMountedRef.current) return;
       
-      console.log(`[useGroupDataWithTournament] Data received:`, result);
-      
       const prev = dataRef.current;
       setData(result);
       dataRef.current = result;
       setHasError(false);
       setError(null);
       
-      // Solo marcar updates si hay datos previos y estamos en modo silencioso
       if (silent && prev && JSON.stringify(prev) !== JSON.stringify(result)) {
         setHasUpdates(true);
       }
     } catch (err: any) {
       if (!isMountedRef.current) return;
       
-      console.error('[useGroupDataWithTournament] Error:', err);
       setHasError(true);
       setError(err.message || 'Error al cargar datos del grupo');
       if (!silent) {
@@ -111,14 +103,11 @@ function useGroupDataWithTournament(tournamentId?: string) {
     }
   };
 
-  // Funciones estables sin dependencias problemáticas
   const retry = useCallback(() => {
-    console.log('[useGroupDataWithTournament] Manual retry triggered');
     fetchDataRef.current?.(false);
   }, []);
 
   const refresh = useCallback(() => {
-    console.log('[useGroupDataWithTournament] Silent refresh triggered');
     fetchDataRef.current?.(true);
   }, []);
 
@@ -126,13 +115,10 @@ function useGroupDataWithTournament(tournamentId?: string) {
     setHasUpdates(false);
   }, []);
 
-  // Fetch inicial solo cuando cambie tournamentId
   useEffect(() => {
-    console.log(`[useGroupDataWithTournament] Tournament changed to: ${tournamentId}`);
     fetchDataRef.current?.(false);
   }, [tournamentId]);
 
-  // Cleanup al desmontar
   useEffect(() => {
     isMountedRef.current = true;
     return () => {
@@ -154,7 +140,7 @@ function useGroupDataWithTournament(tournamentId?: string) {
 }
 
 /* =========
-   Tipos
+   Tipos - MANTENIDOS
    ========= */
 type Tournament = {
   id: string;
@@ -237,11 +223,12 @@ function round1(n: number) {
 export default function MiGrupoClient() {
   const { data: session } = useSession();
   
-  // Estado del torneo seleccionado
+  // Estados principales
   const [selectedTournamentId, setSelectedTournamentId] = useState<string | undefined>(undefined);
   const [showTournamentSelector, setShowTournamentSelector] = useState(false);
-
-  // Hook corregido
+  const [showAdvancedOptions, setShowAdvancedOptions] = useState(false);
+  
+  // Hook
   const {
     data,
     isLoading,
@@ -252,7 +239,7 @@ export default function MiGrupoClient() {
     loadingMessage
   } = useGroupDataWithTournament(selectedTournamentId);
 
-  // Estado para manejar refreshTrigger del comodín
+  // Estados para comodín
   const [comodinRefreshTrigger, setComodinRefreshTrigger] = useState(0);
   const [lastComodinAction, setLastComodinAction] = useState<string | null>(null);
   const [showActionFeedback, setShowActionFeedback] = useState(false);
@@ -261,13 +248,13 @@ export default function MiGrupoClient() {
   const autoRefreshRef = useRef<NodeJS.Timeout>();
   const hasInitialized = useRef(false);
 
+  // ✅ DATOS DERIVADOS - SIEMPRE DESPUÉS DE TODOS LOS HOOKS
   const isPreviewMode = !data?.hasGroup;
   const groupData: GroupData = data || { hasGroup: false };
 
-  // Auto-activar selector si hay múltiples torneos (solo una vez)
+  // Auto-activar selector si hay múltiples torneos
   useEffect(() => {
     if (data?.availableTournaments?.length > 1 && !selectedTournamentId && !hasInitialized.current) {
-      console.log("[MiGrupoClient] Multiple tournaments detected, showing selector");
       setShowTournamentSelector(true);
       hasInitialized.current = true;
     }
@@ -278,7 +265,6 @@ export default function MiGrupoClient() {
     if (groupData._metadata?.usePartyData && groupData.party?.sets) {
       return groupData.party.sets;
     }
-    // Fallback a allMatches si no hay party data
     return (groupData.allMatches || []).map(match => ({
       id: match.id,
       setNumber: match.setNumber,
@@ -295,63 +281,48 @@ export default function MiGrupoClient() {
     }));
   }, [groupData]);
 
-  // Callback para cambio de torneo
+  // Callbacks
   const handleTournamentChange = useCallback((tournamentId: string) => {
     if (tournamentId !== selectedTournamentId) {
-      console.log('[MiGrupoClient] Cambiando a torneo:', tournamentId);
       setSelectedTournamentId(tournamentId);
       setShowTournamentSelector(false);
     }
   }, [selectedTournamentId]);
 
-  // Callback para cuando se usa comodín
   const handleComodinAction = useCallback(() => {
-    console.log('[MiGrupoClient] Comodin action triggered');
-    
     setComodinRefreshTrigger(prev => prev + 1);
     setLastComodinAction('aplicado');
     setShowActionFeedback(true);
     
-    setTimeout(() => {
-      setShowActionFeedback(false);
-    }, 3000);
-
-    setTimeout(() => {
-      console.log('[MiGrupoClient] Triggering group data refresh after comodin');
-      retry();
-    }, 1500);
+    setTimeout(() => setShowActionFeedback(false), 3000);
+    setTimeout(() => retry(), 1500);
   }, [retry]);
 
-  // Callback para actualizar después de programar fecha
   const handlePartyUpdate = useCallback(() => {
-    console.log('[MiGrupoClient] Party updated, refreshing data');
     retry();
   }, [retry]);
 
-  // Auto-refresh mejorado sin dependencias problemáticas
+  // Auto-refresh
   useEffect(() => {
-    // Limpiar interval anterior
     if (autoRefreshRef.current) {
       clearInterval(autoRefreshRef.current);
     }
     
     if (!isPreviewMode && data?.hasGroup && !isLoading) {
-      console.log('[MiGrupoClient] Setting up auto-refresh timer');
       autoRefreshRef.current = setInterval(() => {
-        console.log('[MiGrupoClient] Auto-refresh triggered');
         retry();
-      }, 90000); // 90 segundos para reducir la frecuencia
+      }, 90000);
     }
     
     return () => {
       if (autoRefreshRef.current) {
-        console.log('[MiGrupoClient] Clearing auto-refresh timer');
         clearInterval(autoRefreshRef.current);
       }
     };
-  }, [isPreviewMode, data?.hasGroup, isLoading]); // Solo estas dependencias
+  }, [isPreviewMode, data?.hasGroup, isLoading, retry]);
 
-  const getMatchStatusInfo = (match: MatchType) => {
+  // Helper functions - MANTENIDAS
+  const getMatchStatusInfo = useCallback((match: MatchType) => {
     if (match.isConfirmed) {
       return {
         label: "Completado",
@@ -359,7 +330,6 @@ export default function MiGrupoClient() {
         icon: CheckCircle,
       };
     }
-
     if (match.hasResult) {
       return {
         label: "Por confirmar",
@@ -367,31 +337,30 @@ export default function MiGrupoClient() {
         icon: Calendar,
       };
     }
-
     return {
       label: "Pendiente",
       color: "bg-gray-100 text-gray-700 border-gray-200",
       icon: Play,
     };
-  };
+  }, []);
 
-  const getMovementIcon = (position: number) => {
+  const getMovementIcon = useCallback((position: number) => {
     if (position === 1) return <ArrowUp className="w-4 h-4 text-green-600" />;
     if (position === 2) return <ArrowUp className="w-4 h-4 text-green-600" />;
     if (position === 3) return <ArrowDown className="w-4 h-4 text-red-600" />;
     if (position === 4) return <ArrowDown className="w-4 h-4 text-red-600" />;
     return <Target className="w-4 h-4 text-blue-600" />;
-  };
+  }, []);
 
-  const getMovementText = (position: number) => {
+  const getMovementText = useCallback((position: number) => {
     if (position === 1) return "Sube 2 grupos";
     if (position === 2) return "Sube 1 grupo";
     if (position === 3) return "Baja 1 grupo";
     if (position === 4) return "Baja 2 grupos";
     return "Se mantiene";
-  };
+  }, []);
 
-  const getGroupLevelInfo = (groupNumber: number) => {
+  const getGroupLevelInfo = useCallback((groupNumber: number) => {
     switch (groupNumber) {
       case 1:
         return {
@@ -422,7 +391,7 @@ export default function MiGrupoClient() {
           gradient: "from-blue-50 to-blue-100",
         };
     }
-  };
+  }, []);
 
   // Datos memoizados para optimización
   const { completedMatches, groupInfo, GroupIcon } = useMemo(() => {
@@ -434,8 +403,10 @@ export default function MiGrupoClient() {
       groupInfo: info,
       GroupIcon: info.icon
     };
-  }, [matches, groupData.group?.number]);
+  }, [matches, groupData.group?.number, getGroupLevelInfo]);
 
+  // ✅ EARLY RETURNS AHORA AL FINAL, DESPUÉS DE TODOS LOS HOOKS
+  
   // Estados de carga unificados
   if (isLoading) {
     return (
@@ -460,7 +431,6 @@ export default function MiGrupoClient() {
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
         
-        {/* Si hay torneos disponibles pero no grupo actual */}
         {groupData.availableTournaments && groupData.availableTournaments.length > 0 ? (
           <Card className="border-yellow-200 bg-yellow-50">
             <CardContent className="p-6 text-center">
@@ -510,12 +480,11 @@ export default function MiGrupoClient() {
     <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
       <Breadcrumbs />
 
-      {/* BADGE DE ACTUALIZACIONES DISPONIBLES */}
+      {/* FEEDBACK VISUAL PARA ACCIONES */}
       <UpdateBadge show={hasUpdates} onRefresh={retry} />
 
-      {/* Feedback visual para acciones de comodín */}
       {showActionFeedback && lastComodinAction && (
-        <div className="fixed top-4 right-4 z-50 bg-green-100 border border-green-300 rounded-lg p-3 shadow-lg animate-in fade-in slide-in-from-right-4">
+        <div className="fixed top-4 right-4 z-50 bg-green-100 border border-green-300 rounded-lg p-3 shadow-lg animate-in">
           <div className="flex items-center gap-2 text-green-700">
             <CheckCircle className="w-4 h-4" />
             <span className="text-sm font-medium">
@@ -525,10 +494,10 @@ export default function MiGrupoClient() {
         </div>
       )}
 
-      {/* Header con botón de refresh manual y selector de torneo */}
+      {/* HEADER SIMPLIFICADO */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
+          <h1 className="responsive-text-2xl font-bold flex items-center gap-3">
             <Users className="w-8 h-8 text-blue-600" />
             Mi Grupo
           </h1>
@@ -538,7 +507,7 @@ export default function MiGrupoClient() {
         </div>
 
         <div className="flex items-center gap-3">
-          {/* Selector de torneo (si hay múltiples) */}
+          {/* Selector de torneo condensado */}
           {groupData.availableTournaments && groupData.availableTournaments.length > 1 && (
             <div className="relative">
               <Button
@@ -548,7 +517,7 @@ export default function MiGrupoClient() {
                 className="flex items-center gap-2"
               >
                 <Trophy className="w-4 h-4" />
-                Cambiar Torneo
+                <span className="hidden sm:inline">Cambiar</span>
                 <ChevronDown className={`w-4 h-4 transition-transform ${showTournamentSelector ? "rotate-180" : ""}`} />
               </Button>
               
@@ -586,11 +555,6 @@ export default function MiGrupoClient() {
                                   Actual
                                 </Badge>
                               )}
-                              {tournament.isActive && !tournament.isCurrent && (
-                                <Badge className="bg-green-100 text-green-700">
-                                  Activo
-                                </Badge>
-                              )}
                             </div>
                           </button>
                         ))}
@@ -610,50 +574,83 @@ export default function MiGrupoClient() {
             className="flex items-center gap-2"
           >
             <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
-            Actualizar
+            <span className="hidden sm:inline">Actualizar</span>
           </Button>
         </div>
       </div>
 
-      {/* SISTEMA DE PROGRAMACIÓN DE PARTIDO COMPLETO */}
+      {/* PROGRAMACIÓN SIMPLIFICADA - PRIORIDAD 1 */}
       {groupData.party?.groupId && (
-        <div>
-          <div className="mb-4">
-            <h2 className="text-lg font-semibold text-gray-800 mb-2 flex items-center gap-2">
+        <Card className="border-blue-200 bg-blue-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-blue-900">
               <Calendar className="w-5 h-5" />
-              Programación del Partido Completo
-            </h2>
-            <p className="text-sm text-gray-600">
-              Coordina una fecha para los 3 sets del partido. Todos los jugadores deben confirmar.
-            </p>
-          </div>
-          <PartyScheduling
-            groupId={groupData.party.groupId}
-            currentUserId={session?.user?.id || ""}
-            isParticipant={true}
-            onUpdate={handlePartyUpdate}
-            enableRefresh={true}
-          />
-        </div>
+              Programar Partido Completo
+            </CardTitle>
+            <div className="flex items-start justify-between">
+              <p className="text-sm text-blue-700">
+                Coordina una fecha para los 3 sets. Todos los jugadores deben confirmar.
+              </p>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-xs bg-white">
+                  {groupData.party.completedSets}/{groupData.party.totalSets} completados
+                </Badge>
+                <button
+                  onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                  className="text-blue-600 hover:text-blue-800 transition-colors"
+                  title="Opciones avanzadas"
+                >
+                  <HelpCircle className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <PartyScheduling
+              groupId={groupData.party.groupId}
+              currentUserId={session?.user?.id || ""}
+              isParticipant={true}
+              onUpdate={handlePartyUpdate}
+              enableRefresh={true}
+            />
+            
+            {/* Opciones avanzadas colapsables */}
+            {showAdvancedOptions && (
+              <div className="mt-4 p-4 bg-white rounded-lg border">
+                <div className="flex items-center gap-2 mb-3">
+                  <Settings className="w-4 h-4 text-gray-600" />
+                  <span className="font-medium text-gray-900">Opciones Avanzadas</span>
+                </div>
+                <div className="space-y-2 text-sm text-gray-600">
+                  <p>• Los sets se pueden jugar individualmente si no se coordina una fecha común</p>
+                  <p>• El sistema de programación conjunto es opcional pero recomendado</p>
+                  <p>• Los resultados se confirman individualmente por set</p>
+                </div>
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {/* Warning si no hay party data */}
       {!groupData.party?.groupId && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
-            <div>
-              <p className="font-medium text-yellow-900">Sistema de programación no disponible</p>
-              <p className="text-sm text-yellow-800 mt-1">
-                No se pudo cargar la información del partido. Los sets se pueden jugar individualmente.
-              </p>
+        <Card className="bg-yellow-50 border border-yellow-200">
+          <CardContent className="p-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
+              <div>
+                <p className="font-medium text-yellow-900">Sistema de programación no disponible</p>
+                <p className="text-sm text-yellow-800 mt-1">
+                  No se pudo cargar la información del partido. Los sets se pueden jugar individualmente.
+                </p>
+              </div>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Tarjeta de grupo */}
-      <Card className={`${groupInfo.color} border-2 bg-gradient-to-br ${groupInfo.gradient} shadow-lg`}>
+      {/* GRUPO PRINCIPAL - MÁS VISUAL */}
+      <Card className={`${groupInfo.color} border-2 bg-gradient-to-br ${groupInfo.gradient} shadow-lg card-hover`}>
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-3 text-xl">
@@ -665,14 +662,14 @@ export default function MiGrupoClient() {
                 {groupData.group?.totalPlayers} jugadores
               </Badge>
               <div className="text-sm opacity-75">
-                Progreso: {completedMatches.length}/{matches.length} sets
+                {completedMatches.length}/{matches.length} sets completados
               </div>
             </div>
           </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/* Jugadores del grupo */}
+            {/* Jugadores del grupo - MÁS PROMINENTE */}
             {groupData.players?.map((player: PlayerType) => (
               <div
                 key={player.id}
@@ -694,13 +691,10 @@ export default function MiGrupoClient() {
                         : "bg-red-100 text-red-700 border-red-300"
                     }`}
                   >
-                    {player.position === 1
-                      ? "🥇"
-                      : player.position === 2
-                      ? "🥈"
-                      : player.position === 3
-                      ? "🥉"
-                      : player.position}
+                    {player.position === 1 ? "🥇" : 
+                     player.position === 2 ? "🥈" : 
+                     player.position === 3 ? "🥉" : 
+                     player.position}
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
@@ -733,17 +727,17 @@ export default function MiGrupoClient() {
                       {getMovementText(player.position)}
                     </span>
                   </div>
-                  {player.position === 1 && <Badge className="bg-green-100 text-green-700 text-xs">¡Subes 2 grupos!</Badge>}
-                  {player.position === 2 && <Badge className="bg-green-100 text-green-700 text-xs">¡Subes 1 grupo!</Badge>}
-                  {player.position === 3 && <Badge className="bg-red-100 text-red-700 text-xs">Bajas 1 grupo</Badge>}
-                  {player.position === 4 && <Badge className="bg-red-100 text-red-700 text-xs">Bajas 2 grupos</Badge>}
+                  {player.position === 1 && <Badge className="bg-green-100 text-green-700 text-xs">¡Subes 2!</Badge>}
+                  {player.position === 2 && <Badge className="bg-green-100 text-green-700 text-xs">¡Subes 1!</Badge>}
+                  {player.position === 3 && <Badge className="bg-red-100 text-red-700 text-xs">Bajas 1</Badge>}
+                  {player.position === 4 && <Badge className="bg-red-100 text-red-700 text-xs">Bajas 2</Badge>}
                 </div>
               </div>
             ))}
           </div>
 
-          {/* Sistema de comodín */}
-          {groupData.roundId && (
+          {/* Sistema de comodín - SIMPLIFICADO */}
+          {groupData.roundId ? (
             <div className="mt-6">
               <UseComodinButton
                 roundId={groupData.roundId}
@@ -752,10 +746,7 @@ export default function MiGrupoClient() {
                 className="w-full"
               />
             </div>
-          )}
-
-          {/* Mensaje si no hay roundId */}
-          {!groupData.roundId && (
+          ) : (
             <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
               <div className="flex items-start gap-2">
                 <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5" />
@@ -776,65 +767,23 @@ export default function MiGrupoClient() {
         </CardContent>
       </Card>
 
-       {/* Info de movimientos */}
-      <Card className="bg-blue-50 border-blue-200">
-        <CardContent className="p-4">
-          <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
-            <ArrowUp className="w-4 h-4" />
-            Sistema de Escalera
-          </h4>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm text-blue-700">
-            <div className="flex items-center gap-2">
-              <ArrowUp className="w-4 h-4 text-green-600" />
-              <span><strong>1º lugar:</strong> Sube 2 grupos</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ArrowUp className="w-4 h-4 text-green-600" />
-              <span><strong>2º lugar:</strong> Sube 1 grupo</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ArrowDown className="w-4 h-4 text-red-600" />
-              <span><strong>3º lugar:</strong> Baja 1 grupo</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <ArrowDown className="w-4 h-4 text-red-600" />
-              <span><strong>4º lugar:</strong> Baja 2 grupos</span>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Resumen de estadísticas */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <Card>
+      {/* STATS COMPACTAS */}
+      <div className="responsive-grid-2">
+        <Card className="card-hover">
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold text-blue-600">{groupData.myStatus?.position}º</div>
             <div className="text-sm text-gray-600">Mi Posición</div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="card-hover">
           <CardContent className="p-4 text-center">
             <div className="text-2xl font-bold text-green-600">{round1(groupData.myStatus?.points || 0)}</div>
             <div className="text-sm text-gray-600">Mis Puntos</div>
           </CardContent>
         </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-purple-600">
-              {completedMatches.length}/{matches.length}
-            </div>
-            <div className="text-sm text-gray-600">Sets Completados</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <div className="text-2xl font-bold text-orange-600">{groupData.myStatus?.streak || 0}</div>
-            <div className="text-sm text-gray-600">Racha Actual</div>
-          </CardContent>
-        </Card>
       </div>
 
-      {/* Sets - Solo visualización, sin botones de programación */}
+      {/* SETS - VISTA SIMPLIFICADA */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -842,8 +791,7 @@ export default function MiGrupoClient() {
             Mis Sets de la Ronda
           </CardTitle>
           <p className="text-sm text-gray-600">
-            Los 3 sets se programan juntos como un partido completo. 
-            Usa el sistema de programación arriba para coordinar la fecha.
+            Los sets se programan juntos como un partido completo usando el sistema de arriba.
           </p>
         </CardHeader>
         <CardContent>
@@ -861,7 +809,7 @@ export default function MiGrupoClient() {
                 return (
                   <div
                     key={match.id}
-                    className={`border-2 rounded-lg p-6 hover:shadow-md transition-all ${
+                    className={`border-2 rounded-lg p-4 hover:shadow-md transition-all card-hover ${
                       match.isConfirmed
                         ? "border-green-200 bg-green-50"
                         : match.hasResult
@@ -869,7 +817,7 @@ export default function MiGrupoClient() {
                         : "border-gray-200 bg-white hover:border-blue-200"
                     }`}
                   >
-                    <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-3">
                         <Badge variant="outline" className="text-lg px-3 py-1">
                           Set {match.setNumber}
@@ -880,20 +828,26 @@ export default function MiGrupoClient() {
                         </Badge>
                       </div>
 
-                      {/* Solo botón para ver/confirmar resultado */}
                       <Link href={`/match/${match.id}`}>
-                        <Button size="sm" variant={match.isConfirmed ? "outline" : "default"}>
+                        <Button 
+                          size="sm" 
+                          variant={match.isConfirmed ? "outline" : "default"}
+                          className="mobile-touch-enhanced"
+                        >
                           {match.isConfirmed ? "Ver Resultado" : match.hasResult ? "Confirmar" : "Jugar Set"}
                         </Button>
                       </Link>
                     </div>
 
+                    {/* Marcador visual mejorado */}
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-                      <div className="text-center">
+                      <div className="text-center mobile-card-spacing">
                         <div className="font-semibold text-blue-700 mb-1">
                           {match.team1Player1Name} + {match.team1Player2Name}
                         </div>
-                        {match.hasResult && <div className="text-2xl font-bold">{match.team1Games}</div>}
+                        {match.hasResult && (
+                          <div className="text-3xl font-bold text-blue-600">{match.team1Games}</div>
+                        )}
                       </div>
 
                       <div className="text-center">
@@ -907,13 +861,21 @@ export default function MiGrupoClient() {
                         )}
                       </div>
 
-                      <div className="text-center">
+                      <div className="text-center mobile-card-spacing">
                         <div className="font-semibold text-red-700 mb-1">
                           {match.team2Player1Name} + {match.team2Player2Name}
                         </div>
-                        {match.hasResult && <div className="text-2xl font-bold">{match.team2Games}</div>}
+                        {match.hasResult && (
+                          <div className="text-3xl font-bold text-red-600">{match.team2Games}</div>
+                        )}
                       </div>
                     </div>
+
+                    {match.tiebreakScore && (
+                      <div className="text-center text-sm text-blue-600 mt-2 font-medium">
+                        Tie-break: {match.tiebreakScore}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -921,6 +883,44 @@ export default function MiGrupoClient() {
           )}
         </CardContent>
       </Card>
+
+      {/* INFO DE MOVIMIENTOS - COLAPSABLE EN MÓVIL */}
+      <div className="md:block">
+        <Card className="bg-blue-50 border-blue-200">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="font-semibold text-blue-900 flex items-center gap-2">
+                <ArrowUp className="w-4 h-4" />
+                Sistema de Escalera
+              </h4>
+              <button
+                onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
+                className="md:hidden text-blue-600"
+              >
+                {showAdvancedOptions ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              </button>
+            </div>
+            <div className={`grid grid-cols-1 md:grid-cols-4 gap-3 text-sm text-blue-700 ${showAdvancedOptions ? 'block' : 'hidden md:grid'}`}>
+              <div className="flex items-center gap-2">
+                <ArrowUp className="w-4 h-4 text-green-600" />
+                <span><strong>1º lugar:</strong> Sube 2 grupos</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ArrowUp className="w-4 h-4 text-green-600" />
+                <span><strong>2º lugar:</strong> Sube 1 grupo</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ArrowDown className="w-4 h-4 text-red-600" />
+                <span><strong>3º lugar:</strong> Baja 1 grupo</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <ArrowDown className="w-4 h-4 text-red-600" />
+                <span><strong>4º lugar:</strong> Baja 2 grupos</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }

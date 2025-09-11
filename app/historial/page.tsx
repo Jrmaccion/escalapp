@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 import HistorialClient from "./HistorialClient";
 
 export const metadata = {
-  title: "Historial | Escalapp",
+  title: "Historial | PadelRise",
   description: "Tu recorrido ronda a ronda y movimientos en el torneo",
 };
 

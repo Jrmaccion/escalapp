@@ -8,7 +8,6 @@ export default async function HomePage() {
   const session = await getServerSession(authOptions);
 
   if (session) {
-    // Ajuste: coincide con tu Navigation (ruta admin = /admin)
     const isAdmin = (session.user as any)?.isAdmin;
     redirect(isAdmin ? "/admin" : "/dashboard");
   }

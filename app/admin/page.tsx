@@ -7,7 +7,7 @@ import type { Metadata } from "next";
 import AdminDashboardClient from "./AdminDashboardClient";
 
 export const metadata: Metadata = {
-  title: "Dashboard Admin | Escalapp",
+  title: "Dashboard Admin | PadelRis",
   description: "Panel de administración del torneo",
 };
 
@@ -46,7 +46,7 @@ export default async function AdminDashboardPage() {
               <div className="w-2 h-2 bg-blue-600 rounded-full"></div>
               Panel de Administración
             </div>
-            <h1 className="text-4xl font-bold text-gray-900 mb-4">Escalapp Admin</h1>
+            <h1 className="text-4xl font-bold text-gray-900 mb-4">PadelRise Admin</h1>
             <p className="text-xl text-gray-600 max-w-2xl mx-auto">
               Gestiona torneos, rondas y jugadores desde tu panel de control
             </p>
