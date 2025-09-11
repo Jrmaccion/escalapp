@@ -266,7 +266,6 @@ const GuiaVisualEscalapp = () => {
                   <div className="text-sm space-y-1">
                     <div>1. Un jugador reporta</div>
                     <div>2. Otro confirma</div>
-                    <div>3. Admin puede forzar cambios</div>
                   </div>
                 </div>
               </div>
@@ -545,13 +544,13 @@ const GuiaVisualEscalapp = () => {
                     <div className="border rounded-lg p-4">
                       <h4 className="font-semibold text-gray-800 mb-2">¿Puedo editar un resultado?</h4>
                       <p className="text-sm text-gray-600">
-                        Sí, a través del flujo de reportar/confirmar. El admin puede forzar cambios si es necesario.
+                        Sí, a través del flujo de reportar/confirmar.
                       </p>
                     </div>
                     <div className="border rounded-lg p-4">
                       <h4 className="font-semibold text-gray-800 mb-2">¿Qué pasa si uso comodín?</h4>
                       <p className="text-sm text-gray-600">
-                        La ronda no cuenta para racha. Con "media" se fija tu media, con "suplente" se asignan los puntos del suplente.
+                        La ronda no cuenta para racha.
                       </p>
                     </div>
                   </div>
