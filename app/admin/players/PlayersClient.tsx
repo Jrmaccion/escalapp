@@ -4,8 +4,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Users, UserPlus, Search, Filter } from "lucide-react";
+import { ArrowLeft, Users, UserPlus, Search, Filter, Trophy, ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 
 type SerializedPlayer = {
@@ -24,15 +25,40 @@ type Tournament = {
   totalRounds: number;
 };
 
+// ✅ NUEVO: Tipo para datos del selector
+type TournamentSelectorData = {
+  id: string;
+  title: string;
+  isActive: boolean;
+  isCurrent: boolean;
+};
+
 type PlayersClientProps = {
   players: SerializedPlayer[];
   tournament: Tournament;
+  // ✅ NUEVO: Props para el selector (opcionales para mantener compatibilidad)
+  allTournaments?: TournamentSelectorData[];
+  selectedTournamentId?: string;
 };
 
-export default function PlayersClient({ players, tournament }: PlayersClientProps) {
+export default function PlayersClient({ 
+  players, 
+  tournament, 
+  allTournaments = [], 
+  selectedTournamentId 
+}: PlayersClientProps) {
+  const router = useRouter();
   const [searchTerm, setSearchTerm] = useState("");
   const [filterActive, setFilterActive] = useState<"all" | "active" | "new">("all");
+  const [showTournamentSelector, setShowTournamentSelector] = useState(false);
 
+  // ✅ NUEVO: Función para cambiar torneo
+  const handleTournamentChange = (tournamentId: string) => {
+    setShowTournamentSelector(false);
+    router.push(`/admin/players?tournamentId=${tournamentId}`);
+  };
+
+  // ✅ RESTO DEL CÓDIGO ORIGINAL (sin cambios)
   const filteredPlayers = players.filter((player) => {
     const matchesSearch =
       player.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -66,12 +92,141 @@ export default function PlayersClient({ players, tournament }: PlayersClientProp
               </Link>
             </Button>
           </div>
+
+          {/* ✅ NUEVO: Selector de torneo (solo si hay múltiples torneos) */}
+          {allTournaments.length > 1 && (
+            <div className="mb-6">
+              <Card className="border-blue-200 bg-blue-50">
+                <CardHeader className="pb-3">
+                  <CardTitle className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <Trophy className="w-4 h-4" />
+                      <span>Selector de Torneo</span>
+                    </div>
+                    <Badge variant="outline" className="text-xs">
+                      {allTournaments.length} disponibles
+                    </Badge>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="space-y-3">
+                    <p className="text-sm text-gray-600">
+                      Tienes múltiples torneos. Selecciona cuál quieres gestionar:
+                    </p>
+                    
+                    {/* Botón principal del selector */}
+                    <div className="relative">
+                      <Button
+                        variant="outline"
+                        className="w-full justify-between text-left"
+                        onClick={() => setShowTournamentSelector(!showTournamentSelector)}
+                      >
+                        <div className="flex items-center gap-3">
+                          <Trophy className="w-4 h-4" />
+                          <div>
+                            <div className="font-medium">{tournament.title}</div>
+                            <div className="text-xs text-gray-500">
+                              {allTournaments.find(t => t.id === selectedTournamentId)?.isActive 
+                                ? "Torneo activo" 
+                                : "Torneo finalizado"}
+                            </div>
+                          </div>
+                        </div>
+                        <ChevronDown className={`w-4 h-4 transition-transform ${showTournamentSelector ? "rotate-180" : ""}`} />
+                      </Button>
+
+                      {/* Lista desplegable */}
+                      {showTournamentSelector && (
+                        <div className="absolute top-full left-0 right-0 z-50 mt-1">
+                          <Card className="border shadow-lg">
+                            <CardContent className="p-2">
+                              <div className="space-y-1">
+                                {/* Torneos activos primero */}
+                                {allTournaments.filter(t => t.isActive).length > 0 && (
+                                  <>
+                                    <div className="px-3 py-2 text-xs font-medium text-gray-500 border-b">
+                                      Torneos Activos
+                                    </div>
+                                    {allTournaments.filter(t => t.isActive).map((t) => (
+                                      <button
+                                        key={t.id}
+                                        onClick={() => handleTournamentChange(t.id)}
+                                        className={`w-full text-left p-3 rounded-lg hover:bg-gray-50 transition-colors ${
+                                          t.isCurrent ? "bg-blue-50 border border-blue-200" : ""
+                                        }`}
+                                      >
+                                        <div className="flex items-center justify-between">
+                                          <div className="flex items-center gap-3">
+                                            <Trophy className="w-4 h-4" />
+                                            <div>
+                                              <div className="font-medium text-sm">{t.title}</div>
+                                              <div className="text-xs text-gray-500">Torneo en curso</div>
+                                            </div>
+                                          </div>
+                                          {t.isCurrent && (
+                                            <Badge className="bg-blue-100 text-blue-700 border-blue-300 text-xs">
+                                              Actual
+                                            </Badge>
+                                          )}
+                                        </div>
+                                      </button>
+                                    ))}
+                                  </>
+                                )}
+
+                                {/* Separador */}
+                                {allTournaments.filter(t => t.isActive).length > 0 && 
+                                 allTournaments.filter(t => !t.isActive).length > 0 && (
+                                  <div className="px-3 py-2 text-xs font-medium text-gray-500 border-b">
+                                    Torneos Finalizados
+                                  </div>
+                                )}
+
+                                {/* Torneos finalizados */}
+                                {allTournaments.filter(t => !t.isActive).map((t) => (
+                                  <button
+                                    key={t.id}
+                                    onClick={() => handleTournamentChange(t.id)}
+                                    className={`w-full text-left p-3 rounded-lg hover:bg-gray-50 transition-colors opacity-75 ${
+                                      t.isCurrent ? "bg-blue-50 border border-blue-200" : ""
+                                    }`}
+                                  >
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-3">
+                                        <Trophy className="w-4 h-4 text-gray-400" />
+                                        <div>
+                                          <div className="font-medium text-sm text-gray-700">{t.title}</div>
+                                          <div className="text-xs text-gray-500">Torneo finalizado</div>
+                                        </div>
+                                      </div>
+                                      {t.isCurrent && (
+                                        <Badge className="bg-blue-100 text-blue-700 border-blue-300 text-xs">
+                                          Actual
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  </button>
+                                ))}
+                              </div>
+                            </CardContent>
+                          </Card>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
           <h1 className="text-3xl font-bold">Jugadores</h1>
           <p className="text-gray-600">
             {tournament.title} • {players.length} jugadores registrados
           </p>
         </div>
 
+        {/* ✅ RESTO DEL CÓDIGO ORIGINAL (sin cambios) */}
+        
         {/* Stats y controles */}
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           <Card>

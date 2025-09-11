@@ -493,3 +493,10 @@
   background: hsl(var(--primary));
   color: #fff;
 }
+.pb-safe-or-16 {
+  padding-bottom: max(env(safe-area-inset-bottom), 4rem);
+}
+
+.safe-area-pb {
+  padding-bottom: env(safe-area-inset-bottom);
+}

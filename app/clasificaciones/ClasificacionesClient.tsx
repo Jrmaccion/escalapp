@@ -1,4 +1,3 @@
-// app/clasificaciones/ClasificacionesClient.tsx - VERSIÓN MEJORADA
 "use client";
 
 import { useEffect, useState } from "react";
@@ -10,16 +9,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { 
   Trophy, 
   TrendingUp, 
-  AlertTriangle, 
   Star, 
-  Flame, 
-  Target,
-  Users,
   Calendar,
-  Award,
+  Users,
   Crown,
-  Medal
+  Medal,
+  Award,
+  Target,
+  Flame,
+  RefreshCw
 } from "lucide-react";
+import { useApiState } from "@/hooks/useApiState";
+import { LoadingState, ErrorState } from "@/components/ApiStateComponents";
 
 type RankingRow = {
   id: string;
@@ -37,7 +38,7 @@ type Tournament = {
   hasData: boolean;
 };
 
-type ApiPayload = {
+type RankingsData = {
   hasActiveTournament: boolean;
   hasRankings: boolean;
   message?: string;
@@ -47,8 +48,7 @@ type ApiPayload = {
   ironman: RankingRow[];
 };
 
-// Datos de preview para mostrar cuando no hay datos reales
-const PREVIEW_DATA: ApiPayload = {
+const PREVIEW_DATA: RankingsData = {
   hasActiveTournament: true,
   hasRankings: true,
   tournaments: [
@@ -77,113 +77,146 @@ const PREVIEW_DATA: ApiPayload = {
   ]
 };
 
+function getRankingIcon(position: number) {
+  switch (position) {
+    case 1: return <Crown className="w-5 h-5 text-yellow-500" />;
+    case 2: return <Medal className="w-5 h-5 text-gray-400" />;
+    case 3: return <Award className="w-5 h-5 text-orange-500" />;
+    default: return <Target className="w-5 h-5 text-blue-500" />;
+  }
+}
+
+function getPositionBadge(position: number) {
+  switch (position) {
+    case 1: return "bg-yellow-100 text-yellow-800 border-yellow-200";
+    case 2: return "bg-gray-100 text-gray-700 border-gray-200";
+    case 3: return "bg-orange-100 text-orange-800 border-orange-200";
+    default: return "bg-blue-100 text-blue-700 border-blue-200";
+  }
+}
+
+function PlayerRow({ player, isCurrentUser, type }: { 
+  player: RankingRow; 
+  isCurrentUser: boolean;
+  type: 'official' | 'ironman';
+}) {
+  return (
+    <div
+      className={`flex items-center justify-between p-4 rounded-lg border-2 transition-all hover:shadow-md ${
+        isCurrentUser
+          ? 'bg-blue-50 border-blue-300 shadow-md'
+          : player.position <= 3
+          ? 'bg-gradient-to-r from-gray-50 to-white border-gray-200'
+          : 'bg-white border-gray-100'
+      }`}
+    >
+      <div className="flex items-center gap-4">
+        <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 font-bold ${getPositionBadge(player.position)}`}>
+          {player.position <= 3 ? (
+            player.position === 1 ? '🥇' :
+            player.position === 2 ? '🥈' : '🥉'
+          ) : (
+            `#${player.position}`
+          )}
+        </div>
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="font-semibold text-lg">
+              {player.name}
+              {isCurrentUser && (
+                <span className="text-blue-600 text-sm ml-2">(Tú)</span>
+              )}
+            </span>
+            {player.position === 1 && (
+              type === 'official' ? 
+                <Crown className="w-5 h-5 text-yellow-500" /> :
+                <Flame className="w-5 h-5 text-orange-500" />
+            )}
+          </div>
+          <div className="flex items-center gap-4 text-sm text-gray-600">
+            <span className="flex items-center gap-1">
+              <Star className="w-3 h-3" />
+              {player.averagePoints.toFixed(2)} media
+            </span>
+            <span className="flex items-center gap-1">
+              <Calendar className="w-3 h-3" />
+              {player.roundsPlayed} rondas
+            </span>
+            <span className="flex items-center gap-1">
+              <Trophy className="w-3 h-3" />
+              {player.totalPoints.toFixed(1)} pts
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="text-right">
+        {getRankingIcon(player.position)}
+      </div>
+    </div>
+  );
+}
+
 export default function ClasificacionesClient() {
   const { data: session } = useSession();
-  const [data, setData] = useState<ApiPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [selectedTournamentId, setSelectedTournamentId] = useState<string>("");
+  
+  // Hook useApiState corregido - NO useRankingsData
+  const { data: rawData, isLoading, hasError, error, retry } = useApiState(
+    async () => {
+      const url = new URL("/api/rankings", window.location.origin);
+      if (selectedTournamentId) {
+        url.searchParams.set("tournamentId", selectedTournamentId);
+      }
+      
+      const response = await fetch(url.toString(), { 
+        cache: "no-store",
+        headers: { 'Cache-Control': 'no-cache' }
+      });
+      if (!response.ok) throw new Error("Error al cargar rankings");
+      return response.json();
+    },
+    {
+      loadingMessage: "Cargando clasificaciones...",
+      emptyMessage: "No hay clasificaciones disponibles",
+      autoExecute: true,
+    }
+  );
 
   const currentUserId = session?.user?.playerId || session?.user?.id;
 
-  const fetchRankings = async (tournamentId?: string) => {
-    try {
-      setLoading(true);
-      const url = new URL("/api/rankings", window.location.origin);
-      if (tournamentId) {
-        url.searchParams.set("tournamentId", tournamentId);
-      }
-      
-      const res = await fetch(url.toString(), { cache: "no-store" });
-      const json = (await res.json()) as ApiPayload;
-      
-      // DEBUG: Imprimir en consola lo que devuelve la API
-      console.log("API Response:", json);
-      console.log("hasActiveTournament:", json.hasActiveTournament);
-      console.log("hasRankings:", json.hasRankings);
-      console.log("official length:", json.official.length);
-      console.log("tournaments:", json.tournaments);
-      
-      // Condición más permisiva - mostrar datos reales si hay torneos disponibles
-      if (!json.hasActiveTournament || !json.tournaments || json.tournaments.length === 0) {
-        console.log("Entering preview mode - no tournaments available");
-        setData(PREVIEW_DATA);
-        setIsPreviewMode(true);
-      } else {
-        console.log("Using real data - tournaments found:", json.tournaments.length);
-        setData(json);
-        setIsPreviewMode(false);
-        
-        // Actualizar selector si no está establecido
-        if (!selectedTournamentId && json.selectedTournament) {
-          setSelectedTournamentId(json.selectedTournament.id);
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching rankings:", error);
-      setData(PREVIEW_DATA);
-      setIsPreviewMode(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Determinar datos a mostrar
+  const data: RankingsData & { isPreview?: boolean } = (!rawData?.hasActiveTournament || !rawData?.tournaments?.length) 
+    ? { ...PREVIEW_DATA, isPreview: true }
+    : { ...rawData, isPreview: false };
 
   useEffect(() => {
-    fetchRankings();
-  }, []);
+    if (!selectedTournamentId && data.selectedTournament) {
+      setSelectedTournamentId(data.selectedTournament.id);
+    }
+  }, [data.selectedTournament, selectedTournamentId]);
 
   const handleTournamentChange = (tournamentId: string) => {
     setSelectedTournamentId(tournamentId);
-    fetchRankings(tournamentId);
-  };
-
-  const getRankingIcon = (position: number) => {
-    switch (position) {
-      case 1: return <Crown className="w-5 h-5 text-yellow-500" />;
-      case 2: return <Medal className="w-5 h-5 text-gray-400" />;
-      case 3: return <Award className="w-5 h-5 text-orange-500" />;
-      default: return <Target className="w-5 h-5 text-blue-500" />;
-    }
-  };
-
-  const getPositionBadge = (position: number) => {
-    switch (position) {
-      case 1: return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case 2: return "bg-gray-100 text-gray-700 border-gray-200";
-      case 3: return "bg-orange-100 text-orange-800 border-orange-200";
-      default: return "bg-blue-100 text-blue-700 border-blue-200";
-    }
+    // Trigger new fetch with updated tournament ID
+    retry();
   };
 
   const isCurrentUser = (player: RankingRow) => {
     return player.name === "Tu Nombre" || player.id === currentUserId;
   };
 
-  if (loading) {
-    return (
-      <div className="flex justify-center py-16">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-      </div>
-    );
+  if (isLoading) {
+    return <LoadingState message="Cargando clasificaciones..." />;
   }
 
-  if (!data) {
-    return (
-      <Card className="bg-gray-50">
-        <CardContent className="py-16 text-center">
-          <div className="flex items-center justify-center text-gray-500 mb-4">
-            <AlertTriangle className="h-8 w-8 mr-2" />
-            <span className="text-xl font-semibold">Error al cargar clasificaciones</span>
-          </div>
-          <p className="text-gray-600">No se pudieron cargar los datos.</p>
-        </CardContent>
-      </Card>
-    );
+  if (hasError) {
+    return <ErrorState error={error} onRetry={retry} />;
   }
 
   return (
-    <div className={`space-y-6 ${isPreviewMode ? 'opacity-75' : ''}`}>
-      {/* Header con información del torneo y selector */}
+    <div className={`px-4 py-6 space-y-6 ${data.isPreview ? 'opacity-90' : ''}`}>
+      
+      {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
           <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-3">
@@ -197,7 +230,7 @@ export default function ClasificacionesClient() {
         
         <div className="flex items-center gap-4">
           {/* Selector de torneos */}
-          {!isPreviewMode && data.tournaments && data.tournaments.length > 1 && (
+          {!data.isPreview && data.tournaments && data.tournaments.length > 1 && (
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700">
                 Torneo:
@@ -218,7 +251,7 @@ export default function ClasificacionesClient() {
             </div>
           )}
           
-          {isPreviewMode && (
+          {data.isPreview && (
             <div className="text-right">
               <Badge variant="secondary" className="mb-2">
                 Vista Previa
@@ -228,6 +261,17 @@ export default function ClasificacionesClient() {
               </p>
             </div>
           )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={retry}
+            disabled={isLoading}
+            className="flex items-center gap-2"
+          >
+            <RefreshCw className={`w-4 h-4 ${isLoading ? "animate-spin" : ""}`} />
+            Actualizar
+          </Button>
         </div>
       </div>
 
@@ -292,7 +336,7 @@ export default function ClasificacionesClient() {
                     Clasificaciones aún no disponibles
                   </h3>
                   <p className="text-gray-600 mb-4">
-                    Se encuentra registrados {data.official.length} jugadores, pero aún no hay partidos confirmados.
+                    Hay {data.official.length} jugadores registrados, pero aún no hay partidos confirmados.
                   </p>
                   <p className="text-sm text-gray-500">
                     Las clasificaciones aparecerán cuando se confirmen los primeros resultados.
@@ -301,57 +345,12 @@ export default function ClasificacionesClient() {
               ) : (
                 <div className="space-y-3">
                   {data.official.map((player) => (
-                    <div
+                    <PlayerRow
                       key={player.id}
-                      className={`flex items-center justify-between p-4 rounded-lg border-2 transition-all hover:shadow-md ${
-                        isCurrentUser(player)
-                          ? 'bg-blue-50 border-blue-300 shadow-md'
-                          : player.position <= 3
-                          ? 'bg-gradient-to-r from-gray-50 to-white border-gray-200'
-                          : 'bg-white border-gray-100'
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 font-bold ${getPositionBadge(player.position)}`}>
-                          {player.position <= 3 ? (
-                            player.position === 1 ? '🥇' :
-                            player.position === 2 ? '🥈' : '🥉'
-                          ) : (
-                            `#${player.position}`
-                          )}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-lg">
-                              {player.name}
-                              {isCurrentUser(player) && (
-                                <span className="text-blue-600 text-sm ml-2">(Tú)</span>
-                              )}
-                            </span>
-                            {player.position === 1 && (
-                              <Crown className="w-5 h-5 text-yellow-500" />
-                            )}
-                          </div>
-                          <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <span className="flex items-center gap-1">
-                              <Star className="w-3 h-3" />
-                              {player.averagePoints.toFixed(2)} media
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
-                              {player.roundsPlayed} rondas
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Trophy className="w-3 h-3" />
-                              {player.totalPoints.toFixed(1)} pts
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {getRankingIcon(player.position)}
-                      </div>
-                    </div>
+                      player={player}
+                      isCurrentUser={isCurrentUser(player)}
+                      type="official"
+                    />
                   ))}
                 </div>
               )}
@@ -378,7 +377,7 @@ export default function ClasificacionesClient() {
                     Ranking Ironman pendiente
                   </h3>
                   <p className="text-gray-600 mb-4">
-                    Se encuentra registrados {data.ironman.length} jugadores listos para competir.
+                    Hay {data.ironman.length} jugadores listos para competir.
                   </p>
                   <p className="text-sm text-gray-500">
                     El ranking Ironman se activará con los primeros partidos confirmados.
@@ -387,61 +386,12 @@ export default function ClasificacionesClient() {
               ) : (
                 <div className="space-y-3">
                   {data.ironman.map((player) => (
-                    <div
+                    <PlayerRow
                       key={player.id}
-                      className={`flex items-center justify-between p-4 rounded-lg border-2 transition-all hover:shadow-md ${
-                        isCurrentUser(player)
-                          ? 'bg-blue-50 border-blue-300 shadow-md'
-                          : player.position <= 3
-                          ? 'bg-gradient-to-r from-gray-50 to-white border-gray-200'
-                          : 'bg-white border-gray-100'
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <div className={`flex items-center justify-center w-12 h-12 rounded-full border-2 font-bold ${getPositionBadge(player.position)}`}>
-                          {player.position <= 3 ? (
-                            player.position === 1 ? '🥇' :
-                            player.position === 2 ? '🥈' : '🥉'
-                          ) : (
-                            `#${player.position}`
-                          )}
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-semibold text-lg">
-                              {player.name}
-                              {isCurrentUser(player) && (
-                                <span className="text-blue-600 text-sm ml-2">(Tú)</span>
-                              )}
-                            </span>
-                            {player.position === 1 && (
-                              <Flame className="w-5 h-5 text-orange-500" />
-                            )}
-                          </div>
-                          <div className="flex items-center gap-4 text-sm text-gray-600">
-                            <span className="flex items-center gap-1">
-                              <Trophy className="w-3 h-3" />
-                              {player.totalPoints.toFixed(1)} pts totales
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Star className="w-3 h-3" />
-                              {player.averagePoints.toFixed(2)} media
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Calendar className="w-3 h-3" />
-                              {player.roundsPlayed} rondas
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        {player.position === 1 ? (
-                          <Flame className="w-6 h-6 text-orange-500" />
-                        ) : (
-                          getRankingIcon(player.position)
-                        )}
-                      </div>
-                    </div>
+                      player={player}
+                      isCurrentUser={isCurrentUser(player)}
+                      type="ironman"
+                    />
                   ))}
                 </div>
               )}
@@ -451,12 +401,12 @@ export default function ClasificacionesClient() {
       </Tabs>
 
       {/* Call to action para modo preview */}
-      {isPreviewMode && (
+      {data.isPreview && (
         <Card className="border-dashed border-2 border-blue-300 bg-blue-50">
           <CardContent className="p-8 text-center">
             <Users className="h-12 w-12 text-blue-500 mx-auto mb-4" />
             <h3 className="text-xl font-bold text-blue-900 mb-2">
-              ¡Ve las Clasificaciones Reales!
+              Ve las Clasificaciones Reales
             </h3>
             <p className="text-blue-700 mb-6">
               Estos son datos de ejemplo. Únete a un torneo para ver las clasificaciones reales y competir por el primer puesto.

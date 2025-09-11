@@ -28,7 +28,7 @@ import PartyScheduling from "@/components/PartyScheduling";
 import { LoadingState, ErrorState, EmptyState, UpdateBadge } from "@/components/ApiStateComponents";
 
 /* =========
-   Hook personalizado CORREGIDO - Sin bucle infinito
+   Hook personalizado CORREGIDO - Con soporte para múltiples torneos
    ========= */
 function useGroupDataWithTournament(tournamentId?: string) {
   const [data, setData] = useState<any>(null);
@@ -441,7 +441,7 @@ export default function MiGrupoClient() {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
-        <LoadingState message={loadingMessage} />
+        <LoadingState message="Cargando información del grupo..." />
       </div>
     );
   }

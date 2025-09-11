@@ -162,10 +162,6 @@
 \app\dashboard
 \app\dashboard\page.tsx
 \app\dashboard\PlayerDashboardClient.tsx
-\app\demo
-\app\demo\page.tsx
-\app\diag
-\app\diag\page.tsx
 \app\globals.css
 \app\guia-rapida
 \app\guia-rapida\GuiaVisualEscalapp.tsx
@@ -283,6 +279,7 @@
 \public
 \scripts
 \scripts\create-admin.ts
+\scripts\fix-imports.js
 \scripts\genera-estructura.js
 \scripts\verify-integrity.ts
 \tailwind.config.ts
