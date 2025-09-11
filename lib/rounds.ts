@@ -1,249 +1,352 @@
-// lib/rounds.ts
-// REFACTORIZADO para centralizar la escritura en DB usando GroupManager
-// ✅ Versión compatible: NO usa isActive / createdAt / joinedRound en las consultas Prisma
+// lib/comodin.ts
+// Integración de "comodín" (wildcard) a nivel de ronda/grupo.
 
 import { prisma } from "@/lib/prisma";
-import { GroupManager } from "@/lib/group-manager";
 
 // ==============================
-// Tipos públicos de este módulo
+// TIPOS PRINCIPALES
 // ==============================
-export type BuildGroupsResult = {
-  success: boolean;
-  groupsCount: number;
-  playersAssigned: number;
-  skippedPlayerIds: string[];
-  message: string;
-};
 
-export type EligiblePlayer = {
+export type ComodinResult = { success: boolean; message: string };
+
+// Tipo completo con todas las propiedades que usan los componentes
+export type ComodinStatus = {
+  // Propiedades básicas (originales)
+  used: boolean;
+  usedAt: string | null;
+  reason: string | null;
+  tournamentId: string;
+  roundId: string;
   playerId: string;
-  name?: string | null;
+  comodinesUsedInTournament: number;
+  comodinesRemainingInTournament: number;
+  
+  // Propiedades adicionales que usan los componentes
+  canUse: boolean;
+  canRevoke: boolean;
+  restrictionReason?: string | null;
+  mode?: "mean" | "substitute" | null;
+  points?: number;
+  substitutePlayer?: string | null;
+  appliedAt?: string | null;
+  
+  // Información del torneo
+  tournamentInfo?: {
+    maxComodines: number;
+    comodinesUsed: number;
+    comodinesRemaining: number;
+    enableMeanComodin?: boolean;
+    enableSubstituteComodin?: boolean;
+  };
+  
+  // Restricciones específicas
+  restrictions?: {
+    hasConfirmedMatches: boolean;
+    hasUpcomingMatches: boolean;
+    roundClosed: boolean;
+  };
 };
 
-export type BuildFirstRoundGroupInput = {
+// Tipos adicionales para componentes
+export type PlayerComodinStatus = {
   playerId: string;
-  name?: string | null;
+  playerName: string;
+  groupNumber: number;
+  usedComodin: boolean;
+  comodinMode?: "substitute" | "mean";
+  substitutePlayerName?: string | null;
+  points: number;
+  comodinReason?: string | null;
+  appliedAt?: string | null;
+  canRevoke: boolean;
+  restrictionReason?: string | null;
+};
+
+export type RoundComodinStats = {
+  roundId: string;
+  totalPlayers: number;
+  withComodin: number;
+  revocables: number;
+  players: PlayerComodinStatus[];
 };
 
 // ==============================
-const DEFAULT_GROUP_SIZE = 4;
-
+// FUNCIONES PRINCIPALES
 // ==============================
 
 /**
- * Construye grupos para una ronda concreta delegando la escritura a GroupManager.
- * strategy: "random" (baraja) | "ranking" (usa el orden provisto por elegibles)
+ * Marca el comodín para un jugador en una ronda.
  */
-export async function buildGroupsForRound(
+export async function useComodin(
+  playerId: string,
   roundId: string,
-  strategy: "random" | "ranking" = "random",
-  groupSize: number = DEFAULT_GROUP_SIZE
-): Promise<BuildGroupsResult> {
-  // 1) Cargar ronda + torneo
-  const round = await prisma.round.findUnique({
-    where: { id: roundId },
-    include: { tournament: true },
-  });
-
-  if (!round) {
-    return {
-      success: false,
-      groupsCount: 0,
-      playersAssigned: 0,
-      skippedPlayerIds: [],
-      message: "Ronda no encontrada",
-    };
-  }
-  if (round.isClosed) {
-    return {
-      success: false,
-      groupsCount: 0,
-      playersAssigned: 0,
-      skippedPlayerIds: [],
-      message: "La ronda está cerrada y no se puede modificar",
-    };
-  }
-
-  // 2) Jugadores elegibles para esta ronda (mínimo: inscritos en el torneo)
-  const eligible = await getEligiblePlayersForRound(round.tournamentId, round.number);
-  if (eligible.length === 0) {
-    return {
-      success: false,
-      groupsCount: 0,
-      playersAssigned: 0,
-      skippedPlayerIds: [],
-      message: "No hay jugadores elegibles para esta ronda",
-    };
-  }
-
-  // 3) Orden según estrategia
-  let selectedPlayers = [...eligible];
-  if (strategy === "random") selectedPlayers = shuffleStable(selectedPlayers);
-  // "ranking": respeta el orden en el que vengan (si quieres ranking real, ordénalos previamente en BD y trae ese orden)
-
-  // 4) Construcción de grupos en memoria
-  const GROUP_SIZE = Math.max(2, groupSize || DEFAULT_GROUP_SIZE);
-  const totalPlayers = selectedPlayers.length;
-  const maxGroups = Math.floor(totalPlayers / GROUP_SIZE);
-
-  const playersToSkip = totalPlayers - maxGroups * GROUP_SIZE;
-  const skippedPlayers = playersToSkip > 0 ? selectedPlayers.slice(-playersToSkip) : [];
-  if (playersToSkip > 0) {
-    selectedPlayers = selectedPlayers.slice(0, totalPlayers - playersToSkip);
-  }
-
-  const groupsData: {
-    level?: number | null;
-    number?: number;
-    players: Array<{ playerId: string; position?: number }>;
-  }[] = [];
-
-  for (let i = 0; i < maxGroups; i++) {
-    const startIndex = i * GROUP_SIZE;
-    const groupSlice = selectedPlayers.slice(startIndex, startIndex + GROUP_SIZE);
-
-    groupsData.push({
-      // En R1 nivel = i+1; en siguientes rondas lo dejamos a null (los movimientos determinarán niveles)
-      level: round.number === 1 ? i + 1 : null,
-      number: i + 1,
-      players: groupSlice.map((p, idx) => ({
-        playerId: p.playerId,
-        position: idx + 1,
-      })),
-    });
-  }
-
-  if (groupsData.length === 0) {
-    return {
-      success: false,
-      groupsCount: 0,
-      playersAssigned: 0,
-      skippedPlayerIds: skippedPlayers.map((p) => p.playerId),
-      message:
-        "No se han podido formar grupos con el tamaño solicitado. Reduce el tamaño del grupo o añade más jugadores.",
-    };
-  }
-
-  // 5) Escritura delegada al gestor centralizado
+  reason: string
+): Promise<ComodinResult> {
   try {
-    const result = await GroupManager.updateRoundGroups(roundId, groupsData, {
-      deleteExisting: true,    // regeneramos por completo esta ronda
-      generateMatches: false,  // los sets se generan por separado
-      validateIntegrity: true,
-    });
+    return await prisma.$transaction(async (tx) => {
+      const gp = await tx.groupPlayer.findFirst({
+        where: {
+          playerId,
+          group: { roundId },
+        },
+        include: {
+          group: {
+            include: {
+              round: true,
+            },
+          },
+        },
+      });
 
-    return {
-      success: true,
-      groupsCount: result.groupsCreated,
-      playersAssigned: result.playersAssigned,
-      skippedPlayerIds: skippedPlayers.map((p) => p.playerId),
-      message:
-        skippedPlayers.length > 0
-          ? `${result.groupsCreated} grupos creados. ${skippedPlayers.length} jugadores quedaron fuera.`
-          : `${result.groupsCreated} grupos creados con todos los jugadores.`,
-    };
+      if (!gp) {
+        return {
+          success: false,
+          message: "El jugador no está asignado a ningún grupo en esta ronda.",
+        };
+      }
+      if (gp.usedComodin) {
+        return {
+          success: false,
+          message: "El jugador ya tiene aplicado el comodín en esta ronda.",
+        };
+      }
+
+      const tournamentId = gp.group.round.tournamentId;
+
+      const usedCountInTournament = await tx.groupPlayer.count({
+        where: {
+          playerId,
+          usedComodin: true,
+          group: {
+            round: {
+              tournamentId,
+            },
+          },
+        },
+      });
+
+      if (usedCountInTournament > 0) {
+        return {
+          success: false,
+          message: "Comodín ya consumido en este torneo.",
+        };
+      }
+
+      await tx.groupPlayer.update({
+        where: {
+          groupId_playerId: { groupId: gp.groupId, playerId },
+        },
+        data: {
+          usedComodin: true,
+          comodinReason: reason?.slice(0, 200) || "Comodín aplicado",
+          comodinAt: new Date(),
+        },
+      });
+
+      return {
+        success: true,
+        message: "Comodín aplicado correctamente.",
+      };
+    });
   } catch (error: any) {
-    return {
-      success: false,
-      groupsCount: 0,
-      playersAssigned: 0,
-      skippedPlayerIds: [],
-      message: error?.message || "Error generando grupos",
-    };
+    return { success: false, message: error?.message ?? "Error aplicando comodín" };
   }
 }
 
 /**
- * Helper para construir la estructura inicial de grupos de la Ronda 1
- * a partir de una lista de elegibles (random o ranking).
- * Devuelve el payload compatible con GroupManager.updateRoundGroups
+ * Revoca el comodín del jugador en la ronda dada.
  */
-export function buildGroupsForFirstRound(
-  eligiblePlayers: BuildFirstRoundGroupInput[],
-  groupSize: number = DEFAULT_GROUP_SIZE,
-  strategy: "random" | "ranking" = "random"
-): Array<{ level?: number | null; number?: number; players: Array<{ playerId: string; position?: number }> }> {
-  let pool = [...eligiblePlayers];
-  if (strategy === "random") pool = shuffleStable(pool);
+export async function revokeComodin(
+  playerId: string,
+  roundId: string
+): Promise<ComodinResult> {
+  try {
+    return await prisma.$transaction(async (tx) => {
+      const gp = await tx.groupPlayer.findFirst({
+        where: {
+          playerId,
+          group: { roundId },
+        },
+        select: { groupId: true, playerId: true, usedComodin: true },
+      });
 
-  const groups: Array<{ level?: number | null; number?: number; players: Array<{ playerId: string; position?: number }> }> = [];
-  const GROUP_SIZE = Math.max(2, groupSize || DEFAULT_GROUP_SIZE);
-  const maxGroups = Math.floor(pool.length / GROUP_SIZE);
+      if (!gp) {
+        return { success: false, message: "El jugador no está asignado a esta ronda." };
+      }
+      if (!gp.usedComodin) {
+        return { success: false, message: "El jugador no tiene comodín aplicado en esta ronda." };
+      }
 
-  for (let i = 0; i < maxGroups; i++) {
-    const start = i * GROUP_SIZE;
-    const slice = pool.slice(start, start + GROUP_SIZE);
-    groups.push({
-      level: i + 1,
-      number: i + 1,
-      players: slice.map((p, idx) => ({ playerId: p.playerId, position: idx + 1 })),
+      await tx.groupPlayer.update({
+        where: {
+          groupId_playerId: { groupId: gp.groupId, playerId },
+        },
+        data: {
+          usedComodin: false,
+          comodinReason: null,
+          comodinAt: null,
+        },
+      });
+
+      return { success: true, message: "Comodín revocado correctamente." };
     });
+  } catch (error: any) {
+    return { success: false, message: error?.message ?? "Error revocando comodín" };
   }
-
-  return groups;
 }
 
-// ==============================
-// Elegibilidad de jugadores
-// ==============================
-
 /**
- * Devuelve los jugadores elegibles para una ronda concreta de un torneo.
- * Criterio mínimo y 100% compatible con tu schema:
- *  - Inscritos en el torneo (TournamentPlayer)
- *  - Incluye el Player para devolver name
- *  - ❌ No filtra por isActive / joinedRound (no existen en tu entrada)
- *  - ❌ No ordena por createdAt (no existe en tu entrada)
+ * Devuelve el estado del comodín para un jugador en una ronda.
+ * NOTA: Esta función básica retorna el formato original.
+ * La API REST en /api/comodin/status devuelve el formato extendido.
  */
-export async function getEligiblePlayersForRound(
-  tournamentId: string,
-  _roundNumber: number
-): Promise<EligiblePlayer[]> {
-  const tps = await prisma.tournamentPlayer.findMany({
-    where: { tournamentId },
-    include: { player: true },
+export async function getComodinStatus(
+  playerId: string,
+  roundId: string
+): Promise<ComodinStatus | null> {
+  const gp = await prisma.groupPlayer.findFirst({
+    where: {
+      playerId,
+      group: { roundId },
+    },
+    include: {
+      group: {
+        include: { round: true },
+      },
+    },
   });
 
-  return tps.map((tp: any) => ({
-    playerId: tp.playerId,
-    name: tp.player?.name ?? null,
-  }));
-}
+  if (!gp) return null;
 
-// ==============================
-// Utilidades internas
-// ==============================
+  const tournamentId = gp.group.round.tournamentId;
 
-/** Barajado estable (Fisher–Yates) */
-function shuffleStable<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-}
-// Al final de lib/rounds.ts
-export type SubstituteCreditsResult = {
-  playersProcessed: number;
-  totalCreditsAwarded: number;
-  details?: Array<{ playerId: string; credits: number }>;
-};
+  const usedCountInTournament = await prisma.groupPlayer.count({
+    where: {
+      playerId,
+      usedComodin: true,
+      group: { round: { tournamentId } },
+    },
+  });
 
-export async function computeSubstituteCreditsForRound(roundId: string): Promise<SubstituteCreditsResult> {
-  console.warn(`[Substitutes] computeSubstituteCreditsForRound: stub (0 créditos) en rounds.ts para round ${roundId}`);
-  return { playersProcessed: 0, totalCreditsAwarded: 0 };
-}
-
-// Exportaciones adicionales requeridas
-export const GROUP_SIZE = DEFAULT_GROUP_SIZE;
-
-export async function generateNextRoundFromMovements(roundId: string): Promise<{ success: boolean; message: string }> {
-  // Implementación básica por ahora
-  console.warn('generateNextRoundFromMovements: pendiente implementación completa');
+  // Retornar formato básico - la API REST añade más campos
   return {
-    success: false,
-    message: 'Función en desarrollo. Use el flujo normal de creación de rondas.'
+    used: !!gp.usedComodin,
+    usedAt: gp.comodinAt ? gp.comodinAt.toISOString() : null,
+    reason: gp.comodinReason ?? null,
+    tournamentId,
+    roundId,
+    playerId,
+    comodinesUsedInTournament: usedCountInTournament,
+    comodinesRemainingInTournament: usedCountInTournament > 0 ? 0 : 1,
+    
+    // Campos adicionales con valores por defecto
+    canUse: usedCountInTournament === 0 && !gp.usedComodin,
+    canRevoke: !!gp.usedComodin,
+    mode: gp.usedComodin ? (gp.substitutePlayerId ? "substitute" : "mean") : null,
+    points: gp.points || 0,
+    substitutePlayer: null, // Se llena desde la API REST
+    appliedAt: gp.comodinAt ? gp.comodinAt.toISOString() : null,
   };
 }
+
+// ==============================
+// API WRAPPER COMPLETO PARA COMPONENTES REACT
+// ==============================
+
+export const comodinApi = {
+  /**
+   * Usar comodín de media
+   */
+  applyMean: async (roundId: string): Promise<any> => {
+    const response = await fetch('/api/comodin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId, mode: 'mean' }),
+    });
+    if (!response.ok) throw new Error('Error al aplicar comodín de media');
+    return response.json();
+  },
+
+  /**
+   * Usar comodín de sustituto
+   */
+  applySubstitute: async (roundId: string, substitutePlayerId: string): Promise<any> => {
+    const response = await fetch('/api/comodin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        roundId, 
+        mode: 'substitute', 
+        substitutePlayerId 
+      }),
+    });
+    if (!response.ok) throw new Error('Error al aplicar comodín de sustituto');
+    return response.json();
+  },
+
+  /**
+   * Revocar comodín (jugador)
+   */
+  revoke: async (roundId: string): Promise<any> => {
+    const response = await fetch('/api/comodin/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId }),
+    });
+    if (!response.ok) throw new Error('Error al revocar comodín');
+    return response.json();
+  },
+
+  /**
+   * Revocar comodín específico (admin)
+   */
+  adminRevoke: async (roundId: string, playerId: string): Promise<any> => {
+    const response = await fetch(`/api/comodin/revoke?roundId=${roundId}&playerId=${playerId}`, {
+      method: 'DELETE',
+    });
+    if (!response.ok) throw new Error('Error al revocar comodín por admin');
+    return response.json();
+  },
+
+  /**
+   * Obtener estado del comodín
+   */
+  getStatus: async (roundId: string): Promise<ComodinStatus | null> => {
+    const response = await fetch(`/api/comodin/status?roundId=${roundId}`);
+    if (!response.ok) throw new Error('Error al obtener estado');
+    return response.json();
+  },
+
+  /**
+   * Obtener estadísticas de comodines para una ronda (admin)
+   */
+  getRoundStats: async (roundId: string): Promise<RoundComodinStats> => {
+    const response = await fetch(`/api/comodin/round-stats?roundId=${roundId}`);
+    if (!response.ok) throw new Error('Error al obtener estadísticas');
+    return response.json();
+  },
+
+  /**
+   * Obtener sustitutos elegibles
+   */
+  eligibleSubstitutes: async (roundId: string): Promise<{ players: Array<{ id: string; name: string; groupNumber: number }> }> => {
+    const response = await fetch(`/api/comodin/eligible-substitutes?roundId=${roundId}`);
+    if (!response.ok) throw new Error('Error al obtener sustitutos');
+    return response.json();
+  },
+
+  // Métodos legacy para compatibilidad con otros archivos
+  useComodin: async (roundId: string, reason?: string) => {
+    return comodinApi.applyMean(roundId);
+  },
+
+  revokeComodin: async (roundId: string) => {
+    return comodinApi.revoke(roundId);
+  },
+
+  getEligibleSubstitutes: async (roundId: string) => {
+    return comodinApi.eligibleSubstitutes(roundId);
+  }
+};
+
+export default comodinApi;
