@@ -1,10 +1,5 @@
 // lib/comodin.ts
 // Integración de "comodín" (wildcard) a nivel de ronda/grupo.
-// Reglas clave (según documentación):
-// - 1 comodín por temporada/torneo por jugador.
-// - El comodín se aplica en una ronda concreta (se marca en GroupPlayer).
-// - No cuenta como "jugada" (no suma racha). El cálculo de puntos/racha debe respetar estos flags.
-// - No modificamos partidos aquí; la lógica de cierre de ronda/engine deberá interpretar el comodín.
 
 import { prisma } from "@/lib/prisma";
 
@@ -14,17 +9,42 @@ import { prisma } from "@/lib/prisma";
 
 export type ComodinResult = { success: boolean; message: string };
 
+// Tipo completo con todas las propiedades que usan los componentes
 export type ComodinStatus = {
+  // Propiedades básicas (originales)
   used: boolean;
   usedAt: string | null;
   reason: string | null;
-  // información útil para UI:
   tournamentId: string;
   roundId: string;
   playerId: string;
-  // métricas (estimadas) para front:
   comodinesUsedInTournament: number;
-  comodinesRemainingInTournament: number; // 0 ó 1
+  comodinesRemainingInTournament: number;
+  
+  // Propiedades adicionales que usan los componentes
+  canUse: boolean;
+  canRevoke: boolean;
+  restrictionReason?: string | null;
+  mode?: "mean" | "substitute" | null;
+  points?: number;
+  substitutePlayer?: string | null;
+  appliedAt?: string | null;
+  
+  // Información del torneo
+  tournamentInfo?: {
+    maxComodines: number;
+    comodinesUsed: number;
+    comodinesRemaining: number;
+    enableMeanComodin?: boolean;
+    enableSubstituteComodin?: boolean;
+  };
+  
+  // Restricciones específicas
+  restrictions?: {
+    hasConfirmedMatches: boolean;
+    hasUpcomingMatches: boolean;
+    roundClosed: boolean;
+  };
 };
 
 // Tipos adicionales para componentes
@@ -56,8 +76,6 @@ export type RoundComodinStats = {
 
 /**
  * Marca el comodín para un jugador en una ronda.
- * Valida que el jugador esté asignado a la ronda y que no haya consumido ya su comodín en el torneo.
- * No altera partidos; se espera que el motor tenga en cuenta "usedComodin" en el cómputo.
  */
 export async function useComodin(
   playerId: string,
@@ -66,7 +84,6 @@ export async function useComodin(
 ): Promise<ComodinResult> {
   try {
     return await prisma.$transaction(async (tx) => {
-      // 1) Localizar el GroupPlayer del jugador en la ronda
       const gp = await tx.groupPlayer.findFirst({
         where: {
           playerId,
@@ -96,7 +113,6 @@ export async function useComodin(
 
       const tournamentId = gp.group.round.tournamentId;
 
-      // 2) Validar límite: 1 comodín por torneo
       const usedCountInTournament = await tx.groupPlayer.count({
         where: {
           playerId,
@@ -116,7 +132,6 @@ export async function useComodin(
         };
       }
 
-      // 3) Aplicar flags en GroupPlayer
       await tx.groupPlayer.update({
         where: {
           groupId_playerId: { groupId: gp.groupId, playerId },
@@ -140,8 +155,6 @@ export async function useComodin(
 
 /**
  * Revoca el comodín del jugador en la ronda dada.
- * Útil para correcciones de admin. No valida "consumo por torneo"
- * porque estamos deshaciendo el uso.
  */
 export async function revokeComodin(
   playerId: string,
@@ -183,14 +196,14 @@ export async function revokeComodin(
 }
 
 /**
- * Devuelve el estado del comodín para un jugador en una ronda,
- * e información de consumo a nivel de torneo (0/1 disponibles).
+ * Devuelve el estado del comodín para un jugador en una ronda.
+ * NOTA: Esta función básica retorna el formato original.
+ * La API REST en /api/comodin/status devuelve el formato extendido.
  */
 export async function getComodinStatus(
   playerId: string,
   roundId: string
 ): Promise<ComodinStatus | null> {
-  // Cargamos el vínculo GroupPlayer → Group → Round (para obtener tournamentId)
   const gp = await prisma.groupPlayer.findFirst({
     where: {
       playerId,
@@ -207,7 +220,6 @@ export async function getComodinStatus(
 
   const tournamentId = gp.group.round.tournamentId;
 
-  // cuántos comodines ha usado el jugador en el torneo (esperado 0 o 1)
   const usedCountInTournament = await prisma.groupPlayer.count({
     where: {
       playerId,
@@ -216,6 +228,7 @@ export async function getComodinStatus(
     },
   });
 
+  // Retornar formato básico - la API REST añade más campos
   return {
     used: !!gp.usedComodin,
     usedAt: gp.comodinAt ? gp.comodinAt.toISOString() : null,
@@ -225,6 +238,14 @@ export async function getComodinStatus(
     playerId,
     comodinesUsedInTournament: usedCountInTournament,
     comodinesRemainingInTournament: usedCountInTournament > 0 ? 0 : 1,
+    
+    // Campos adicionales con valores por defecto
+    canUse: usedCountInTournament === 0 && !gp.usedComodin,
+    canRevoke: !!gp.usedComodin,
+    mode: gp.usedComodin ? (gp.substitutePlayerId ? "substitute" : "mean") : null,
+    points: gp.points || 0,
+    substitutePlayer: null, // Se llena desde la API REST
+    appliedAt: gp.comodinAt ? gp.comodinAt.toISOString() : null,
   };
 }
 
