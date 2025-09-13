@@ -164,6 +164,7 @@
 \app\clasificaciones\ClasificacionesClient.tsx
 \app\clasificaciones\page.tsx
 \app\dashboard
+\app\dashboard\EnhancedDashboardSection.tsx
 \app\dashboard\page.tsx
 \app\dashboard\PlayerDashboardClient.tsx
 \app\globals.css
@@ -210,7 +211,6 @@
 \components\PartyScheduling.tsx
 \components\player
 \components\player\UseComodinButton.tsx
-\components\PlayerTabbar.tsx
 \components\PublicHome.tsx
 \components\RoundsMatchesOverview.tsx
 \components\tournament

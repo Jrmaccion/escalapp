@@ -1,6 +1,6 @@
 // hooks/useComodin.ts - VERSIÓN MEJORADA COMPLETA
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { comodinApi, ComodinStatus } from '@/lib/api/comodin';
+import { comodinApi, ComodinStatus } from '@/lib/api/comodin.client';
 
 export type EligiblePlayer = {
   id: string;
