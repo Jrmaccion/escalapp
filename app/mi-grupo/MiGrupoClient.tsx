@@ -78,8 +78,7 @@ function useGroupDataWithTournament(tournamentId?: string) {
 
         // Detectar cambios para mostrar badge de actualización
         const resultStr = JSON.stringify(result);
-        const hasChanges = silent && lastDataRef.current && lastDataRef.current !== resultStr;
-
+        const hasChanges = Boolean(silent && lastDataRef.current && lastDataRef.current !== resultStr);
         setData(result);
         lastDataRef.current = resultStr;
         setHasError(false);
