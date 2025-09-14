@@ -300,6 +300,7 @@
 \scripts
 \scripts\cleanup-residuos.js
 \scripts\create-admin.ts
+\scripts\create-villa-users.ts
 \scripts\debug-login-issue.ts
 \scripts\fix-imports.js
 \scripts\genera-estructura.js

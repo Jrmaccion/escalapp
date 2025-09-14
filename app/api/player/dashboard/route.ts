@@ -1,4 +1,4 @@
-// app/api/player/dashboard/route.ts - CORREGIDO
+// app/api/player/dashboard/route.ts - MODIFICADO PARA INCLUIR GRUPO COMPLETO
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -73,7 +73,7 @@ function computeTournamentMeta(
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("🏁 GET /api/player/dashboard - Iniciando...");
+    console.log("🚀 GET /api/player/dashboard - Iniciando...");
     
     const session = await getServerSession(authOptions);
     if (!session?.user?.id) {
@@ -214,9 +214,9 @@ export async function GET(request: NextRequest) {
     const meta = computeTournamentMeta(activeTournament);
     const currentRound = meta.current;
 
-    console.log("🔄 Ronda actual:", currentRound?.number || "ninguna");
+    console.log("📅 Ronda actual:", currentRound?.number || "ninguna");
 
-    // Grupo actual del jugador en la ronda seleccionada
+    // ✅ GRUPO ACTUAL AMPLIADO - Incluir información completa del grupo
     const currentGroup = currentRound
       ? await prisma.group.findFirst({
           where: {
@@ -226,8 +226,9 @@ export async function GET(request: NextRequest) {
           include: {
             players: {
               include: { player: true },
-              orderBy: { points: "desc" },
+              orderBy: { points: "desc" }, // Ordenar por puntos para calcular posiciones reales
             },
+            round: true, // Para obtener el número de ronda
           },
         })
       : null;
@@ -236,6 +237,13 @@ export async function GET(request: NextRequest) {
 
     const playerInGroup = currentGroup?.players.find((p) => p.playerId === playerId) ?? null;
     console.log("📍 Posición en grupo:", playerInGroup?.position || "sin posición");
+
+    // ✅ CALCULAR POSICIONES REALES basadas en puntos
+    const sortedByPoints = currentGroup?.players
+      .slice()
+      .sort((a, b) => (b.points || 0) - (a.points || 0)) || [];
+
+    const realPosition = sortedByPoints.findIndex(p => p.playerId === playerId) + 1;
 
     // Party actual (si existe)
     let currentParty = null;
@@ -263,7 +271,7 @@ export async function GET(request: NextRequest) {
       orderBy: { setNumber: "asc" },
     });
 
-    console.log("🏓 Matches encontrados:", myMatches.length);
+    console.log("🔍 Matches encontrados:", myMatches.length);
 
     // Mapa de nombres para los matches
     const allPlayerIds = [
@@ -363,14 +371,26 @@ export async function GET(request: NextRequest) {
       // CRÍTICO: Incluir availableTournaments para el selector
       availableTournaments,
       
+      // ✅ GRUPO ACTUAL AMPLIADO con información completa
       currentGroup: currentGroup
         ? {
             id: currentGroup.id,
             number: currentGroup.number,
             level: currentGroup.level,
-            position: playerInGroup?.position || 0,
+            position: realPosition || playerInGroup?.position || 0,
             points: playerInGroup?.points || 0,
             streak: playerInGroup?.streak || 0,
+            // ✅ NUEVOS CAMPOS PARA EL DASHBOARD
+            roundNumber: currentGroup.round.number,
+            members: sortedByPoints.map((gp, index) => ({
+              playerId: gp.playerId,
+              name: gp.player.name,
+              position: index + 1, // Posición real basada en puntos
+              points: gp.points || 0,
+              streak: gp.streak || 0,
+              isCurrentUser: gp.playerId === playerId,
+            })),
+            // Mantener compatibilidad con el formato anterior
             players: currentGroup.players.map((p) => ({
               id: p.playerId,
               name: p.player.name,
@@ -437,11 +457,12 @@ export async function GET(request: NextRequest) {
       },
       
       _metadata: {
-        partyApiVersion: "1.0",
+        partyApiVersion: "1.1",
         selectedTournamentId: activeTournament.id,
         hasMultipleTournaments: tournaments.length > 1,
         requestedTournamentId: tournamentIdParam,
         totalTournamentsAvailable: tournaments.length,
+        groupInfoIncluded: !!currentGroup, // Nuevo flag para indicar si se incluye info del grupo
       },
     };
 

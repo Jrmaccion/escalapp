@@ -36,6 +36,21 @@ export type DashboardData = {
     points: number;
     streak: number;
   } | null;
+  /** ➕ NUEVO: datos del grupo actual (para compatibilidad cruzada) */
+  currentGroup: {
+    id: string;
+    number: number;
+    level?: string | null;
+    roundNumber: number;
+    members: Array<{
+      playerId: string;
+      name: string;
+      position: number;
+      points: number;
+      streak: number;
+      isCurrentUser: boolean;
+    }>;
+  } | null;
   nextAction: {
     type: "PLAY_MATCH" | "CONFIRM_RESULT" | "WAIT";
     title: string;
@@ -122,7 +137,7 @@ export function EnhancedDashboardSection({ data }: Props) {
               </div>
 
               {/* Progreso del torneo */}
-              <div className="md:min-w-[260px]">
+              <div className="md:min-w=[260px]">
                 <div className="text-sm mb-2 text-white/85">
                   Progreso del torneo
                 </div>
@@ -141,7 +156,7 @@ export function EnhancedDashboardSection({ data }: Props) {
         </Card>
       )}
 
-      {/* MI SITUACIÓN (rediseño, distinto al anterior) */}
+      {/* MI SITUACIÓN */}
       {myStatus && (
         <Card className="overflow-hidden shadow-md">
           <CardContent className="p-0">
@@ -235,7 +250,7 @@ export function EnhancedDashboardSection({ data }: Props) {
         </CardContent>
       </Card>
 
-      {/* Stats rápidas (compactas y distintas) */}
+      {/* Stats rápidas */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <Card className="hover:shadow-sm transition-shadow">
           <CardContent className="p-4 text-center">
@@ -260,9 +275,7 @@ export function EnhancedDashboardSection({ data }: Props) {
         <Card className="hover:shadow-sm transition-shadow">
           <CardContent className="p-4 text-center">
             <Flame className="w-7 h-7 text-red-600 mx-auto mb-2" />
-            <div className="text-2xl font-bold text-red-700">
-              x{myStatus?.streak ?? 0}
-            </div>
+            <div className="text-2xl font-bold text-red-700">x{myStatus?.streak ?? 0}</div>
             <div className="text-xs text-gray-600">Racha</div>
           </CardContent>
         </Card>

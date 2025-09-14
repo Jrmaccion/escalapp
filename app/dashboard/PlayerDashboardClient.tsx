@@ -1,4 +1,4 @@
-// app/dashboard/PlayerDashboardClient.tsx - SELECTOR DE TORNEOS TOTALMENTE FUNCIONAL
+// app/dashboard/PlayerDashboardClient.tsx - SELECTOR DE TORNEOS TOTALMENTE FUNCIONAL (ampliado)
 "use client";
 
 import { useEffect, useState } from "react";
@@ -26,8 +26,19 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
+// ➕ NUEVO: tarjeta de grupo actual
+import { CurrentGroupCard } from "@/components/dashboard/CurrentGroupCard";
 
 /** ===== Tipos de API del Dashboard ===== */
+type GroupMember = {
+  playerId: string;
+  name: string;
+  position: number;
+  points: number;
+  streak: number;
+  isCurrentUser: boolean;
+};
+
 type ApiResponse = {
   activeTournament: {
     id: string;
@@ -49,6 +60,9 @@ type ApiResponse = {
     position: number;
     points: number;
     streak: number;
+    // NUEVOS CAMPOS:
+    roundNumber: number;
+    members: GroupMember[];
   } | null;
   ranking: {
     position: number;
@@ -84,6 +98,14 @@ type DashboardData = {
     points: number;
     streak: number;
   } | null;
+  // NUEVO: datos del grupo actual para mostrar tarjeta con miembros
+  currentGroup: {
+    id: string;
+    number: number;
+    level?: string | null;
+    roundNumber: number;
+    members: GroupMember[];
+  } | null;
   nextAction: {
     type: "PLAY_MATCH" | "CONFIRM_RESULT" | "WAIT";
     title: string;
@@ -102,6 +124,7 @@ type DashboardData = {
 const PREVIEW_DATA: DashboardData = {
   activeTournament: null,
   myStatus: null,
+  currentGroup: null,
   nextAction: {
     type: "WAIT",
     title: "Sin perfil de jugador",
@@ -154,102 +177,54 @@ export default function PlayerDashboardClient() {
       console.log("🔄 Fallback: Obteniendo torneos desde /api/player/group");
       const res = await fetch("/api/player/group", {
         cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
-
-      if (!res.ok) {
-        console.log("❌ Error en fallback:", res.status);
-        return [];
-      }
-
+      if (!res.ok) return [];
       const json = (await res.json()) as {
         availableTournaments?: NonNullable<ApiResponse["availableTournaments"]>;
       };
-
-      const tournaments = json.availableTournaments ?? [];
-      console.log("📋 Torneos desde fallback:", tournaments);
-      return tournaments;
-    } catch (err) {
-      console.error("❌ Error en fetchAvailableTournamentsFallback:", err);
+      return json.availableTournaments ?? [];
+    } catch {
       return [];
     }
   };
 
-  /** Carga datos del dashboard - COMPLETAMENTE REESCRITO */
+  /** Carga datos del dashboard */
   const fetchDashboard = async (tournamentId?: string) => {
     try {
-      console.log("🚀 Fetching dashboard data...", {
-        tournamentId,
-        selectedTournamentId,
-        isChangingTournament,
-      });
-
       setLoading(true);
       setError(null);
 
       const url = new URL("/api/player/dashboard", window.location.origin);
-      if (tournamentId) {
-        url.searchParams.set("tournamentId", tournamentId);
-        console.log("🎯 Consultando torneo específico:", tournamentId);
-      }
-
-      console.log("📡 URL completa:", url.toString());
+      if (tournamentId) url.searchParams.set("tournamentId", tournamentId);
 
       const res = await fetch(url.toString(), {
         cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
       });
 
-      console.log("📥 Response status:", res.status);
-
       if (res.status === 401) {
-        console.log("🔐 Usuario no autorizado - mostrando preview");
         setData(PREVIEW_DATA);
         setIsPreviewMode(true);
         setAvailableTournaments([]);
         return;
       }
-
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: Error al cargar datos`);
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}: Error al cargar datos`);
 
       const api: ApiResponse = await res.json();
-      console.log("📊 API Response completa:", api);
 
-      // CRÍTICO: Extraer lista de torneos ANTES de procesar datos
+      // Torneos disponibles
       let tournaments = api.availableTournaments ?? [];
-      console.log("🏆 Torneos desde dashboard API:", tournaments);
-
       if (tournaments.length === 0) {
-        console.log("⚠️ Sin torneos en dashboard API, usando fallback...");
         tournaments = await fetchAvailableTournamentsFallback();
       }
-
-      // Actualizar estado de torneos disponibles SIEMPRE
-      if (tournaments.length > 0) {
-        console.log("✅ Actualizando lista de torneos:", tournaments);
-        setAvailableTournaments(tournaments);
-
-        // Establecer torneo seleccionado si no hay uno o si el actual no existe
-        if (!selectedTournamentId || !tournaments.find((t) => t.id === selectedTournamentId)) {
-          const current = tournaments.find((t) => t.isCurrent) || tournaments[0];
-          console.log("🎯 Estableciendo torneo seleccionado:", current?.id);
-          if (current) {
-            setSelectedTournamentId(current.id);
-          }
-        }
-      } else {
-        console.log("⚠️ No se encontraron torneos disponibles");
-        setAvailableTournaments([]);
+      setAvailableTournaments(tournaments);
+      if ((!selectedTournamentId || !tournaments.find((t) => t.id === selectedTournamentId)) && tournaments[0]) {
+        const current = tournaments.find((t) => t.isCurrent) || tournaments[0];
+        setSelectedTournamentId(current.id);
       }
 
       if (!api.activeTournament) {
-        console.log("⚠️ Sin torneo activo en response");
         setData({
           ...PREVIEW_DATA,
           nextAction: {
@@ -273,6 +248,15 @@ export default function PlayerDashboardClient() {
               streak: api.currentGroup.streak ?? 0,
             }
           : null,
+        currentGroup: api.currentGroup
+          ? {
+              id: api.currentGroup.id,
+              number: api.currentGroup.number,
+              level: api.currentGroup.level,
+              roundNumber: api.currentGroup.roundNumber,
+              members: api.currentGroup.members || [],
+            }
+          : null,
         nextAction: deriveNextAction(api.stats?.matchesPending ?? 0),
         quickStats: {
           officialRank: api.ranking?.position ?? 0,
@@ -281,21 +265,16 @@ export default function PlayerDashboardClient() {
         },
       };
 
-      console.log("✅ Dashboard data procesado:", simplified);
-
-      // CRÍTICO: Sincronizar torneo seleccionado con el activo
       if (simplified.activeTournament?.id && simplified.activeTournament.id !== selectedTournamentId) {
-        console.log(
-          "🔄 Sincronizando torneo seleccionado con activo:",
-          simplified.activeTournament.id
-        );
         setSelectedTournamentId(simplified.activeTournament.id);
       }
 
       setData(simplified);
+      console.log("🔍 API Response:", api);
+      console.log("🔍 Current Group:", api.currentGroup);
+      console.log("🔍 Simplified Data:", simplified);
       setIsPreviewMode(false);
     } catch (err) {
-      console.error("❌ Error en fetchDashboard:", err);
       setError(err instanceof Error ? err.message : "Error al cargar datos");
     } finally {
       setLoading(false);
@@ -303,62 +282,34 @@ export default function PlayerDashboardClient() {
     }
   };
 
-  /** Manejar cambio de torneo - COMPLETAMENTE REESCRITO */
+  /** Cambiar torneo */
   const handleTournamentChange = async (tournamentId: string) => {
-    console.log("🔄 handleTournamentChange:", {
-      tournamentId,
-      currentSelected: selectedTournamentId,
-      isChangingTournament,
-    });
-
-    if (tournamentId === selectedTournamentId) {
-      console.log("⚠️ Mismo torneo seleccionado, cerrando selector");
-      setShowTournamentSelector(false);
-      return;
-    }
-
-    if (isChangingTournament) {
-      console.log("⚠️ Ya hay un cambio de torneo en proceso");
-      return;
-    }
-
-    console.log("🔄 Iniciando cambio de torneo...");
+    if (tournamentId === selectedTournamentId || isChangingTournament) return;
     setIsChangingTournament(true);
     setShowTournamentSelector(false);
-
-    // Actualizar inmediatamente el estado
     setSelectedTournamentId(tournamentId);
-
-    // Delay pequeño para mejorar UX
-    setTimeout(() => {
-      fetchDashboard(tournamentId);
-    }, 100);
+    setTimeout(() => fetchDashboard(tournamentId), 100);
   };
 
   /** Efecto inicial */
   useEffect(() => {
     if (session?.user && status === "authenticated") {
-      console.log("🚀 Usuario autenticado, cargando dashboard inicial");
       fetchDashboard();
     }
   }, [session, status]);
 
   // Cerrar selector al click fuera
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (showTournamentSelector) {
-        const target = event.target as Element;
-        if (!target.closest("[data-tournament-selector]")) {
-          console.log("👆 Click fuera del selector, cerrando");
-          setShowTournamentSelector(false);
-        }
+    const handler = (event: MouseEvent) => {
+      if (showTournamentSelector && !(event.target as Element).closest("[data-tournament-selector]")) {
+        setShowTournamentSelector(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
   }, [showTournamentSelector]);
 
-  // Loading state
+  // Loading
   if (loading || status === "loading") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-red-50 py-8">
@@ -390,7 +341,7 @@ export default function PlayerDashboardClient() {
     );
   }
 
-  // Error state
+  // Error
   const handleRetryClick = () => {
     const id = selectedTournamentId || data?.activeTournament?.id;
     fetchDashboard(id);
@@ -404,15 +355,10 @@ export default function PlayerDashboardClient() {
             <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-6">
               <AlertTriangle className="h-10 w-10 text-red-500" />
             </div>
-            <h3 className="text-xl font-semibold text-red-600 mb-3">
-              Error al cargar datos
-            </h3>
+            <h3 className="text-xl font-semibold text-red-600 mb-3">Error al cargar datos</h3>
             <p className="text-red-600 mb-6 max-w-md mx-auto">{error}</p>
             <div className="flex gap-3 justify-center">
-              <Button
-                onClick={handleRetryClick}
-                className="bg-red-600 hover:bg-red-700 text-white"
-              >
+              <Button onClick={handleRetryClick} className="bg-red-600 hover:bg-red-700 text-white">
                 <RefreshCw className="w-4 h-4 mr-2" />
                 Reintentar
               </Button>
@@ -432,8 +378,7 @@ export default function PlayerDashboardClient() {
     ? Math.max(
         0,
         Math.ceil(
-          (new Date(data.activeTournament.roundEndDate).getTime() - Date.now()) /
-            (1000 * 60 * 60 * 24)
+          (new Date(data.activeTournament.roundEndDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24)
         )
       )
     : 0;
@@ -460,23 +405,10 @@ export default function PlayerDashboardClient() {
     }
   };
 
-  // Encontrar el torneo seleccionado actual
   const currentTournament = availableTournaments.find((t) => t.id === selectedTournamentId);
 
-  console.log("🎯 Render state:", {
-    availableTournaments: availableTournaments.length,
-    selectedTournamentId,
-    currentTournament: currentTournament?.title,
-    showSelector: showTournamentSelector,
-    isChangingTournament,
-  });
-
   return (
-    <div
-      className={`min-h-screen bg-gradient-to-br from-orange-50 via-white to-red-50 py-8 ${
-        isPreviewMode ? "opacity-90" : ""
-      }`}
-    >
+    <div className={`min-h-screen bg-gradient-to-br from-orange-50 via-white to-red-50 py-8 ${isPreviewMode ? "opacity-90" : ""}`}>
       <div className="container mx-auto px-4 max-w-6xl space-y-6">
         {/* Header */}
         <div className="text-center space-y-4">
@@ -495,16 +427,13 @@ export default function PlayerDashboardClient() {
                     {data.activeTournament.title}
                   </Badge>
 
-                  {/* Selector de torneos MEJORADO - FUNCIONAL */}
                   {availableTournaments.length > 1 && (
                     <div className="relative" data-tournament-selector>
                       <button
                         onClick={() => setShowTournamentSelector(!showTournamentSelector)}
                         disabled={isChangingTournament}
                         className={`ml-1 p-1.5 rounded-full transition-colors ${
-                          isChangingTournament
-                            ? "bg-orange-200 cursor-not-allowed"
-                            : "hover:bg-orange-100 hover:shadow-sm"
+                          isChangingTournament ? "bg-orange-200 cursor-not-allowed" : "hover:bg-orange-100 hover:shadow-sm"
                         }`}
                         title={`Cambiar torneo (${availableTournaments.length} disponibles)`}
                       >
@@ -526,7 +455,6 @@ export default function PlayerDashboardClient() {
 
                                 {availableTournaments.map((tournament) => {
                                   const isSelected = tournament.id === selectedTournamentId;
-
                                   return (
                                     <button
                                       key={tournament.id}
@@ -542,22 +470,14 @@ export default function PlayerDashboardClient() {
                                         <div className="flex items-center gap-2">
                                           <Trophy className="w-3 h-3 text-orange-600" />
                                           <span className="font-medium">{tournament.title}</span>
-                                          {isSelected && (
-                                            <CheckCircle className="w-3 h-3 text-orange-600" />
-                                          )}
+                                          {isSelected && <CheckCircle className="w-3 h-3 text-orange-600" />}
                                         </div>
                                         <div className="flex items-center gap-1">
-                                          {tournament.isCurrent && (
-                                            <Badge className="bg-orange-500 text-white text-xs">Actual</Badge>
-                                          )}
+                                          {tournament.isCurrent && <Badge className="bg-orange-500 text-white text-xs">Actual</Badge>}
                                           {tournament.isActive && !tournament.isCurrent && (
                                             <Badge className="bg-green-500 text-white text-xs">Activo</Badge>
                                           )}
-                                          {!tournament.isActive && (
-                                            <Badge variant="secondary" className="text-xs">
-                                              Finalizado
-                                            </Badge>
-                                          )}
+                                          {!tournament.isActive && <Badge variant="secondary" className="text-xs">Finalizado</Badge>}
                                         </div>
                                       </div>
                                     </button>
@@ -570,7 +490,7 @@ export default function PlayerDashboardClient() {
                       )}
                     </div>
                   )}
-                </div> {/* ✅ Cierra el div de "flex items-center gap-2" que faltaba */}
+                </div>
 
                 <Badge className="bg-red-500/10 text-red-700 border-red-200 backdrop-blur-sm">
                   Ronda {data.activeTournament.currentRound} de {data.activeTournament.totalRounds}
@@ -589,9 +509,7 @@ export default function PlayerDashboardClient() {
               </Badge>
             )}
 
-            {isChangingTournament && (
-              <Badge className="bg-blue-100 text-blue-700 animate-pulse">Cambiando torneo...</Badge>
-            )}
+            {isChangingTournament && <Badge className="bg-blue-100 text-blue-700 animate-pulse">Cambiando torneo...</Badge>}
           </div>
         </div>
 
@@ -604,9 +522,7 @@ export default function PlayerDashboardClient() {
                 <div className="flex-1">
                   <div className="flex items-center gap-4 mb-4">
                     <div className="w-12 h-12 bg-white/20 rounded-xl flex items-center justify-center backdrop-blur-sm">
-                      {React.createElement(getActionIcon(data.nextAction.type), {
-                        className: "w-6 h-6",
-                      })}
+                      {React.createElement(getActionIcon(data.nextAction.type), { className: "w-6 h-6" })}
                     </div>
                     <div>
                       <h2 className="text-2xl font-bold">{data.nextAction.title}</h2>
@@ -614,20 +530,20 @@ export default function PlayerDashboardClient() {
                     </div>
                   </div>
 
-                  {data.nextAction.actionUrl && !isPreviewMode && (
+                  {data.nextAction.actionUrl && !isPreviewMode ? (
                     <Link href={data.nextAction.actionUrl}>
                       <Button className="bg-white/20 hover:bg-white/30 text-white border-white/30 backdrop-blur-sm transition-all duration-300">
                         {data.nextAction.type === "PLAY_MATCH" ? "Ir a Mi Grupo" : "Ir"}
                         <ArrowRight className="w-5 h-5 ml-2" />
                       </Button>
                     </Link>
-                  )}
-
-                  {isPreviewMode && (
-                    <Button className="bg-white/20 text-white border-white/30 backdrop-blur-sm" disabled>
-                      Ir a Mi Grupo
-                      <ArrowRight className="w-5 h-5 ml-2" />
-                    </Button>
+                  ) : (
+                    isPreviewMode && (
+                      <Button className="bg-white/20 text-white border-white/30 backdrop-blur-sm" disabled>
+                        Ir a Mi Grupo
+                        <ArrowRight className="w-5 h-5 ml-2" />
+                      </Button>
+                    )
                   )}
                 </div>
 
@@ -639,6 +555,11 @@ export default function PlayerDashboardClient() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* ➕ NUEVO: Grupo Actual */}
+        {data.currentGroup && !isPreviewMode && (
+          <CurrentGroupCard groupData={data.currentGroup} />
         )}
 
         {/* Sección resumida */}
