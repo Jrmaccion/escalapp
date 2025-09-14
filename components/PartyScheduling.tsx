@@ -582,9 +582,10 @@ export default function PartyScheduling({
             </div>
           )}
 
-          {/* Controles para jugadores (lógica existente con modificaciones) */}
+          {/* Controles para jugadores (MODIFICADO) */}
           {(isParticipant || isAdmin) && (
             <div className="flex flex-wrap gap-2">
+              {/* Proponer si no hay nada aún */}
               {party.scheduleStatus === "PENDING" && !isAdmin && (
                 <Button size="sm" onClick={() => setShowDateForm(!showDateForm)} disabled={isPending}>
                   <CalendarPlus className="w-4 h-4 mr-2" />
@@ -592,6 +593,20 @@ export default function PartyScheduling({
                 </Button>
               )}
 
+              {/* NUEVO: si ya hay propuesta y es del propio usuario, permitir cambiarla */}
+              {party.scheduleStatus === "DATE_PROPOSED" && party.proposedByCurrentUser && !isAdmin && (
+                <Button 
+                  size="sm" 
+                  variant="outline"
+                  onClick={() => setShowDateForm(!showDateForm)} 
+                  disabled={isPending}
+                >
+                  <Calendar className="w-4 h-4 mr-2" />
+                  Cambiar fecha propuesta
+                </Button>
+              )}
+
+              {/* Aceptar / Rechazar si la propuso otro */}
               {party.scheduleStatus === "DATE_PROPOSED" && !party.proposedByCurrentUser && !isAdmin && (
                 <>
                   <Button size="sm" onClick={() => handleDateResponse("accept")} disabled={isPending}>
@@ -610,9 +625,10 @@ export default function PartyScheduling({
                 </>
               )}
 
-              {party.scheduleStatus === "DATE_PROPOSED" && party.proposedByCurrentUser && !isAdmin && (
+              {/* NUEVO: mensaje contextual del proponente */}
+              {party.scheduleStatus === "DATE_PROPOSED" && party.proposedByCurrentUser && !isAdmin && !showDateForm && (
                 <div className="text-xs text-purple-600 bg-purple-100 px-2 py-1 rounded">
-                  Esperando confirmación de otros jugadores ({party.acceptedCount}/4)
+                  Tu propuesta: esperando confirmación de otros jugadores ({party.acceptedCount}/4)
                 </div>
               )}
             </div>
@@ -710,7 +726,12 @@ export default function PartyScheduling({
                   </>
                 ) : (
                   <Button onClick={handleProposeDate} disabled={isPending} size="sm">
-                    {isPending ? "Enviando..." : "Proponer fecha"}
+                    {isPending 
+                      ? "Enviando..." 
+                      : party.scheduleStatus === "DATE_PROPOSED" && party.proposedByCurrentUser
+                        ? "Cambiar propuesta"
+                        : "Proponer fecha"
+                    }
                   </Button>
                 )}
                 

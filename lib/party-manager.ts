@@ -176,75 +176,94 @@ export class PartyManager {
     };
   }
 
-  /**
-   * 🔧 MODIFICADO: Proponer fecha con detección de admin
-   */
-  static async proposePartyDate(
-    groupId: string,
-    proposedDate: Date,
-    proposedByUserId: string,
-    isAdmin: boolean = false
-  ): Promise<{ success: boolean; message: string; party?: Party }> {
-    try {
-      // Si es admin, usar método específico de admin
-      if (isAdmin) {
-        return this.adminSetPartyDate(groupId, proposedDate, proposedByUserId, {
-          skipApproval: false,
-          forceScheduled: false,
+      /**
+     * 🔧 MODIFICADO: Proponer fecha con capacidad de sobrescribir propuesta existente
+     */
+    static async proposePartyDate(
+      groupId: string,
+      proposedDate: Date,
+      proposedByUserId: string,
+      isAdmin: boolean = false
+    ): Promise<{ success: boolean; message: string; party?: Party }> {
+      try {
+        // Si es admin, usar método específico de admin
+        if (isAdmin) {
+          return this.adminSetPartyDate(groupId, proposedDate, proposedByUserId, {
+            skipApproval: false,
+            forceScheduled: false,
+          });
+        }
+
+        // Verificar que el grupo existe y el usuario puede proponer
+        const group = await prisma.group.findUnique({
+          where: { id: groupId },
+          include: {
+            round: { select: { isClosed: true } },
+            matches: { select: { id: true, proposedById: true, status: true } },
+          },
         });
+
+        if (!group) {
+          return { success: false, message: "Grupo no encontrado" };
+        }
+
+        if (group.round.isClosed) {
+          return { success: false, message: "La ronda está cerrada" };
+        }
+
+        if (group.matches.length === 0) {
+          return { success: false, message: "No hay sets programados para este grupo" };
+        }
+
+        // Verificar permisos del usuario
+        const hasPermission = await this.verifyUserPermission(groupId, proposedByUserId);
+        if (!hasPermission) {
+          return { success: false, message: "No tienes permisos para proponer fecha en este grupo" };
+        }
+
+        // 🔧 NUEVO: Verificar si ya hay una propuesta y si el usuario puede cambiarla
+        const firstMatch = group.matches[0];
+        if (firstMatch.proposedById && firstMatch.proposedById !== proposedByUserId) {
+          return { 
+            success: false, 
+            message: "Ya hay una fecha propuesta por otro jugador. Solo el proponente original puede cambiarla." 
+          };
+        }
+
+        // 🔧 NUEVO: Si hay una propuesta del mismo usuario, es un cambio de propuesta
+        const isChangingProposal = firstMatch.proposedById === proposedByUserId;
+        const actionMessage = isChangingProposal 
+          ? "Fecha actualizada correctamente para todo el partido"
+          : "Fecha propuesta correctamente para todo el partido";
+
+        // Actualizar todos los matches del grupo
+        // 🔧 MODIFICADO: Resetear acceptedBy a solo el proponente
+        const acceptedBy = [proposedByUserId];
+
+        await prisma.match.updateMany({
+          where: { groupId },
+          data: {
+            proposedDate,
+            proposedById: proposedByUserId,
+            acceptedDate: null,
+            acceptedBy,
+            status: "DATE_PROPOSED" as MatchStatus,
+          },
+        });
+
+        const updatedParty = await this.getParty(groupId, proposedByUserId);
+
+        return {
+          success: true,
+          message: actionMessage,
+          party: updatedParty || undefined,
+        };
+      } catch (error: any) {
+        console.error("Error proposing party date:", error);
+        return { success: false, message: "Error interno del servidor" };
       }
-
-      // Verificar que el grupo existe y el usuario puede proponer
-      const group = await prisma.group.findUnique({
-        where: { id: groupId },
-        include: {
-          round: { select: { isClosed: true } },
-          matches: { select: { id: true } },
-        },
-      });
-
-      if (!group) {
-        return { success: false, message: "Grupo no encontrado" };
-      }
-
-      if (group.round.isClosed) {
-        return { success: false, message: "La ronda está cerrada" };
-      }
-
-      if (group.matches.length === 0) {
-        return { success: false, message: "No hay sets programados para este grupo" };
-      }
-
-      // Verificar permisos del usuario
-      const hasPermission = await this.verifyUserPermission(groupId, proposedByUserId);
-      if (!hasPermission) {
-        return { success: false, message: "No tienes permisos para proponer fecha en este grupo" };
-      }
-
-      // Actualizar todos los matches del grupo
-      await prisma.match.updateMany({
-        where: { groupId },
-        data: {
-          proposedDate,
-          proposedById: proposedByUserId,
-          acceptedDate: null,
-          acceptedBy: [proposedByUserId], // El que propone automáticamente acepta
-          status: "DATE_PROPOSED" as MatchStatus,
-        },
-      });
-
-      const updatedParty = await this.getParty(groupId, proposedByUserId);
-
-      return {
-        success: true,
-        message: "Fecha propuesta correctamente para todo el partido",
-        party: updatedParty || undefined,
-      };
-    } catch (error) {
-      console.error("Error proposing party date:", error);
-      return { success: false, message: "Error interno del servidor" };
     }
-  }
+
 
   /**
    * 🔧 NUEVO: Método específico para admin - establece fecha con opciones
