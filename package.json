@@ -5,8 +5,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma migrate deploy && next build",
-    "build:production": "prisma migrate deploy && npm run create-admin && next build",
+    "build": "next build",
+    "build:with-db": "prisma migrate deploy && next build",
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
@@ -20,6 +20,7 @@
     "db:deploy": "prisma migrate deploy",
     "create-admin": "tsx scripts/create-admin.ts",
     "postinstall": "prisma generate",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
     "estructura": "node scripts/genera-estructura.js",
     "db:clean-production": "echo 'CUIDADO: Ve a Neon dashboard, resetea la BD, luego ejecuta: npm run db:deploy && npm run create-admin'",
     "db:deploy:prod": "dotenv -e .env.production.local -- prisma migrate deploy",
@@ -99,6 +100,6 @@
     "node": ">=18.0.0"
   },
   "prisma": {
-  "seed": "tsx prisma/seed.ts"
+    "seed": "tsx prisma/seed.ts"
   }
 }
