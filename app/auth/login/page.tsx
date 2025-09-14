@@ -7,112 +7,190 @@ import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { AlertCircle, LogIn, Eye, EyeOff } from "lucide-react";
+import Link from "next/link";
 
 export default function LoginPage() {
   const router = useRouter();
   const { data: session, status } = useSession();
-  const [form, setForm] = useState({ email: "", password: "" });
+  
+  const [formData, setFormData] = useState({ 
+    email: "", 
+    password: "" 
+  });
   const [loading, setLoading] = useState(false);
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
 
-  // Si ya hay sesión, redirige
+  // Redirección si ya hay sesión activa
   useEffect(() => {
     if (status === "authenticated" && session?.user) {
       const isAdmin = (session.user as any)?.isAdmin;
-      router.replace(isAdmin ? "/admin/dashboard" : "/dashboard");
+      const redirectTo = isAdmin ? "/admin/dashboard" : "/dashboard";
+      router.replace(redirectTo);
     }
   }, [status, session, router]);
 
-  const onSubmit = async (e: React.FormEvent) => {
+  // Prevenir renderizado si ya está autenticado
+  if (status === "loading") {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-orange-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (status === "authenticated") {
+    return null; // useEffect manejará la redirección
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setErrorMsg(null);
+    setError(null);
     setLoading(true);
+
     try {
-      const res = await signIn("credentials", {
-        email: form.email.trim().toLowerCase(),
-        password: form.password,
+      const result = await signIn("credentials", {
+        email: formData.email.trim().toLowerCase(),
+        password: formData.password,
         redirect: false,
       });
-      if (res?.error) {
-        setErrorMsg("Credenciales no válidas.");
-      } else {
-        // Redirige: el useEffect hará el replace al tener sesión
+
+      if (result?.error) {
+        if (result.error === "CredentialsSignin") {
+          setError("Credenciales inválidas. Verifica tu email y contraseña.");
+        } else {
+          setError("Error al iniciar sesión. Inténtalo de nuevo.");
+        }
+      } else if (result?.ok) {
+        // Esperar a que NextAuth actualice la sesión
+        // El useEffect manejará la redirección
+        setTimeout(() => {
+          window.location.reload();
+        }, 100);
       }
-    } catch {
-      setErrorMsg("Error al iniciar sesión.");
+    } catch (err) {
+      console.error("Login error:", err);
+      setError("Error de conexión. Inténtalo de nuevo.");
     } finally {
       setLoading(false);
     }
   };
 
+  const isFormValid = formData.email.length > 0 && formData.password.length > 0;
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold">Iniciar Sesión</CardTitle>
-          <p className="text-gray-600">
-            Accede con tu correo y contraseña
+      <Card className="w-full max-w-md shadow-lg">
+        <CardHeader className="text-center pb-6">
+          <div className="mx-auto w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+            <LogIn className="h-6 w-6 text-orange-600" />
+          </div>
+          <CardTitle className="text-2xl font-bold text-gray-900">
+            Iniciar Sesión
+          </CardTitle>
+          <p className="text-gray-600 mt-2">
+            Accede a tu cuenta de Escalapp
           </p>
         </CardHeader>
 
         <CardContent>
-          <form onSubmit={onSubmit} className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Correo
-              </label>
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Correo electrónico</Label>
               <Input
+                id="email"
                 type="email"
-                placeholder="tucorreo@dominio.com"
-                value={form.email}
-                onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
+                placeholder="tu@correo.com"
+                value={formData.email}
+                onChange={(e) => setFormData(prev => ({ 
+                  ...prev, 
+                  email: e.target.value 
+                }))}
                 required
+                autoComplete="email"
+                className="w-full"
               />
             </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Contraseña
-              </label>
-              <Input
-                type="password"
-                placeholder="••••••••"
-                value={form.password}
-                onChange={(e) => setForm((f) => ({ ...f, password: e.target.value }))}
-                required
-              />
+            <div className="space-y-2">
+              <Label htmlFor="password">Contraseña</Label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="••••••••"
+                  value={formData.password}
+                  onChange={(e) => setFormData(prev => ({ 
+                    ...prev, 
+                    password: e.target.value 
+                  }))}
+                  required
+                  autoComplete="current-password"
+                  className="w-full pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
             </div>
 
-            {errorMsg && (
-              <p className="text-sm text-red-600">{errorMsg}</p>
+            {error && (
+              <div className="flex items-center gap-2 text-red-600 text-sm bg-red-50 p-3 rounded-md">
+                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
             )}
 
-            <Button type="submit" disabled={loading} className="w-full">
-              {loading ? "Accediendo…" : "Entrar"}
+            <Button 
+              type="submit" 
+              disabled={!isFormValid || loading} 
+              className="w-full bg-orange-600 hover:bg-orange-700 text-white"
+            >
+              {loading ? (
+                <div className="flex items-center gap-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                  Iniciando sesión...
+                </div>
+              ) : (
+                "Entrar"
+              )}
             </Button>
           </form>
 
           {/* Enlaces de navegación */}
-          <div className="mt-6 text-center space-y-2">
-            <p className="text-sm text-gray-600">
+          <div className="mt-6 text-center space-y-3">
+            <div className="text-sm text-gray-600">
               ¿No tienes cuenta?{" "}
-              <a
+              <Link
                 href="/auth/register"
-                className="text-blue-600 hover:text-blue-500 font-medium underline"
+                className="text-orange-600 hover:text-orange-500 font-medium underline"
               >
                 Regístrate aquí
-              </a>
-            </p>
-            <p className="text-xs text-gray-500">
+              </Link>
+            </div>
+            
+            <div className="text-xs text-gray-500">
               También puedes registrarte desde la{" "}
-              <a
+              <Link
                 href="/"
-                className="text-blue-600 hover:text-blue-500 underline"
+                className="text-orange-600 hover:text-orange-500 underline"
               >
                 página de inicio
-              </a>
-              .
-            </p>
+              </Link>
+            </div>
           </div>
         </CardContent>
       </Card>

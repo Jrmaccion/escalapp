@@ -1,4 +1,4 @@
-// app/match/[id]/MatchDetailClient.tsx - SIN PROGRAMACIÓN INDIVIDUAL DE FECHAS
+// app/match/[id]/MatchDetailClient.tsx - CORRECCIÓN MÍNIMA SOLO FEEDBACK VISUAL
 "use client";
 
 import { useState, useTransition } from "react";
@@ -17,7 +17,8 @@ import {
   Clock,
   Play,
   Save,
-  AlertTriangle
+  AlertTriangle,
+  Loader2
 } from "lucide-react";
 import PartyScheduling from "@/components/PartyScheduling";
 import { MatchData } from "@/types/match";
@@ -74,6 +75,8 @@ export default function MatchDetailClient({
     tiebreakScore: match.tiebreakScore ?? "",
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [successMessage, setSuccessMessage] = useState("");
 
   const isParticipant =
     !!currentPlayerId &&
@@ -93,6 +96,14 @@ export default function MatchDetailClient({
     return 'NOT_PLAYED';
   };
 
+  const showSuccess = (message: string) => {
+    setSuccessMessage(message);
+    setShowSuccessMessage(true);
+    setTimeout(() => {
+      setShowSuccessMessage(false);
+    }, 4000);
+  };
+
   const handleReportError = () => {
     startTransition(async () => {
       try {
@@ -107,8 +118,8 @@ export default function MatchDetailClient({
         
         const data = await response.json();
         if (response.ok) {
-          alert("Error reportado. El resultado será revisado por un administrador.");
-          router.refresh();
+          showSuccess("Error reportado correctamente. El resultado será revisado por un administrador.");
+          setTimeout(() => router.refresh(), 1500);
         } else {
           setErrors({ general: data?.error || "No se pudo reportar el error" });
         }
@@ -179,6 +190,9 @@ export default function MatchDetailClient({
     setErrors(e);
     if (Object.keys(e).length) return;
 
+    // Limpiar errores previos antes de nueva acción
+    setErrors({});
+
     startTransition(async () => {
       try {
         const response = await fetch(`/api/matches/${match.id}`, {
@@ -194,18 +208,45 @@ export default function MatchDetailClient({
         
         const data = await response.json();
         if (!response.ok) {
-          setErrors({ general: data?.error || "Error al guardar" });
+          // Manejar errores específicos del sistema
+          let errorMessage = data?.error || "Error al guardar";
+          
+          if (errorMessage.includes("CONFIRMACION_MISMO_EQUIPO")) {
+            errorMessage = "No puedes confirmar un resultado reportado por tu compañero de equipo. Solo los jugadores del equipo contrario pueden confirmar.";
+          } else if (errorMessage.includes("UNAUTHORIZED")) {
+            errorMessage = "No tienes permisos para realizar esta acción.";
+          } else if (errorMessage.includes("MATCH_ALREADY_CONFIRMED")) {
+            errorMessage = "Este resultado ya ha sido confirmado.";
+          } else if (errorMessage.includes("INVALID_REPORTER")) {
+            errorMessage = "Solo los jugadores de este set pueden reportar resultados.";
+          }
+          
+          setErrors({ general: errorMessage });
+          console.error("Error en match update:", errorMessage, data);
           return;
         }
 
-        if (isAdmin) {
-          router.refresh();
-          setTimeout(() => {
-            router.push(`/admin/rounds/${match.round.id}`);
-          }, 100);
-        } else {
-          router.refresh();
+        // Mostrar mensaje de éxito específico según la acción
+        if (action === "confirm") {
+          showSuccess("¡Resultado confirmado exitosamente! El set ha quedado registrado.");
+        } else if (action === "report") {
+          showSuccess("¡Resultado reportado! Esperando confirmación del compañero.");
+        } else if (action === "admin_edit") {
+          showSuccess("Resultado guardado como administrador.");
         }
+
+        // Actualizar después del mensaje
+        setTimeout(() => {
+          if (isAdmin) {
+            router.refresh();
+            setTimeout(() => {
+              router.push(`/admin/rounds/${match.round.id}`);
+            }, 100);
+          } else {
+            router.refresh();
+          }
+        }, 1500);
+
       } catch {
         setErrors({ general: "Error de conexión" });
       }
@@ -285,8 +326,17 @@ export default function MatchDetailClient({
                         disabled={isPending}
                         className="flex-1"
                       >
-                        <CheckCircle className="w-4 h-4 mr-2" />
-                        Confirmar Resultado
+                        {isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Confirmando...
+                          </>
+                        ) : (
+                          <>
+                            <CheckCircle className="w-4 h-4 mr-2" />
+                            Confirmar Resultado
+                          </>
+                        )}
                       </Button>
                       <Button
                         variant="outline"
@@ -294,10 +344,29 @@ export default function MatchDetailClient({
                         className="flex-1"
                         disabled={isPending}
                       >
-                        Reportar Error
+                        {isPending ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Procesando...
+                          </>
+                        ) : (
+                          "Reportar Error"
+                        )}
                       </Button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {isParticipant && currentUserId === match.reportedById && (
+                <div className="p-4 bg-blue-100 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Info className="w-4 h-4 text-blue-600" />
+                    <span className="font-medium text-blue-800">Tu resultado está pendiente</span>
+                  </div>
+                  <p className="text-sm text-blue-700">
+                    Has reportado este resultado. Esperando que tu compañero lo confirme.
+                  </p>
                 </div>
               )}
 
@@ -309,8 +378,17 @@ export default function MatchDetailClient({
                     variant="outline"
                     className="w-full"
                   >
-                    <Save className="w-4 h-4 mr-2" />
-                    Confirmar como Admin
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Procesando...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        Confirmar como Admin
+                      </>
+                    )}
                   </Button>
                 </div>
               )}
@@ -343,7 +421,7 @@ export default function MatchDetailClient({
             </CardHeader>
             <CardContent className="space-y-4">
               {errors.general && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
+                <div data-error-display className="p-3 bg-red-50 border border-red-200 rounded text-red-600 text-sm">
                   {errors.general}
                 </div>
               )}
@@ -425,8 +503,17 @@ export default function MatchDetailClient({
                     className="flex-1"
                     size="lg"
                   >
-                    <Trophy className="w-4 h-4 mr-2" />
-                    Reportar Resultado
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Reportando...
+                      </>
+                    ) : (
+                      <>
+                        <Trophy className="w-4 h-4 mr-2" />
+                        Reportar Resultado
+                      </>
+                    )}
                   </Button>
                 )}
                 {isAdmin && (
@@ -436,8 +523,17 @@ export default function MatchDetailClient({
                     disabled={isPending}
                     className="flex-1"
                   >
-                    <Save className="w-4 h-4 mr-2" />
-                    Guardar como Admin
+                    {isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Guardando...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="w-4 h-4 mr-2" />
+                        Guardar como Admin
+                      </>
+                    )}
                   </Button>
                 )}
               </div>
@@ -450,6 +546,35 @@ export default function MatchDetailClient({
   return (
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="container mx-auto px-4 max-w-4xl space-y-6">
+        {/* Debug: Error flotante siempre visible */}
+        {errors.general && (
+          <div className="fixed top-16 left-4 right-4 z-50 p-4 bg-red-100 border-2 border-red-400 rounded-lg shadow-xl">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-6 h-6 text-red-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <div className="font-bold text-red-900 mb-1">Error</div>
+                <div className="text-red-800">{errors.general}</div>
+              </div>
+              <button
+                onClick={() => setErrors({})}
+                className="text-red-600 hover:text-red-800 flex-shrink-0"
+              >
+                ×
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Mensaje de éxito flotante */}
+        {showSuccessMessage && (
+          <div className="fixed top-4 right-4 z-50 bg-green-100 border border-green-300 rounded-lg p-4 shadow-lg animate-in slide-in-from-right duration-300">
+            <div className="flex items-center gap-2 text-green-700">
+              <CheckCircle className="w-5 h-5" />
+              <span className="font-medium">{successMessage}</span>
+            </div>
+          </div>
+        )}
+
         {/* Navegación */}
         <div className="flex items-center justify-between">
           <button

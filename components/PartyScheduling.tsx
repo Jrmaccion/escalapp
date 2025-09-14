@@ -1,4 +1,4 @@
-// components/PartyScheduling.tsx - VERSIÓN EXTENDIDA CON CONTROLES ADMIN
+// components/PartyScheduling.tsx - VERSIÓN COMPLETA CON TODAS LAS FUNCIONALIDADES
 "use client";
 
 import { useState, useTransition, useEffect } from "react";
@@ -21,7 +21,9 @@ import {
   RefreshCw,
   Shield,
   Zap,
-  Ban
+  Ban,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
@@ -55,7 +57,7 @@ type PartySchedulingProps = {
   groupId?: string;
   currentUserId: string;
   isParticipant: boolean;
-  isAdmin?: boolean; // 🔧 NUEVO: Detección de admin
+  isAdmin?: boolean;
   onUpdate: () => void;
   showCompactView?: boolean;
   enableRefresh?: boolean;
@@ -66,26 +68,24 @@ export default function PartyScheduling({
   groupId,
   currentUserId,
   isParticipant,
-  isAdmin = false, // 🔧 NUEVO
+  isAdmin = false,
   onUpdate,
   showCompactView = false,
   enableRefresh = true
 }: PartySchedulingProps) {
   const [isPending, startTransition] = useTransition();
   const [showDateForm, setShowDateForm] = useState(false);
-  const [showAdminControls, setShowAdminControls] = useState(false); // 🔧 NUEVO
+  const [showAdminControls, setShowAdminControls] = useState(false);
   const [proposedDate, setProposedDate] = useState("");
   const [proposedTime, setProposedTime] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [internalParty, setInternalParty] = useState<PartyInfo | null>(externalParty || null);
   const [isLoading, setIsLoading] = useState(false);
 
-  // 🔧 NUEVOS: Estados para controles admin
+  // Estados para controles admin
   const [adminSkipApproval, setAdminSkipApproval] = useState(false);
   const [adminForceScheduled, setAdminForceScheduled] = useState(false);
   const [adminNotifyPlayers, setAdminNotifyPlayers] = useState(true);
-
-  // ... (mantener lógica existente de loadPartyData, etc.)
 
   const party = externalParty || internalParty;
   const shouldLoadData = !externalParty && groupId && !internalParty;
@@ -142,7 +142,7 @@ export default function PartyScheduling({
   const playedSets = party?.sets.filter(s => s.hasResult && !s.isConfirmed).length || 0;
   const totalSets = party?.sets.length || 0;
 
-  // 🔧 NUEVO: Manejar propuesta de fecha (con lógica admin)
+  // Manejar propuesta de fecha (con lógica admin)
   const handleProposeDate = () => {
     if (!proposedDate || !proposedTime || !effectiveGroupId) {
       setError("Selecciona fecha y hora");
@@ -164,7 +164,7 @@ export default function PartyScheduling({
           message: `Fecha propuesta para el partido del Grupo ${party?.groupNumber}`,
         };
 
-        // 🔧 NUEVO: Añadir opciones de admin si es necesario
+        // Añadir opciones de admin si es necesario
         if (isAdmin && (adminSkipApproval || adminForceScheduled || !adminNotifyPlayers)) {
           payload.adminOptions = {
             skipApproval: adminSkipApproval,
@@ -214,7 +214,7 @@ export default function PartyScheduling({
     });
   };
 
-  // 🔧 NUEVO: Cancelar fecha (solo admin)
+  // Cancelar fecha (solo admin)
   const handleAdminCancel = () => {
     if (!effectiveGroupId) return;
     
@@ -254,7 +254,7 @@ export default function PartyScheduling({
     });
   };
 
-  // 🔧 NUEVO: Forzar programación (solo admin)
+  // Forzar programación (solo admin)
   const handleAdminForceSchedule = () => {
     if (!proposedDate || !proposedTime || !effectiveGroupId) {
       setError("Selecciona fecha y hora para forzar programación");
@@ -528,7 +528,7 @@ export default function PartyScheduling({
             </div>
           </div>
 
-          {/* 🔧 NUEVO: Controles específicos de admin */}
+          {/* Controles específicos de admin */}
           {isAdmin && (
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 space-y-3">
               <div className="flex items-center justify-between">
@@ -540,7 +540,9 @@ export default function PartyScheduling({
                   variant="outline"
                   size="sm"
                   onClick={() => setShowAdminControls(!showAdminControls)}
+                  className="flex items-center gap-1"
                 >
+                  {showAdminControls ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                   {showAdminControls ? "Ocultar" : "Mostrar"}
                 </Button>
               </div>
@@ -584,7 +586,7 @@ export default function PartyScheduling({
           {(isParticipant || isAdmin) && (
             <div className="flex flex-wrap gap-2">
               {party.scheduleStatus === "PENDING" && !isAdmin && (
-                <Button size="sm" onClick={() => setShowDateForm((v) => !v)} disabled={isPending}>
+                <Button size="sm" onClick={() => setShowDateForm(!showDateForm)} disabled={isPending}>
                   <CalendarPlus className="w-4 h-4 mr-2" />
                   Proponer fecha
                 </Button>
@@ -641,7 +643,7 @@ export default function PartyScheduling({
                 </div>
               </div>
 
-              {/* 🔧 NUEVO: Opciones específicas de admin */}
+              {/* Opciones específicas de admin */}
               {isAdmin && (
                 <div className="space-y-3 bg-blue-100 p-3 rounded border border-blue-300">
                   <div className="text-sm font-medium text-blue-900">Opciones de Admin</div>

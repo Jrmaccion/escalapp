@@ -46,6 +46,11 @@
 \app\admin\tournaments\create\page.tsx
 \app\admin\tournaments\page.tsx
 \app\admin\tournaments\TournamentsClient.tsx
+\app\admin\users
+\app\admin\users\[userId]
+\app\admin\users\[userId]\page.tsx
+\app\admin\users\[userId]\ResetPasswordForm.tsx
+\app\admin\users\page.tsx
 \app\api
 \app\api\admin
 \app\api\admin\players
@@ -58,6 +63,10 @@
 \app\api\admin\tournaments\[id]
 \app\api\admin\tournaments\[id]\stats
 \app\api\admin\tournaments\[id]\stats\route.ts
+\app\api\admin\users
+\app\api\admin\users\[userId]
+\app\api\admin\users\[userId]\password
+\app\api\admin\users\[userId]\password\route.ts
 \app\api\auth
 \app\api\auth\[...nextauth]
 \app\api\auth\[...nextauth]\route.ts
@@ -101,6 +110,8 @@
 \app\api\player\group\route.ts
 \app\api\player\historial
 \app\api\player\historial\route.ts
+\app\api\player\notifications
+\app\api\player\notifications\route.ts
 \app\api\public
 \app\api\public\rankings
 \app\api\public\rankings\route.ts
@@ -213,6 +224,8 @@
 \components\player\UseComodinButton.tsx
 \components\PublicHome.tsx
 \components\RoundsMatchesOverview.tsx
+\components\Toast
+\components\Toast\useToast.tsx
 \components\tournament
 \components\tournament\TournamentTimeline.tsx
 \components\TournamentSelector.tsx
@@ -277,6 +290,8 @@
 \prisma\migrations\20250905230731_round_add_updated_at\migration.sql.bak
 \prisma\migrations\20250905232250_nueva
 \prisma\migrations\20250905232250_nueva\migration.sql
+\prisma\migrations\20250913093821_player_notifications_read_at
+\prisma\migrations\20250913093821_player_notifications_read_at\migration.sql
 \prisma\migrations\migration_lock.toml
 \prisma\prisma
 \prisma\schema.prisma
@@ -285,6 +300,7 @@
 \scripts
 \scripts\cleanup-residuos.js
 \scripts\create-admin.ts
+\scripts\debug-login-issue.ts
 \scripts\fix-imports.js
 \scripts\genera-estructura.js
 \scripts\verify-integrity.ts

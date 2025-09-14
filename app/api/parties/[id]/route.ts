@@ -1,232 +1,417 @@
-// /app/api/parties/[id]/route.ts - VERSIÓN EXTENDIDA CON FUNCIONALIDAD ADMIN
-import { NextResponse } from "next/server";
+// app/api/parties/[id]/route.ts - VERSIÓN CORREGIDA
+import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import { authOptions } from "../../../../lib/auth";
-import { PartyManager } from "../../../../lib/party-manager";
-import { prisma } from "../../../../lib/prisma";
+import { authOptions } from "@/lib/auth";
+import { PartyManager } from "@/lib/party-manager";
 
-type Params = { params: { id: string } };
+type RouteParams = { params: { id: string } };
 
-// Helper: resolver userId de forma segura (id en sesión o lookup por email)
-async function resolveUserId() {
-  const session = await getServerSession(authOptions);
-  const u = session?.user as { id?: string; email?: string | null; isAdmin?: boolean } | undefined;
-  let userId: string | null = u?.id ?? null;
-
-  if (!userId && u?.email) {
-    const dbUser = await prisma.user.findUnique({
-      where: { email: u.email },
-      select: { id: true },
-    });
-    userId = dbUser?.id ?? null;
-  }
-
-  return { 
-    userId, 
-    session,
-    isAdmin: Boolean(u?.isAdmin)
-  };
-}
-
-// GET: obtener el partido (los 3 sets del grupo)
-export async function GET(_req: Request, { params }: Params) {
+/**
+ * GET - Obtener información del partido (3 sets) de un grupo
+ */
+export async function GET(request: NextRequest, { params }: RouteParams) {
   try {
-    const { userId } = await resolveUserId();
-    const groupId = params.id;
-
-    const party = await PartyManager.getParty(groupId, userId);
-    if (!party) {
-      return NextResponse.json({ success: false, error: "Partido no encontrado" }, { status: 404 });
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
-    return NextResponse.json({ success: true, party });
-  } catch (err: any) {
+
+    const groupId = params.id; // <- CORRECCIÓN: usar params.id
+    const currentUserId = session.user.id;
+
+    console.log(`[GET /api/parties/${groupId}] Usuario: ${currentUserId}`);
+
+    // VALIDACIÓN CRÍTICA
+    if (!groupId || groupId === 'undefined') {
+      console.error(`[GET /api/parties] GroupId inválido: ${groupId}`);
+      return NextResponse.json({
+        error: "ID de grupo requerido"
+      }, { status: 400 });
+    }
+
+    const party = await PartyManager.getParty(groupId, currentUserId);
+
+    if (!party) {
+      console.warn(`[GET /api/parties/${groupId}] Partido no encontrado`);
+      return NextResponse.json({
+        error: "Partido no encontrado o no tienes acceso"
+      }, { status: 404 });
+    }
+
+    console.log(`[GET /api/parties/${groupId}] Partido encontrado exitosamente`);
+
+    return NextResponse.json({
+      success: true,
+      party: {
+        groupId: party.groupId,
+        groupNumber: party.groupNumber,
+        roundNumber: party.roundNumber,
+        roundId: party.roundId,
+        players: party.players,
+        sets: party.sets,
+        schedule: {
+          status: party.status,
+          proposedDate: party.proposedDate?.toISOString() || null,
+          acceptedDate: party.acceptedDate?.toISOString() || null,
+          proposedBy: party.proposedBy,
+          acceptedBy: party.acceptedBy,
+          acceptedCount: party.acceptedCount,
+          totalPlayersNeeded: party.totalPlayersNeeded,
+          proposedByCurrentUser: party.proposedByCurrentUser
+        },
+        progress: {
+          totalSets: party.totalSets,
+          completedSets: party.completedSets,
+          playedSets: party.playedSets,
+          pendingSets: party.pendingSets,
+          isComplete: party.isComplete
+        }
+      }
+    });
+  } catch (error) {
+    console.error(`[GET /api/parties/${params.id}] Error:`, error);
     return NextResponse.json(
-      { success: false, error: err?.message ?? "Error inesperado" },
+      { error: "Error interno del servidor" },
       { status: 500 }
     );
   }
 }
 
-// POST: proponer fecha para el partido (con detección de admin)
-export async function POST(req: Request, { params }: Params) {
+/**
+ * POST - Proponer fecha para el partido completo
+ */
+export async function POST(request: NextRequest, { params }: RouteParams) {
   try {
-    const { userId, isAdmin } = await resolveUserId();
-    if (!userId) {
-      return NextResponse.json({ success: false, error: "No autenticado" }, { status: 401 });
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { proposedDate, adminOptions } = body;
+    const groupId = params.id; // <- CORRECCIÓN: usar params.id
+    const currentUserId = session.user.id;
+    const isAdmin = (session.user as any).isAdmin === true;
+
+    // VALIDACIÓN CRÍTICA
+    if (!groupId || groupId === 'undefined') {
+      console.error(`[POST /api/parties] GroupId inválido: ${groupId}`);
+      return NextResponse.json({
+        error: "ID de grupo requerido"
+      }, { status: 400 });
+    }
+
+    const body = await request.json();
+    const { proposedDate, message } = body;
 
     if (!proposedDate) {
-      return NextResponse.json({ success: false, error: "Falta proposedDate" }, { status: 400 });
-    }
-
-    const when = new Date(proposedDate);
-    if (isNaN(when.getTime()) || when <= new Date()) {
       return NextResponse.json(
-        { success: false, error: "Fecha inválida o no futura" },
+        { error: "Fecha propuesta requerida" },
         { status: 400 }
       );
     }
 
-    const groupId = params.id;
-
-    // 🔧 NUEVO: Lógica específica para admin
-    if (isAdmin && adminOptions) {
-      const { 
-        skipApproval = false, 
-        forceScheduled = false, 
-        notifyPlayers = true 
-      } = adminOptions;
-
-      const res = await PartyManager.adminSetPartyDate(groupId, when, userId, {
-        skipApproval,
-        forceScheduled,
-        notifyPlayers
-      });
-
+    const dateObj = new Date(proposedDate);
+    if (isNaN(dateObj.getTime())) {
       return NextResponse.json(
-        { 
-          success: res.success, 
-          message: res.message, 
-          party: res.party,
-          adminAction: true
+        { error: "Fecha inválida" },
+        { status: 400 }
+      );
+    }
+
+    if (dateObj <= new Date()) {
+      return NextResponse.json(
+        { error: "La fecha debe ser futura" },
+        { status: 400 }
+      );
+    }
+
+    console.log(`[POST /api/parties/${groupId}] Propuesta de fecha: ${proposedDate} por ${currentUserId}`);
+
+    const result = await PartyManager.proposePartyDate(
+      groupId,
+      dateObj,
+      currentUserId,
+      isAdmin
+    );
+
+    if (!result.success) {
+      return NextResponse.json(
+        { error: result.message },
+        { status: 400 }
+      );
+    }
+
+    // Formatear respuesta
+    const party = result.party;
+    const response = {
+      success: true,
+      message: result.message,
+      party: party ? {
+        groupId: party.groupId,
+        groupNumber: party.groupNumber,
+        roundNumber: party.roundNumber,
+        roundId: party.roundId,
+        players: party.players,
+        sets: party.sets,
+        schedule: {
+          status: party.status,
+          proposedDate: party.proposedDate?.toISOString() || null,
+          acceptedDate: party.acceptedDate?.toISOString() || null,
+          proposedBy: party.proposedBy,
+          acceptedBy: party.acceptedBy,
+          acceptedCount: party.acceptedCount,
+          totalPlayersNeeded: party.totalPlayersNeeded,
+          proposedByCurrentUser: party.proposedByCurrentUser
         },
-        { status: res.success ? 200 : 400 }
-      );
-    }
+        progress: {
+          totalSets: party.totalSets,
+          completedSets: party.completedSets,
+          playedSets: party.playedSets,
+          pendingSets: party.pendingSets,
+          isComplete: party.isComplete
+        }
+      } : null
+    };
 
-    // Flujo normal para jugadores (con detección de admin)
-    const res = await PartyManager.proposePartyDate(groupId, when, userId, isAdmin);
+    return NextResponse.json(response);
+  } catch (error) {
+    console.error(`[POST /api/parties/${params.id}] Error:`, error);
     return NextResponse.json(
-      { success: res.success, message: res.message, party: res.party },
-      { status: res.success ? 200 : 400 }
-    );
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err?.message ?? "Error inesperado" },
+      { error: "Error interno del servidor" },
       { status: 500 }
     );
   }
 }
 
-// PATCH: responder a la propuesta (accept | reject) + nuevas acciones admin
-export async function PATCH(req: Request, { params }: Params) {
+/**
+ * PATCH - Responder a propuesta de fecha (aceptar/rechazar)
+ */
+export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
-    const { userId, isAdmin } = await resolveUserId();
-    if (!userId) {
-      return NextResponse.json({ success: false, error: "No autenticado" }, { status: 401 });
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    const body = await req.json();
-    const { action, adminAction } = body;
+    const groupId = params.id; // <- CORRECCIÓN: usar params.id
+    const currentUserId = session.user.id;
+    const isAdmin = (session.user as any).isAdmin === true;
 
-    const groupId = params.id;
-
-    // 🔧 NUEVO: Acciones específicas de admin
-    if (isAdmin && adminAction) {
-      switch (action) {
-        case "admin_cancel":
-          const cancelRes = await PartyManager.adminCancelPartyDate(groupId, userId);
-          return NextResponse.json(
-            { 
-              success: cancelRes.success, 
-              message: cancelRes.message, 
-              party: cancelRes.party,
-              adminAction: true
-            },
-            { status: cancelRes.success ? 200 : 400 }
-          );
-
-        case "admin_force_schedule":
-          const { forcedDate } = body;
-          if (!forcedDate) {
-            return NextResponse.json(
-              { success: false, error: "Falta forcedDate para admin_force_schedule" },
-              { status: 400 }
-            );
-          }
-
-          const forceRes = await PartyManager.adminSetPartyDate(
-            groupId, 
-            new Date(forcedDate), 
-            userId, 
-            { forceScheduled: true }
-          );
-          return NextResponse.json(
-            { 
-              success: forceRes.success, 
-              message: forceRes.message, 
-              party: forceRes.party,
-              adminAction: true
-            },
-            { status: forceRes.success ? 200 : 400 }
-          );
-
-        default:
-          return NextResponse.json(
-            { success: false, error: "Acción de admin no válida" },
-            { status: 400 }
-          );
-      }
+    // VALIDACIÓN CRÍTICA
+    if (!groupId || groupId === 'undefined') {
+      console.error(`[PATCH /api/parties] GroupId inválido: ${groupId}`);
+      return NextResponse.json({
+        error: "ID de grupo requerido"
+      }, { status: 400 });
     }
 
-    // Flujo normal para respuestas de jugadores
-    if (action !== "accept" && action !== "reject") {
+    const body = await request.json();
+    const { action, adminAction, forcedDate } = body;
+
+    if (!["accept", "reject", "admin_force_schedule"].includes(action)) {
       return NextResponse.json(
-        { success: false, error: "Acción inválida (accept|reject)" },
+        { error: "Acción inválida" },
         { status: 400 }
       );
     }
 
-    const res = await PartyManager.respondToPartyDate(groupId, action, userId);
-    return NextResponse.json(
-      { success: res.success, message: res.message, party: res.party },
-      { status: res.success ? 200 : 400 }
+    console.log(`[PATCH /api/parties/${groupId}] Acción: ${action} por ${currentUserId}`);
+
+    // Manejo de acciones de admin
+    if (action === "admin_force_schedule" && isAdmin && adminAction) {
+      if (!forcedDate) {
+        return NextResponse.json(
+          { error: "Fecha requerida para forzar programación" },
+          { status: 400 }
+        );
+      }
+
+      const dateObj = new Date(forcedDate);
+      if (isNaN(dateObj.getTime())) {
+        return NextResponse.json(
+          { error: "Fecha inválida" },
+          { status: 400 }
+        );
+      }
+
+      const result = await PartyManager.adminSetPartyDate(
+        groupId,
+        dateObj,
+        currentUserId,
+        {
+          skipApproval: true,
+          forceScheduled: true,
+          notifyPlayers: true
+        }
+      );
+
+      if (!result.success) {
+        return NextResponse.json(
+          { error: result.message },
+          { status: 400 }
+        );
+      }
+
+      const party = result.party;
+      return NextResponse.json({
+        success: true,
+        message: result.message,
+        party: party ? {
+          groupId: party.groupId,
+          groupNumber: party.groupNumber,
+          roundNumber: party.roundNumber,
+          roundId: party.roundId,
+          players: party.players,
+          sets: party.sets,
+          schedule: {
+            status: party.status,
+            proposedDate: party.proposedDate?.toISOString() || null,
+            acceptedDate: party.acceptedDate?.toISOString() || null,
+            proposedBy: party.proposedBy,
+            acceptedBy: party.acceptedBy,
+            acceptedCount: party.acceptedCount,
+            totalPlayersNeeded: party.totalPlayersNeeded,
+            proposedByCurrentUser: party.proposedByCurrentUser
+          },
+          progress: {
+            totalSets: party.totalSets,
+            completedSets: party.completedSets,
+            playedSets: party.playedSets,
+            pendingSets: party.pendingSets,
+            isComplete: party.isComplete
+          }
+        } : null
+      });
+    }
+
+    // Acciones normales de jugadores
+    const result = await PartyManager.respondToPartyDate(
+      groupId,
+      action as "accept" | "reject",
+      currentUserId
     );
-  } catch (err: any) {
+
+    if (!result.success) {
+      return NextResponse.json(
+        { error: result.message },
+        { status: 400 }
+      );
+    }
+
+    const party = result.party;
+    const response = {
+      success: true,
+      message: result.message,
+      party: party ? {
+        groupId: party.groupId,
+        groupNumber: party.groupNumber,
+        roundNumber: party.roundNumber,
+        roundId: party.roundId,
+        players: party.players,
+        sets: party.sets,
+        schedule: {
+          status: party.status,
+          proposedDate: party.proposedDate?.toISOString() || null,
+          acceptedDate: party.acceptedDate?.toISOString() || null,
+          proposedBy: party.proposedBy,
+          acceptedBy: party.acceptedBy,
+          acceptedCount: party.acceptedCount,
+          totalPlayersNeeded: party.totalPlayersNeeded,
+          proposedByCurrentUser: party.proposedByCurrentUser
+        },
+        progress: {
+          totalSets: party.totalSets,
+          completedSets: party.completedSets,
+          playedSets: party.playedSets,
+          pendingSets: party.pendingSets,
+          isComplete: party.isComplete
+        }
+      } : null
+    };
+
+    return NextResponse.json(response);
+  } catch (error) {
+    console.error(`[PATCH /api/parties/${params.id}] Error:`, error);
     return NextResponse.json(
-      { success: false, error: err?.message ?? "Error inesperado" },
+      { error: "Error interno del servidor" },
       { status: 500 }
     );
   }
 }
 
-// 🔧 NUEVO: DELETE - Cancelar/resetear fecha (solo admin)
-export async function DELETE(_req: Request, { params }: Params) {
+/**
+ * DELETE - Cancelar fecha programada (solo admin)
+ */
+export async function DELETE(request: NextRequest, { params }: RouteParams) {
   try {
-    const { userId, isAdmin } = await resolveUserId();
-    
+    const session = await getServerSession(authOptions);
+    if (!session?.user) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
+
+    const groupId = params.id; // <- CORRECCIÓN: usar params.id
+    const currentUserId = session.user.id;
+    const isAdmin = (session.user as any).isAdmin === true;
+
     if (!isAdmin) {
       return NextResponse.json(
-        { success: false, error: "Solo admins pueden cancelar fechas" },
+        { error: "Solo administradores pueden cancelar fechas" },
         { status: 403 }
       );
     }
 
-    if (!userId) {
+    // VALIDACIÓN CRÍTICA
+    if (!groupId || groupId === 'undefined') {
+      console.error(`[DELETE /api/parties] GroupId inválido: ${groupId}`);
+      return NextResponse.json({
+        error: "ID de grupo requerido"
+      }, { status: 400 });
+    }
+
+    console.log(`[DELETE /api/parties/${groupId}] Cancelación por admin: ${currentUserId}`);
+
+    const result = await PartyManager.adminCancelPartyDate(groupId, currentUserId);
+
+    if (!result.success) {
       return NextResponse.json(
-        { success: false, error: "No autenticado" },
-        { status: 401 }
+        { error: result.message },
+        { status: 400 }
       );
     }
 
-    const groupId = params.id;
-    const res = await PartyManager.adminCancelPartyDate(groupId, userId);
-    
+    const party = result.party;
+    return NextResponse.json({
+      success: true,
+      message: result.message,
+      party: party ? {
+        groupId: party.groupId,
+        groupNumber: party.groupNumber,
+        roundNumber: party.roundNumber,
+        roundId: party.roundId,
+        players: party.players,
+        sets: party.sets,
+        schedule: {
+          status: party.status,
+          proposedDate: party.proposedDate?.toISOString() || null,
+          acceptedDate: party.acceptedDate?.toISOString() || null,
+          proposedBy: party.proposedBy,
+          acceptedBy: party.acceptedBy,
+          acceptedCount: party.acceptedCount,
+          totalPlayersNeeded: party.totalPlayersNeeded,
+          proposedByCurrentUser: party.proposedByCurrentUser
+        },
+        progress: {
+          totalSets: party.totalSets,
+          completedSets: party.completedSets,
+          playedSets: party.playedSets,
+          pendingSets: party.pendingSets,
+          isComplete: party.isComplete
+        }
+      } : null
+    });
+  } catch (error) {
+    console.error(`[DELETE /api/parties/${params.id}] Error:`, error);
     return NextResponse.json(
-      { 
-        success: res.success, 
-        message: res.message, 
-        party: res.party,
-        adminAction: true
-      },
-      { status: res.success ? 200 : 400 }
-    );
-  } catch (err: any) {
-    return NextResponse.json(
-      { success: false, error: err?.message ?? "Error inesperado" },
+      { error: "Error interno del servidor" },
       { status: 500 }
     );
   }

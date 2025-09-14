@@ -1,6 +1,5 @@
-// hooks/useComodin.ts - VERSIÓN MEJORADA COMPLETA
+// hooks/useComodin.ts - VERSIÓN SIMPLIFICADA SIN DEPENDENCIAS CIRCULARES
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { comodinApi, ComodinStatus } from '@/lib/api/comodin.client';
 
 export type EligiblePlayer = {
   id: string;
@@ -8,176 +7,286 @@ export type EligiblePlayer = {
   groupNumber: number;
 };
 
-// Estados específicos de loading
-type LoadingStates = {
-  status: boolean;
-  applying: boolean;
-  revoking: boolean;
-  substitutes: boolean;
-};
-
-// Tipo para resultados de operaciones
-type OperationResult = {
-  success: boolean;
-  data?: any;
-  error?: string;
-};
-
-// Mapeo de errores específicos a mensajes amigables
-const getErrorMessage = (error: string): string => {
-  const errorMappings: Record<string, string> = {
-    'CONCURRENT_MODIFICATION': 'Los datos han cambiado. Refresca la página e intenta de nuevo.',
-    'COMODIN_LIMIT_REACHED': 'Has alcanzado el límite de comodines para este torneo.',
-    'CONFIRMED_MATCHES_EXIST': 'No puedes usar comodín: ya tienes partidos confirmados.',
-    'UPCOMING_MATCHES_EXIST': 'No puedes usar comodín: tienes partidos programados en menos de 24 horas.',
-    'SUBSTITUTE_ALREADY_SUBBING': 'Este jugador ya actúa como suplente de otro jugador.',
-    'SUBSTITUTE_USED_COMODIN': 'El suplente ya ha usado comodín y no puede actuar como suplente.',
-    'SUBSTITUTE_LIMIT_REACHED': 'El suplente ha alcanzado el límite de apariciones.',
-    'ROUND_CLOSED': 'No se puede usar comodín en una ronda cerrada.',
-    'MEAN_COMODIN_DISABLED': 'El comodín de media está deshabilitado en este torneo.',
-    'SUBSTITUTE_COMODIN_DISABLED': 'El comodín de sustituto está deshabilitado en este torneo.',
+export type ComodinStatus = {
+  used: boolean;
+  usedAt: string | null;
+  reason: string | null;
+  tournamentId: string;
+  roundId: string;
+  playerId: string;
+  comodinesUsedInTournament: number;
+  comodinesRemainingInTournament: number;
+  canUse: boolean;
+  canRevoke: boolean;
+  restrictionReason?: string | null;
+  mode?: "mean" | "substitute" | null;
+  points?: number;
+  substitutePlayer?: string | null;
+  tournamentInfo?: {
+    maxComodines: number;
+    comodinesUsed: number;
+    comodinesRemaining: number;
+    enableMeanComodin?: boolean;
+    enableSubstituteComodin?: boolean;
   };
+};
 
-  // Buscar coincidencias en el mensaje de error
-  for (const [key, message] of Object.entries(errorMappings)) {
-    if (error.includes(key)) {
-      return message;
-    }
+type UseComodinReturn = {
+  // Estado
+  status: ComodinStatus | null;
+  eligiblePlayers: EligiblePlayer[];
+  error: string | null;
+  message: string | null;
+  
+  // Estados de loading
+  isLoading: boolean;
+  isApplying: boolean;
+  isRevoking: boolean;
+  isLoadingSubstitutes: boolean;
+  
+  // Funciones
+  loadStatus: () => Promise<void>;
+  loadEligiblePlayers: () => Promise<void>;
+  applyComodin: (mode: 'mean' | 'substitute', substituteId?: string) => Promise<{ success: boolean; error?: string }>;
+  revokeComodin: () => Promise<{ success: boolean; error?: string }>;
+  clearMessages: () => void;
+  
+  // Helpers
+  canUse: boolean;
+  isUsed: boolean;
+  canRevoke: boolean;
+  mode: string | null;
+  points: number;
+  substitutePlayer: string | null;
+  comodinesConfig: any;
+  
+  // Validaciones
+  canUseMode: (mode: 'mean' | 'substitute') => boolean;
+  getModeDisabledReason: (mode: 'mean' | 'substitute') => string | null;
+  validation: {
+    isValid: boolean;
+    issues: Array<{ type: 'error' | 'warning' | 'info'; message: string }>;
+    hasErrors: boolean;
+  };
+};
+
+const ERROR_MAPPINGS: Record<string, string> = {
+  'CONCURRENT_MODIFICATION': 'Los datos han cambiado. Refresca la página e intenta de nuevo.',
+  'COMODIN_LIMIT_REACHED': 'Has alcanzado el límite de comodines para este torneo.',
+  'CONFIRMED_MATCHES_EXIST': 'No puedes usar comodín: ya tienes partidos confirmados.',
+  'UPCOMING_MATCHES_EXIST': 'No puedes usar comodín: tienes partidos programados en menos de 24 horas.',
+  'ROUND_CLOSED': 'No se puede usar comodín en una ronda cerrada.',
+  'MEAN_COMODIN_DISABLED': 'El comodín de media está deshabilitado en este torneo.',
+  'SUBSTITUTE_COMODIN_DISABLED': 'El comodín de sustituto está deshabilitado en este torneo.',
+};
+
+const getErrorMessage = (error: string): string => {
+  for (const [key, message] of Object.entries(ERROR_MAPPINGS)) {
+    if (error.includes(key)) return message;
   }
-
   return error || 'Error desconocido';
 };
 
-export function useComodin(roundId: string) {
+// API calls simplificadas
+const comodinApi = {
+  getStatus: async (roundId: string): Promise<ComodinStatus> => {
+    const response = await fetch(`/api/comodin/status?roundId=${roundId}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Error al obtener estado');
+    }
+    return response.json();
+  },
+
+  applyMean: async (roundId: string) => {
+    const response = await fetch('/api/comodin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId, mode: 'mean' }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Error al aplicar comodín de media');
+    }
+    return response.json();
+  },
+
+  applySubstitute: async (roundId: string, substitutePlayerId: string) => {
+    const response = await fetch('/api/comodin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId, mode: 'substitute', substitutePlayerId }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Error al aplicar comodín de sustituto');
+    }
+    return response.json();
+  },
+
+  revoke: async (roundId: string) => {
+    const response = await fetch('/api/comodin/revoke', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ roundId }),
+    });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Error al revocar comodín');
+    }
+    return response.json();
+  },
+
+  eligibleSubstitutes: async (roundId: string) => {
+    const response = await fetch(`/api/comodin/eligible-substitutes?roundId=${roundId}`);
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw new Error(errorData.error || 'Error al obtener sustitutos');
+    }
+    return response.json();
+  },
+};
+
+export function useComodin(roundId: string): UseComodinReturn {
+  // Estados básicos
   const [status, setStatus] = useState<ComodinStatus | null>(null);
   const [eligiblePlayers, setEligiblePlayers] = useState<EligiblePlayer[]>([]);
-  const [loadingStates, setLoadingStates] = useState<LoadingStates>({
-    status: false,
-    applying: false,
-    revoking: false,
-    substitutes: false,
-  });
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  
+  // Estados de loading
+  const [isLoading, setIsLoading] = useState(false);
+  const [isApplying, setIsApplying] = useState(false);
+  const [isRevoking, setIsRevoking] = useState(false);
+  const [isLoadingSubstitutes, setIsLoadingSubstitutes] = useState(false);
 
-  // Función helper para manejar loading específico
-  const withLoading = useCallback(async <T,>(
-    operation: keyof LoadingStates,
-    fn: () => Promise<T>
-  ): Promise<T> => {
-    setLoadingStates(prev => ({ ...prev, [operation]: true }));
+  // Función para cargar estado
+  const loadStatus = useCallback(async () => {
+    if (!roundId) return;
+    
+    setIsLoading(true);
+    setError(null);
+    
     try {
-      return await fn();
-    } catch (err) {
-      throw err;
+      console.log(`🎲 Cargando estado comodín para ronda: ${roundId}`);
+      const data = await comodinApi.getStatus(roundId);
+      setStatus(data);
+      console.log(`✅ Estado comodín cargado:`, data);
+    } catch (err: any) {
+      const errorMessage = getErrorMessage(err.message);
+      console.error(`❌ Error cargando estado comodín:`, err);
+      setError(errorMessage);
+      setStatus(null);
     } finally {
-      setLoadingStates(prev => ({ ...prev, [operation]: false }));
+      setIsLoading(false);
     }
-  }, []);
+  }, [roundId]);
 
-  // Cargar estado inicial
-  const loadStatus = useCallback(async (): Promise<void> => {
+  // Función para cargar jugadores elegibles
+  const loadEligiblePlayers = useCallback(async () => {
     if (!roundId) return;
+    
+    setIsLoadingSubstitutes(true);
+    
+    try {
+      console.log(`👥 Cargando jugadores elegibles para ronda: ${roundId}`);
+      const data = await comodinApi.eligibleSubstitutes(roundId);
+      setEligiblePlayers(data.players || []);
+      console.log(`✅ Jugadores elegibles cargados: ${data.players?.length || 0}`);
+    } catch (err: any) {
+      console.warn(`⚠️ Error cargando jugadores elegibles:`, err);
+      setEligiblePlayers([]);
+    } finally {
+      setIsLoadingSubstitutes(false);
+    }
+  }, [roundId]);
 
-    await withLoading('status', async () => {
-      try {
-        setError(null);
-        const data = await comodinApi.getStatus(roundId);
-        setStatus(data);
-      } catch (err: any) {
-        const errorMessage = getErrorMessage(err.message || 'Error al cargar estado del comodín');
-        setError(errorMessage);
-        setStatus(null);
-      }
-    });
-  }, [roundId, withLoading]);
-
-  // Cargar jugadores elegibles
-  const loadEligiblePlayers = useCallback(async (): Promise<void> => {
-    if (!roundId) return;
-
-    await withLoading('substitutes', async () => {
-      try {
-        const data = await comodinApi.eligibleSubstitutes(roundId);
-        setEligiblePlayers(data.players || []);
-      } catch (err: any) {
-        console.warn('Error cargando jugadores elegibles:', err.message);
-        setEligiblePlayers([]);
-      }
-    });
-  }, [roundId, withLoading]);
-
-  // Aplicar comodín
+  // Función para aplicar comodín
   const applyComodin = useCallback(async (
     mode: 'mean' | 'substitute',
-    substitutePlayerId?: string
-  ): Promise<OperationResult> => {
+    substituteId?: string
+  ) => {
     if (!roundId) {
       return { success: false, error: 'No se especificó roundId' };
     }
 
-    return await withLoading('applying', async () => {
-      try {
-        setError(null);
-        setMessage(null);
+    setIsApplying(true);
+    setError(null);
+    setMessage(null);
 
-        let result;
-        if (mode === 'mean') {
-          result = await comodinApi.applyMean(roundId);
-          setMessage(`Comodín aplicado: ${result.points?.toFixed(1)} puntos asignados`);
-        } else if (mode === 'substitute' && substitutePlayerId) {
-          result = await comodinApi.applySubstitute(roundId, substitutePlayerId);
-          const substituteName = eligiblePlayers.find(p => p.id === substitutePlayerId)?.name;
-          setMessage(`Suplente asignado: ${substituteName} jugará por ti`);
-        } else {
-          throw new Error('Datos incompletos para aplicar comodín');
-        }
-
-        // Recargar estado
-        await loadStatus();
-        return { success: true, data: result };
-      } catch (err: any) {
-        const errorMsg = getErrorMessage(err.message || 'Error al aplicar comodín');
-        setError(errorMsg);
-        return { success: false, error: errorMsg };
+    try {
+      console.log(`🎯 Aplicando comodín ${mode} para ronda: ${roundId}`);
+      
+      let result;
+      if (mode === 'mean') {
+        result = await comodinApi.applyMean(roundId);
+        setMessage(`Comodín aplicado: ${result.points?.toFixed(1)} puntos asignados`);
+      } else if (mode === 'substitute' && substituteId) {
+        result = await comodinApi.applySubstitute(roundId, substituteId);
+        const substituteName = eligiblePlayers.find(p => p.id === substituteId)?.name;
+        setMessage(`Suplente asignado: ${substituteName} jugará por ti`);
+      } else {
+        throw new Error('Datos incompletos para aplicar comodín');
       }
-    });
-  }, [roundId, eligiblePlayers, loadStatus, withLoading]);
 
-  // Revocar comodín
-  const revokeComodin = useCallback(async (): Promise<OperationResult> => {
+      console.log(`✅ Comodín aplicado exitosamente:`, result);
+      
+      // Recargar estado después de 500ms
+      setTimeout(() => loadStatus(), 500);
+      
+      return { success: true };
+    } catch (err: any) {
+      const errorMsg = getErrorMessage(err.message);
+      console.error(`❌ Error aplicando comodín:`, err);
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    } finally {
+      setIsApplying(false);
+    }
+  }, [roundId, eligiblePlayers, loadStatus]);
+
+  // Función para revocar comodín
+  const revokeComodin = useCallback(async () => {
     if (!roundId) {
       return { success: false, error: 'No se especificó roundId' };
     }
 
-    return await withLoading('revoking', async () => {
-      try {
-        setError(null);
-        setMessage(null);
+    setIsRevoking(true);
+    setError(null);
+    setMessage(null);
 
-        const result = await comodinApi.revoke(roundId);
-        setMessage(result.message || 'Comodín revocado exitosamente');
-        
-        // Recargar estado
-        await loadStatus();
-        return { success: true, data: result };
-      } catch (err: any) {
-        const errorMsg = getErrorMessage(err.message || 'Error al revocar comodín');
-        setError(errorMsg);
-        return { success: false, error: errorMsg };
-      }
-    });
-  }, [roundId, loadStatus, withLoading]);
+    try {
+      console.log(`🔄 Revocando comodín para ronda: ${roundId}`);
+      const result = await comodinApi.revoke(roundId);
+      setMessage(result.message || 'Comodín revocado exitosamente');
+      console.log(`✅ Comodín revocado exitosamente`);
+      
+      // Recargar estado después de 500ms
+      setTimeout(() => loadStatus(), 500);
+      
+      return { success: true };
+    } catch (err: any) {
+      const errorMsg = getErrorMessage(err.message);
+      console.error(`❌ Error revocando comodín:`, err);
+      setError(errorMsg);
+      return { success: false, error: errorMsg };
+    } finally {
+      setIsRevoking(false);
+    }
+  }, [roundId, loadStatus]);
 
-  // Validar si puede usar un tipo específico de comodín
+  // Limpiar mensajes
+  const clearMessages = useCallback(() => {
+    setError(null);
+    setMessage(null);
+  }, []);
+
+  // Validar si puede usar un modo específico
   const canUseMode = useCallback((mode: 'mean' | 'substitute'): boolean => {
     if (!status?.canUse) return false;
     
-    // Si no hay tournamentInfo extendida, asumir que ambos están habilitados (compatibilidad)
-    if (!status.tournamentInfo) return true;
-    
-    // Verificar configuración específica si está disponible
-    const tournamentInfo = status.tournamentInfo as any;
+    const tournamentInfo = status.tournamentInfo;
+    if (!tournamentInfo) return true;
     
     if (mode === 'mean') {
       return tournamentInfo.enableMeanComodin !== false;
@@ -190,11 +299,11 @@ export function useComodin(roundId: string) {
     return true;
   }, [status]);
 
-  // Obtener mensaje explicativo para modo deshabilitado
+  // Obtener razón de modo deshabilitado
   const getModeDisabledReason = useCallback((mode: 'mean' | 'substitute'): string | null => {
     if (!status?.tournamentInfo) return 'Configuración no disponible';
     
-    const tournamentInfo = status.tournamentInfo as any;
+    const tournamentInfo = status.tournamentInfo;
     
     if (mode === 'mean' && tournamentInfo.enableMeanComodin === false) {
       return 'El comodín de media está deshabilitado en este torneo';
@@ -207,13 +316,9 @@ export function useComodin(roundId: string) {
     return null;
   }, [status]);
 
-  // Validaciones en tiempo real
+  // Cálculo de validaciones
   const validation = useMemo(() => {
-    const issues: Array<{
-      type: 'error' | 'warning' | 'info';
-      message: string;
-      field?: string;
-    }> = [];
+    const issues: Array<{ type: 'error' | 'warning' | 'info'; message: string }> = [];
 
     if (!status) {
       return { 
@@ -223,7 +328,6 @@ export function useComodin(roundId: string) {
       };
     }
 
-    // Validaciones generales
     if (!status.canUse) {
       issues.push({
         type: 'error',
@@ -231,7 +335,6 @@ export function useComodin(roundId: string) {
       });
     }
 
-    // Validaciones de límites
     if (status.tournamentInfo) {
       const remaining = status.tournamentInfo.comodinesRemaining;
       if (remaining <= 0) {
@@ -248,66 +351,50 @@ export function useComodin(roundId: string) {
     }
 
     const errors = issues.filter(i => i.type === 'error');
-    const isValid = errors.length === 0 && status.canUse;
-
-    return { isValid, issues, hasErrors: errors.length > 0 };
+    return { 
+      isValid: errors.length === 0 && status.canUse, 
+      issues, 
+      hasErrors: errors.length > 0 
+    };
   }, [status]);
 
-  // Datos de configuración memoizados
+  // Estados derivados
+  const canUse = status?.canUse || false;
+  const isUsed = status?.used || false;
+  const canRevoke = status?.canRevoke || false;
+  const mode = status?.mode || null;
+  const points = status?.points || 0;
+  const substitutePlayer = status?.substitutePlayer || null;
+
   const comodinesConfig = useMemo(() => {
     if (!status?.tournamentInfo) return null;
-
     return {
       maxComodines: status.tournamentInfo.maxComodines,
       comodinesUsed: status.tournamentInfo.comodinesUsed,
       comodinesRemaining: status.tournamentInfo.comodinesRemaining,
-      // Propiedades extendidas (cuando estén disponibles)
-      meanEnabled: (status.tournamentInfo as any).enableMeanComodin !== false,
-      substituteEnabled: (status.tournamentInfo as any).enableSubstituteComodin !== false,
+      meanEnabled: status.tournamentInfo.enableMeanComodin !== false,
+      substituteEnabled: status.tournamentInfo.enableSubstituteComodin !== false,
     };
   }, [status?.tournamentInfo]);
 
-  // Estado de loading consolidado
-  const isLoading = useMemo(() => {
-    return Object.values(loadingStates).some(Boolean);
-  }, [loadingStates]);
-
-  // Utilidades adicionales
-  const hasComodinesRemaining = useMemo(() => {
-    return status?.tournamentInfo ? status.tournamentInfo.comodinesRemaining > 0 : false;
-  }, [status?.tournamentInfo]);
-
-  // Efectos
+  // Cargar estado inicial
   useEffect(() => {
     if (roundId) {
+      console.log(`🎲 useComodin: Iniciando para roundId=${roundId}`);
       loadStatus();
     }
   }, [roundId, loadStatus]);
 
-  // Auto-limpiar mensajes después de 6 segundos
+  // Auto-limpiar mensajes después de 5 segundos
   useEffect(() => {
     if (message || error) {
       const timer = setTimeout(() => {
         setMessage(null);
         setError(null);
-      }, 6000);
+      }, 5000);
       return () => clearTimeout(timer);
     }
   }, [message, error]);
-
-  // Función para limpiar mensajes manualmente
-  const clearMessages = useCallback(() => {
-    setError(null);
-    setMessage(null);
-  }, []);
-
-  // Función de refresh manual
-  const refresh = useCallback(async () => {
-    await loadStatus();
-    if (eligiblePlayers.length > 0) {
-      await loadEligiblePlayers();
-    }
-  }, [loadStatus, loadEligiblePlayers, eligiblePlayers.length]);
 
   return {
     // Estado principal
@@ -316,39 +403,31 @@ export function useComodin(roundId: string) {
     error,
     message,
     
-    // Estados de loading específicos
-    loadingStates,
+    // Estados de loading
     isLoading,
+    isApplying,
+    isRevoking,
+    isLoadingSubstitutes,
     
-    // Funciones principales
+    // Funciones
     loadStatus,
     loadEligiblePlayers,
     applyComodin,
     revokeComodin,
+    clearMessages,
+    
+    // Estados derivados
+    canUse,
+    isUsed,
+    canRevoke,
+    mode,
+    points,
+    substitutePlayer,
+    comodinesConfig,
     
     // Validaciones
     canUseMode,
     getModeDisabledReason,
     validation,
-    
-    // Utilidades
-    clearMessages,
-    refresh,
-    hasComodinesRemaining,
-    comodinesConfig,
-    
-    // Helpers específicos
-    isStatusLoading: loadingStates.status,
-    isApplying: loadingStates.applying,
-    isRevoking: loadingStates.revoking,
-    isLoadingSubstitutes: loadingStates.substitutes,
-    
-    // Estados derivados
-    canUse: status?.canUse || false,
-    isUsed: status?.used || false,
-    canRevoke: status?.canRevoke || false,
-    mode: status?.mode || null,
-    points: status?.points || 0,
-    substitutePlayer: status?.substitutePlayer || null,
   };
 }

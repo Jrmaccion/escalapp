@@ -3,54 +3,82 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import bcrypt from "bcryptjs";
 
-export async function POST(request: Request) {
+export async function POST(req: Request) {
   try {
-    const { name, email, password } = await request.json();
+    const { name, email, password } = await req.json();
 
-    if (!name || !email || !password) {
-      return NextResponse.json({ error: "Todos los campos son obligatorios" }, { status: 400 });
+    // Validación de campos requeridos
+    if (!email || !password) {
+      return NextResponse.json(
+        { error: "Email y contraseña son obligatorios" }, 
+        { status: 400 }
+      );
     }
 
-    if (password.length < 6) {
-      return NextResponse.json({ error: "La contraseña debe tener al menos 6 caracteres" }, { status: 400 });
+    // Validación de contraseña consistente (8+ caracteres, letras y números)
+    if (password.length < 8) {
+      return NextResponse.json(
+        { error: "La contraseña debe tener al menos 8 caracteres" }, 
+        { status: 400 }
+      );
     }
 
-    // Verificar si el email ya existe
-    const existingUser = await prisma.user.findUnique({ 
-      where: { email } 
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      return NextResponse.json(
+        { error: "La contraseña debe incluir letras y números" }, 
+        { status: 400 }
+      );
+    }
+
+    const normalizedEmail = String(email).trim().toLowerCase();
+
+    // Verificar si el usuario ya existe (insensible a mayúsculas)
+    const existingUser = await prisma.user.findFirst({
+      where: { 
+        email: { 
+          equals: normalizedEmail, 
+          mode: "insensitive" 
+        } 
+      },
+      select: { id: true },
     });
-    
+
     if (existingUser) {
-      return NextResponse.json({ error: "El email ya está registrado" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Ya existe un usuario con ese email" }, 
+        { status: 409 }
+      );
     }
 
-    // Crear usuario y jugador
+    // Hash de la contraseña
     const hashedPassword = await bcrypt.hash(password, 12);
-    
-    const user = await prisma.user.create({
-      data: { 
-        name, 
-        email, 
-        password: hashedPassword, 
-        isAdmin: false 
-      }
-    });
 
-    const player = await prisma.player.create({
-      data: { 
-        userId: user.id, 
-        name 
-      }
+    // Crear usuario
+    const newUser = await prisma.user.create({
+      data: {
+        name: name?.trim() || normalizedEmail.split('@')[0],
+        email: normalizedEmail,
+        password: hashedPassword,
+        isAdmin: false, // Usuarios normales por defecto
+      },
+      select: { 
+        id: true, 
+        name: true, 
+        email: true 
+      },
     });
 
     return NextResponse.json({ 
+      ok: true, 
       message: "Usuario registrado exitosamente",
-      userId: user.id,
-      playerId: player.id
+      user: newUser 
     });
 
   } catch (error) {
-    console.error("Error registering user:", error);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    console.error("POST /api/auth/register error:", error);
+    return NextResponse.json(
+      { error: "Error interno del servidor" }, 
+      { status: 500 }
+    );
   }
 }

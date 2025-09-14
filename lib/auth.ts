@@ -1,120 +1,85 @@
-// lib/auth.ts
-import { NextAuthOptions } from "next-auth";
-import CredentialsProvider from "next-auth/providers/credentials";
-import bcrypt from "bcryptjs";
+// lib/auth.ts - VERSIÓN CORREGIDA CON PLAYERID
+import type { NextAuthOptions } from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 import { prisma } from "@/lib/prisma";
+import bcrypt from "bcryptjs";
 
 export const authOptions: NextAuthOptions = {
+  session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
-
   providers: [
-    CredentialsProvider({
-      name: "credentials",
+    Credentials({
+      name: "Credenciales",
       credentials: {
         email: { label: "Email", type: "email" },
-        password: { label: "Contraseña", type: "password" }, // encoding seguro en el browser
-        adminKey: { label: "Clave Admin (opcional)", type: "password" },
+        password: { label: "Contraseña", type: "password" },
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
-          throw new Error("Email y contraseña son requeridos");
+          throw new Error("Faltan credenciales");
         }
 
-        // Requisito mínimo de fuerza
-        if (credentials.password.length < 8) {
-          throw new Error("La contraseña debe tener al menos 8 caracteres");
-        }
+        const email = credentials.email.trim().toLowerCase();
 
-        // AdminKey fuerte y coincidente
-        const adminKeyEnv = process.env.ADMIN_KEY;
-        const isAdminLogin =
-          Boolean(credentials.adminKey) &&
-          Boolean(adminKeyEnv) &&
-          credentials.adminKey === adminKeyEnv &&
-          (adminKeyEnv?.length ?? 0) > 10;
-
-        // Buscar usuario
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email },
-          include: { player: true },
+        // Busca por email e incluye información del jugador
+        const user = await prisma.user.findFirst({
+          where: { email: { equals: email, mode: "insensitive" } },
+          select: {
+            id: true,
+            name: true,
+            email: true,
+            password: true,
+            isAdmin: true,
+            // ✅ INCLUIR DATOS DEL JUGADOR
+            player: {
+              select: {
+                id: true,
+                name: true,
+              }
+            }
+          },
         });
 
-        // Auto-creación de admin: sólo en desarrollo, estricto, y si aún no hay usuarios
-        if (!user) {
-          if (process.env.NODE_ENV === "development" && isAdminLogin) {
-            const usersCount = await prisma.user.count();
-            if (usersCount === 0) {
-              const hashed = await bcrypt.hash(credentials.password, 12); // más rounds
-              const newAdmin = await prisma.user.create({
-                data: {
-                  name: "Administrador",
-                  email: credentials.email,
-                  password: hashed,
-                  isAdmin: true,
-                },
-              });
-              return {
-                id: newAdmin.id,
-                name: newAdmin.name,
-                email: newAdmin.email,
-                isAdmin: true,
-                playerId: null,
-              };
-            }
-          }
-          throw new Error("Usuario no encontrado");
-        }
+        if (!user || !user.password) throw new Error("Credenciales inválidas");
 
-        // Verificación de contraseña
         const ok = await bcrypt.compare(credentials.password, user.password);
-        if (!ok) {
-          throw new Error("Contraseña incorrecta");
-        }
-
-        // Solo admins existentes pueden usar adminKey (no eleva privilegios)
-        if (isAdminLogin && !user.isAdmin) {
-          throw new Error("No tienes permisos de administrador");
-        }
+        if (!ok) throw new Error("Credenciales inválidas");
 
         return {
           id: user.id,
-          name: user.name,
-          email: user.email,
-          isAdmin: user.isAdmin, // NO elevamos con adminKey aquí
+          name: user.name ?? undefined,
+          email: user.email ?? undefined,
+          isAdmin: user.isAdmin === true,
+          // ✅ INCLUIR PLAYERID EN EL OBJETO USER
           playerId: user.player?.id ?? null,
-        };
+          playerName: user.player?.name ?? null,
+        } as any;
       },
     }),
   ],
-
-  session: {
-    strategy: "jwt",
-    maxAge: 24 * 60 * 60, // 24h
-  },
-
   callbacks: {
     async jwt({ token, user }) {
       if (user) {
-        token.isAdmin = (user as any).isAdmin;
-        token.playerId = (user as any).playerId ?? null;
+        token.uid = (user as any).id;
+        token.isAdmin = (user as any).isAdmin === true;
+        // ✅ AGREGAR PLAYERID AL TOKEN
+        token.playerId = (user as any).playerId;
+        token.playerName = (user as any).playerName;
       }
       return token;
     },
     async session({ session, token }) {
       if (session.user) {
-        session.user.id = token.sub!;
-        session.user.isAdmin = Boolean((token as any).isAdmin);
-        session.user.playerId = (token as any).playerId ?? null;
+        (session.user as any).id = (token as any).uid;
+        (session.user as any).isAdmin = (token as any).isAdmin === true;
+        // ✅ AGREGAR PLAYERID A LA SESIÓN
+        (session.user as any).playerId = (token as any).playerId;
+        (session.user as any).playerName = (token as any).playerName;
       }
       return session;
     },
   },
-
   pages: {
-    signIn: "/auth/login",
     error: "/auth/error",
   },
-
-  debug: false, // Nunca en producción
-  useSecureCookies: process.env.NODE_ENV === "production",
 };

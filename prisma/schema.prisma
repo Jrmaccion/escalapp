@@ -91,6 +91,7 @@ model Player {
   user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   tournaments  TournamentPlayer[]
   streaks      StreakHistory[]
+  notificationsReadAt DateTime? @db.Timestamptz
 
   @@map("players")
 }

@@ -1,4 +1,4 @@
-// app/admin/rounds/[id]/RoundDetailClient.tsx - CORREGIDO
+// app/admin/rounds/[id]/RoundDetailClient.tsx - CORREGIDO COMPLETO
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
@@ -185,7 +185,7 @@ export default function RoundDetailClient({
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // 🔧 CORREGIDO: Usar endpoint correcto /api/parties/[groupId]
+  // 🔧 CORREGIDO: handlePropose - usar POST con parámetros correctos
   const handlePropose = async (groupId: string) => {
     const st = adminSchedule[groupId];
     const date = fromLocalInputValue(st?.inputValue || "");
@@ -205,11 +205,7 @@ export default function RoundDetailClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           proposedDate: date.toISOString(),
-          adminOptions: {
-            skipApproval: false,
-            forceScheduled: false,
-            notifyPlayers: false,
-          },
+          message: "Fecha propuesta por administrador",
         }),
       });
 
@@ -243,6 +239,7 @@ export default function RoundDetailClient({
     }
   };
 
+  // 🔧 CORREGIDO: handleForceSchedule - usar PATCH con parámetros correctos
   const handleForceSchedule = async (groupId: string) => {
     const st = adminSchedule[groupId];
     const date = fromLocalInputValue(st?.inputValue || "");
@@ -258,15 +255,12 @@ export default function RoundDetailClient({
 
     try {
       const response = await fetch(`/api/parties/${groupId}`, {
-        method: "POST",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          proposedDate: date.toISOString(),
-          adminOptions: {
-            skipApproval: true,
-            forceScheduled: true,
-            notifyPlayers: false,
-          },
+          action: "admin_force_schedule",
+          adminAction: true,
+          forcedDate: date.toISOString(),
         }),
       });
 

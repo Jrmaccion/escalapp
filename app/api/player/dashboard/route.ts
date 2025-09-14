@@ -1,4 +1,4 @@
-// app/api/player/dashboard/route.ts - Selección de ronda por fecha + multi-torneo + PartyManager
+// app/api/player/dashboard/route.ts - CORREGIDO
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -17,7 +17,7 @@ function pickCurrentRound(rounds: Array<{
   if (!rounds || rounds.length === 0) return null;
   const now = new Date();
 
-  // ordenar por fecha de inicio asc (si no hay fecha, al final)
+  // Ordenar por fecha de inicio asc (si no hay fecha, al final)
   const byStartAsc = [...rounds].sort((a, b) => {
     const aT = a.startDate ? new Date(a.startDate).getTime() : Number.MAX_SAFE_INTEGER;
     const bT = b.startDate ? new Date(b.startDate).getTime() : Number.MAX_SAFE_INTEGER;
@@ -73,14 +73,33 @@ function computeTournamentMeta(
 
 export async function GET(request: NextRequest) {
   try {
+    console.log("🏁 GET /api/player/dashboard - Iniciando...");
+    
     const session = await getServerSession(authOptions);
-    if (!session?.user?.playerId) {
-      return NextResponse.json({ error: "No autorizado o no es un jugador" }, { status: 401 });
+    if (!session?.user?.id) {
+      console.log("❌ Usuario no autenticado");
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
     }
 
-    const playerId = session.user.playerId;
+    console.log("👤 Usuario autenticado:", session.user.email);
+
+    // CRÍTICO: Obtener el playerId desde la tabla Player
+    const player = await prisma.player.findUnique({
+      where: { userId: session.user.id },
+      select: { id: true, name: true }
+    });
+
+    if (!player) {
+      console.log("❌ No se encontró perfil de jugador para userId:", session.user.id);
+      return NextResponse.json({ error: "No es un jugador registrado" }, { status: 401 });
+    }
+
+    const playerId = player.id;
+    console.log("🎮 Jugador encontrado:", playerId, "-", player.name);
+
     const url = new URL(request.url);
     const tournamentIdParam = url.searchParams.get("tournamentId");
+    console.log("🎯 Torneo solicitado via parámetro:", tournamentIdParam || "ninguno");
 
     // Traer TODOS los torneos activos donde participa el jugador
     const tournaments = await prisma.tournament.findMany({
@@ -90,15 +109,38 @@ export async function GET(request: NextRequest) {
       },
       include: {
         rounds: {
-          orderBy: { number: "asc" }, // orden natural
+          orderBy: { number: "asc" },
           select: { id: true, number: true, startDate: true, endDate: true, isClosed: true },
         },
       },
+      orderBy: { startDate: "desc" } // Más recientes primero
     });
 
+    console.log(`🏆 Torneos encontrados: ${tournaments.length}`);
+    tournaments.forEach(t => {
+      console.log(`  - ${t.title} (${t.id})`);
+    });
+
+    // Preparar lista de torneos disponibles para el frontend
+    const availableTournaments = tournaments.map(t => {
+      const meta = computeTournamentMeta(t);
+      const isCurrent = !!meta.current && !meta.current.isClosed;
+      
+      return {
+        id: t.id,
+        title: t.title,
+        isActive: t.isActive,
+        isCurrent: isCurrent
+      };
+    });
+
+    console.log("📋 Torneos disponibles preparados:", availableTournaments.length);
+
     if (!tournaments.length) {
+      console.log("⚠️ Usuario no participa en ningún torneo activo");
       return NextResponse.json({
         activeTournament: null,
+        availableTournaments: [],
         currentGroup: null,
         myMatches: [],
         party: null,
@@ -116,33 +158,63 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // Elegir torneo:
-    let activeTournament =
-      (tournamentIdParam && tournaments.find((t) => t.id === tournamentIdParam)) ||
-      // Preferimos el que tenga una ronda "activa por fecha"
-      tournaments.find((t) => {
-        const meta = computeTournamentMeta(t);
-        const r = meta.current;
-        if (!r?.startDate || !r?.endDate) return false;
-        const now = new Date();
-        return !r.isClosed && r.startDate <= now && now <= r.endDate;
-      }) ||
-      // Si ninguno activo ahora, el que tenga la PRÓXIMA ronda más cercana
-      (() => {
-        const scored = tournaments
-          .map((t) => {
-            const upc = [...t.rounds]
-              .filter((r) => !r.isClosed && r.startDate && new Date(r.startDate) > new Date())
-              .sort((a, b) => (a.startDate!.getTime() - b.startDate!.getTime()));
-            return { t, nextStart: upc[0]?.startDate?.getTime() ?? Number.MAX_SAFE_INTEGER };
-          })
-          .sort((a, b) => a.nextStart - b.nextStart);
-        return scored[0]?.t;
-      })() ||
-      tournaments[0];
+    // Elegir torneo específico o determinar automáticamente
+    let activeTournament: typeof tournaments[0];
+
+    if (tournamentIdParam) {
+      // Buscar el torneo específico solicitado
+      const requestedTournament = tournaments.find(t => t.id === tournamentIdParam);
+      if (requestedTournament) {
+        console.log("✅ Usando torneo específico solicitado:", requestedTournament.title);
+        activeTournament = requestedTournament;
+      } else {
+        console.log("⚠️ Torneo solicitado no encontrado, usando lógica automática");
+        activeTournament = tournaments[0]; // Fallback
+      }
+    } else {
+      // Lógica automática para elegir torneo
+      console.log("🤖 Aplicando lógica automática para seleccionar torneo...");
+      
+      activeTournament =
+        // Preferir el que tenga una ronda "activa por fecha"
+        tournaments.find((t) => {
+          const meta = computeTournamentMeta(t);
+          const r = meta.current;
+          if (!r?.startDate || !r?.endDate) return false;
+          const now = new Date();
+          const isActiveByDate = !r.isClosed && r.startDate <= now && now <= r.endDate;
+          if (isActiveByDate) {
+            console.log(`  ✅ Torneo ${t.title} tiene ronda activa por fecha`);
+          }
+          return isActiveByDate;
+        }) ||
+        // Si ninguno activo ahora, el que tenga la PRÓXIMA ronda más cercana
+        (() => {
+          console.log("🔍 Buscando torneo con próxima ronda más cercana...");
+          const scored = tournaments
+            .map((t) => {
+              const upcoming = [...t.rounds]
+                .filter((r) => !r.isClosed && r.startDate && new Date(r.startDate) > new Date())
+                .sort((a, b) => (a.startDate!.getTime() - b.startDate!.getTime()));
+              return { t, nextStart: upcoming[0]?.startDate?.getTime() ?? Number.MAX_SAFE_INTEGER };
+            })
+            .sort((a, b) => a.nextStart - b.nextStart);
+          
+          if (scored[0]?.nextStart !== Number.MAX_SAFE_INTEGER) {
+            console.log(`  ✅ Torneo ${scored[0].t.title} tiene la próxima ronda más cercana`);
+          }
+          return scored[0]?.t;
+        })() ||
+        // Último recurso: el primero de la lista
+        tournaments[0];
+    }
+
+    console.log("🎯 Torneo seleccionado final:", activeTournament.title);
 
     const meta = computeTournamentMeta(activeTournament);
     const currentRound = meta.current;
+
+    console.log("🔄 Ronda actual:", currentRound?.number || "ninguna");
 
     // Grupo actual del jugador en la ronda seleccionada
     const currentGroup = currentRound
@@ -160,10 +232,21 @@ export async function GET(request: NextRequest) {
         })
       : null;
 
+    console.log("👥 Grupo actual:", currentGroup?.number || "ninguno");
+
     const playerInGroup = currentGroup?.players.find((p) => p.playerId === playerId) ?? null;
+    console.log("📍 Posición en grupo:", playerInGroup?.position || "sin posición");
 
     // Party actual (si existe)
-    const currentParty = currentGroup ? await PartyManager.getParty(currentGroup.id, playerId) : null;
+    let currentParty = null;
+    if (currentGroup) {
+      try {
+        currentParty = await PartyManager.getParty(currentGroup.id, playerId);
+        console.log("🎉 Party encontrado:", currentParty?.status || "ninguno");
+      } catch (error) {
+        console.log("⚠️ Error obteniendo party:", error);
+      }
+    }
 
     // Sets del jugador en la ronda (compatibilidad legacy)
     const myMatches = await prisma.match.findMany({
@@ -180,17 +263,25 @@ export async function GET(request: NextRequest) {
       orderBy: { setNumber: "asc" },
     });
 
+    console.log("🏓 Matches encontrados:", myMatches.length);
+
     // Mapa de nombres para los matches
-    const allIds = [
+    const allPlayerIds = [
       ...new Set(
         myMatches.flatMap((m) => [m.team1Player1Id, m.team1Player2Id, m.team2Player1Id, m.team2Player2Id])
       ),
     ];
-    const players = await prisma.player.findMany({ where: { id: { in: allIds } } });
-    const nameById = players.reduce<Record<string, string>>((acc, p) => {
+    
+    const matchPlayers = await prisma.player.findMany({ 
+      where: { id: { in: allPlayerIds } },
+      select: { id: true, name: true }
+    });
+    
+    const nameById = matchPlayers.reduce<Record<string, string>>((acc, p) => {
       acc[p.id] = p.name;
       return acc;
     }, {});
+
     const formattedMatches = myMatches.map((m) => ({
       id: m.id,
       setNumber: m.setNumber,
@@ -223,6 +314,7 @@ export async function GET(request: NextRequest) {
       try {
         const party = await PartyManager.getParty(g.id, playerId);
         if (!party) continue;
+        
         if (party.status === "COMPLETED") {
           partiesPlayed++;
           let setsWon = 0;
@@ -238,7 +330,7 @@ export async function GET(request: NextRequest) {
           partiesPending++;
         }
       } catch {
-        // ignorar errores de party individuales
+        // Ignorar errores de party individuales
       }
     }
 
@@ -250,6 +342,13 @@ export async function GET(request: NextRequest) {
       orderBy: { roundNumber: "desc" },
     });
 
+    console.log("📊 Ranking encontrado:", latestRanking?.position || "sin ranking");
+
+    // Calcular matches pendientes
+    const matchesPending = formattedMatches.filter(m => 
+      m.team1Games === null && m.team2Games === null
+    ).length;
+
     const response = {
       activeTournament: currentRound
         ? {
@@ -260,6 +359,10 @@ export async function GET(request: NextRequest) {
             roundEndDate: currentRound.endDate ? currentRound.endDate.toISOString() : new Date().toISOString(),
           }
         : null,
+      
+      // CRÍTICO: Incluir availableTournaments para el selector
+      availableTournaments,
+      
       currentGroup: currentGroup
         ? {
             id: currentGroup.id,
@@ -276,7 +379,9 @@ export async function GET(request: NextRequest) {
             })),
           }
         : null,
+      
       myMatches: formattedMatches,
+      
       party: currentParty
         ? {
             id: `party-${currentGroup?.id}`,
@@ -298,6 +403,7 @@ export async function GET(request: NextRequest) {
             })),
           }
         : null,
+      
       ranking: latestRanking
         ? {
             position: latestRanking.position,
@@ -307,39 +413,51 @@ export async function GET(request: NextRequest) {
             ironmanPosition: latestRanking.ironmanPosition,
           }
         : null,
+      
       stats: {
         matchesPlayed: formattedMatches.filter((m) => m.isConfirmed).length,
-        matchesPending: formattedMatches.filter((m) => !m.isConfirmed).length,
-        winRate:
-          formattedMatches.filter((m) => m.isConfirmed).length > 0
-            ? Math.round(
-                (formattedMatches.filter((m) => {
-                  const isTeam1 =
-                    nameById[m.team1Player1Name] === nameById[playerId] ||
-                    nameById[m.team1Player2Name] === nameById[playerId];
-                  const team1Won = (m.team1Games || 0) > (m.team2Games || 0);
-                  return (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
-                }).length /
-                  formattedMatches.filter((m) => m.isConfirmed).length) *
-                  100
-              )
-            : 0,
+        matchesPending: matchesPending,
+        winRate: formattedMatches.filter((m) => m.isConfirmed).length > 0
+          ? Math.round(
+              (formattedMatches.filter((m) => {
+                if (!m.isConfirmed || m.team1Games === null || m.team2Games === null) return false;
+                
+                const isTeam1 = nameById[m.team1Player1Name] === player.name || 
+                               nameById[m.team1Player2Name] === player.name;
+                const team1Won = m.team1Games > m.team2Games;
+                return (isTeam1 && team1Won) || (!isTeam1 && !team1Won);
+              }).length / formattedMatches.filter((m) => m.isConfirmed).length) * 100
+            )
+          : 0,
         currentStreak: playerInGroup?.streak || 0,
         partiesPlayed,
         partiesPending,
         partyWinRate,
         totalPartiesInTournament: allPlayerGroups.length,
       },
+      
       _metadata: {
         partyApiVersion: "1.0",
         selectedTournamentId: activeTournament.id,
         hasMultipleTournaments: tournaments.length > 1,
+        requestedTournamentId: tournamentIdParam,
+        totalTournamentsAvailable: tournaments.length,
       },
     };
 
+    console.log("✅ Respuesta preparada exitosamente");
+    console.log("📋 Metadata:", response._metadata);
+    
     return NextResponse.json(response);
+
   } catch (error) {
-    console.error("Error fetching player dashboard:", error);
-    return NextResponse.json({ error: "Error interno del servidor" }, { status: 500 });
+    console.error("❌ Error en GET /api/player/dashboard:", error);
+    return NextResponse.json(
+      { 
+        error: "Error interno del servidor",
+        details: error instanceof Error ? error.message : "Unknown error"
+      }, 
+      { status: 500 }
+    );
   }
 }

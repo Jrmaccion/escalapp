@@ -15,7 +15,8 @@ import {
   UserMinus,
   ChevronDown,
   Zap,
-  Settings
+  Settings,
+  Key
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -467,6 +468,44 @@ export default function AdminDashboardClient({
               </div>
             </div>
           )}
+        </div>
+        <div className="bg-card text-card-foreground rounded-lg shadow border">
+          <div className="px-6 py-4 border-b">
+            <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
+              <Settings className="w-5 h-5" />
+              Gestión Rápida
+            </h3>
+          </div>
+          <div className="p-6 space-y-3">
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href={`/admin/tournaments/${selectedTournament.id}`}>
+                <Trophy className="w-4 h-4 mr-2" />
+                Configurar Torneo
+              </Link>
+            </Button>
+            
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href={`/admin/tournaments/${selectedTournament.id}?tab=players`}>
+                <Users className="w-4 h-4 mr-2" />
+                Gestionar Jugadores
+              </Link>
+            </Button>
+
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href={`/admin/tournaments/${selectedTournament.id}?tab=comodines`}>
+                <Zap className="w-4 h-4 mr-2" />
+                Configurar Comodines
+              </Link>
+            </Button>
+
+            {/* ✅ NUEVO: Añadir este botón para gestión de usuarios */}
+            <Button variant="outline" className="w-full justify-start" asChild>
+              <Link href="/admin/users">
+                <Key className="w-4 h-4 mr-2" />
+                Gestionar Usuarios
+              </Link>
+            </Button>
+          </div>
         </div>
       </div>
     </div>
