@@ -82,8 +82,17 @@
 \app\api\comodin\route.ts
 \app\api\comodin\status
 \app\api\comodin\status\route.ts
+\app\api\debug
+\app\api\debug\session
+\app\api\debug\session\route.ts
 \app\api\diag
 \app\api\diag\route.ts
+\app\api\groups
+\app\api\groups\[id]
+\app\api\groups\[id]\stats
+\app\api\groups\[id]\stats\route.ts
+\app\api\groups\points-preview
+\app\api\groups\points-preview\route.ts
 \app\api\health
 \app\api\health\route.ts
 \app\api\matches
@@ -153,6 +162,8 @@
 \app\api\tournaments\[id]\delete-info\route.ts
 \app\api\tournaments\[id]\extend-rounds
 \app\api\tournaments\[id]\extend-rounds\route.ts
+\app\api\tournaments\[id]\overview
+\app\api\tournaments\[id]\overview\route.ts
 \app\api\tournaments\[id]\players
 \app\api\tournaments\[id]\players\[playerId]
 \app\api\tournaments\[id]\players\[playerId]\route.ts
@@ -211,6 +222,9 @@
 \components\Breadcrumbs.tsx
 \components\ClientToaster.tsx
 \components\CloseRoundButton.tsx
+\components\dashboard
+\components\dashboard\CurrentGroupCard.tsx
+\components\dashboard\TournamentOverviewCard.tsx
 \components\GroupManagementPanel.tsx
 \components\ManualGroupManager.tsx
 \components\MatchEditDialog.tsx
@@ -222,6 +236,7 @@
 \components\PartyScheduling.tsx
 \components\player
 \components\player\UseComodinButton.tsx
+\components\PointsPreviewCard.tsx
 \components\PublicHome.tsx
 \components\RoundsMatchesOverview.tsx
 \components\Toast
@@ -247,6 +262,7 @@
 \hooks\useApiState.ts
 \hooks\useComodin.ts
 \hooks\useNavigation.ts
+\hooks\usePointsPreview.ts
 \lib
 \lib\api
 \lib\api\comodin.client.ts
@@ -262,6 +278,7 @@
 \lib\party-manager.ts
 \lib\performance.optimized.ts
 \lib\performance.ts
+\lib\points-calculator.ts
 \lib\prisma.ts
 \lib\ranking.ts
 \lib\rate-limit.ts

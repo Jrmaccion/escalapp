@@ -1,4 +1,4 @@
-// app/mi-grupo/MiGrupoClient.tsx - VERSIÓN CORREGIDA
+// app/mi-grupo/MiGrupoClient.tsx - CON PREVIEW DE PUNTOS
 "use client";
 
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
@@ -30,6 +30,7 @@ import {
 import Breadcrumbs from "@/components/Breadcrumbs";
 import UseComodinButton from "@/components/player/UseComodinButton";
 import PartyScheduling from "@/components/PartyScheduling";
+import PointsPreviewCard from "@/components/PointsPreviewCard";
 import { LoadingState, ErrorState, EmptyState, UpdateBadge } from "@/components/ApiStateComponents";
 
 // Hook personalizado simplificado y optimizado
@@ -235,6 +236,9 @@ export default function MiGrupoClient() {
   const [comodinRefreshTrigger, setComodinRefreshTrigger] = useState(0);
   const [showActionFeedback, setShowActionFeedback] = useState(false);
 
+  // Estado para el preview de puntos
+  const [previewRefreshTrigger, setPreviewRefreshTrigger] = useState(0);
+
   // Auto-refresh cada 2 minutos
   useEffect(() => {
     if (!data?.hasGroup || isLoading) return;
@@ -300,13 +304,23 @@ export default function MiGrupoClient() {
     setShowActionFeedback(true);
 
     setTimeout(() => setShowActionFeedback(false), 3000);
-    setTimeout(() => retry(), 1500);
+    setTimeout(() => {
+      retry();
+      setPreviewRefreshTrigger((prev) => prev + 1); // Refresh preview también
+    }, 1500);
   }, [retry]);
 
   const handlePartyUpdate = useCallback(() => {
     console.log("🎉 Party actualizado");
     retry();
+    setPreviewRefreshTrigger((prev) => prev + 1); // Refresh preview
   }, [retry]);
+
+  // Trigger preview refresh cuando hay cambios en matches
+  const confirmedSetsCount = matches.filter((m: MatchType) => m.isConfirmed).length;
+  useEffect(() => {
+    setPreviewRefreshTrigger((prev) => prev + 1);
+  }, [confirmedSetsCount]);
 
   // Helpers
   const getMatchStatusInfo = useCallback((match: MatchType) => {
@@ -392,7 +406,6 @@ export default function MiGrupoClient() {
 
   // Verificar si el comodín debe mostrarse
   const shouldShowComodin = useMemo(() => {
-    // Verificar que tenemos todos los datos necesarios
     const hasValidSession = sessionStatus === "authenticated" && session?.user?.id;
     const hasValidRoundId = groupData.roundId && groupData.roundId !== "";
     const hasGroup = groupData.hasGroup;
@@ -413,7 +426,7 @@ export default function MiGrupoClient() {
   // DEBUG hooks (top-level)
   // ============================
   useEffect(() => {
-    console.log("🔍 DEBUG MiGrupo - Estado COMPLETO:", {
+    console.log("📊 DEBUG MiGrupo - Estado COMPLETO:", {
       hasData: !!data,
       hasGroup: data?.hasGroup,
       roundId: data?.roundId,
@@ -678,6 +691,7 @@ export default function MiGrupoClient() {
             onClick={() => {
               retry();
               clearUpdates();
+              setPreviewRefreshTrigger(prev => prev + 1);
             }}
             disabled={isLoading}
             className="flex items-center gap-2"
@@ -687,6 +701,18 @@ export default function MiGrupoClient() {
           </Button>
         </div>
       </div>
+
+      {/* NUEVO: Preview de Puntos */}
+      {groupData.group?.id && (
+        <PointsPreviewCard
+          groupId={groupData.group.id}
+          currentUserId={session?.user?.id}
+          showAllPlayers={false}
+          compact={false}
+          refreshTrigger={previewRefreshTrigger}
+          className="mb-6"
+        />
+      )}
 
       {/* Sistema de programación UNIFICADO */}
       {groupData.party?.groupId && (

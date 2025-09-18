@@ -1,4 +1,4 @@
-// app/dashboard/PlayerDashboardClient.tsx - SELECTOR DE TORNEOS TOTALMENTE FUNCIONAL (ampliado)
+// app/dashboard/PlayerDashboardClient.tsx - VERSIÓN CORREGIDA CON VISTA GLOBAL
 "use client";
 
 import { useEffect, useState } from "react";
@@ -26,10 +26,10 @@ import {
   RefreshCw,
 } from "lucide-react";
 import Link from "next/link";
-// ➕ NUEVO: tarjeta de grupo actual
 import { CurrentGroupCard } from "@/components/dashboard/CurrentGroupCard";
+import { TournamentOverviewCard } from "@/components/dashboard/TournamentOverviewCard";
 
-/** ===== Tipos de API del Dashboard ===== */
+/** Tipos de API del Dashboard */
 type GroupMember = {
   playerId: string;
   name: string;
@@ -60,7 +60,6 @@ type ApiResponse = {
     position: number;
     points: number;
     streak: number;
-    // NUEVOS CAMPOS:
     roundNumber: number;
     members: GroupMember[];
   } | null;
@@ -83,7 +82,7 @@ type ApiResponse = {
   };
 };
 
-/** ===== Tipos del Dashboard simplificado ===== */
+/** Tipos del Dashboard simplificado */
 type DashboardData = {
   activeTournament: {
     id: string;
@@ -98,7 +97,6 @@ type DashboardData = {
     points: number;
     streak: number;
   } | null;
-  // NUEVO: datos del grupo actual para mostrar tarjeta con miembros
   currentGroup: {
     id: string;
     number: number;
@@ -120,7 +118,7 @@ type DashboardData = {
   };
 };
 
-/** ===== Data de vista previa ===== */
+/** Data de vista previa */
 const PREVIEW_DATA: DashboardData = {
   activeTournament: null,
   myStatus: null,
@@ -141,8 +139,9 @@ export default function PlayerDashboardClient() {
   const [error, setError] = useState<string | null>(null);
   const [isPreviewMode, setIsPreviewMode] = useState(false);
   const [showSecondaryActions, setShowSecondaryActions] = useState(false);
+  const [showTournamentOverview, setShowTournamentOverview] = useState(false);
 
-  // Estado del selector de torneos - MEJORADO
+  // Estado del selector de torneos
   const [availableTournaments, setAvailableTournaments] = useState<
     { id: string; title: string; isActive: boolean; isCurrent: boolean }[]
   >([]);
@@ -270,9 +269,9 @@ export default function PlayerDashboardClient() {
       }
 
       setData(simplified);
-      console.log("🔍 API Response:", api);
-      console.log("🔍 Current Group:", api.currentGroup);
-      console.log("🔍 Simplified Data:", simplified);
+      console.log("📊 API Response:", api);
+      console.log("📊 Current Group:", api.currentGroup);
+      console.log("📊 Simplified Data:", simplified);
       setIsPreviewMode(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error al cargar datos");
@@ -557,9 +556,41 @@ export default function PlayerDashboardClient() {
           </Card>
         )}
 
-        {/* ➕ NUEVO: Grupo Actual */}
+        {/* Grupo Actual */}
         {data.currentGroup && !isPreviewMode && (
           <CurrentGroupCard groupData={data.currentGroup} />
+        )}
+
+        {/* 🆕 NUEVO: Vista General del Torneo - CORREGIDO */}
+        {data.activeTournament && !isPreviewMode && selectedTournamentId && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-gray-900">Estado General del Torneo</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowTournamentOverview(!showTournamentOverview)}
+              >
+                {showTournamentOverview ? (
+                  <>
+                    <ChevronUp className="w-4 h-4 mr-2" />
+                    Ocultar
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-4 h-4 mr-2" />
+                    Mostrar todos los grupos
+                  </>
+                )}
+              </Button>
+            </div>
+            
+            {showTournamentOverview && (
+              <div data-tournament-overview>
+                <TournamentOverviewCard tournamentId={selectedTournamentId} />
+              </div>
+            )}
+          </div>
         )}
 
         {/* Sección resumida */}
