@@ -1,4 +1,4 @@
-// app/api/groups/[id]/points-preview/route.ts - CORREGIDO CON MOVEMENT INFO COMPLETO Y TIPADO
+// app/api/groups/[id]/points-preview/route.ts - CORREGIDO CON LADDERINFO PARA FRONTEND
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -290,6 +290,12 @@ export async function GET(
           movement: p.movement,
           positionChange: p.predictedPosition - p.currentPosition,
         })),
+        // ✅ añadido para frontend
+        ladderInfo: {
+          isTopGroup: currentGroupLevel === 1,
+          isBottomGroup: currentGroupLevel === totalGroups,
+          totalGroups: totalGroups,
+        },
       },
       metadata: {
         tiebreakInfo: {
