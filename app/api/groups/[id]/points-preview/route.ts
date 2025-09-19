@@ -1,4 +1,4 @@
-// app/api/groups/[id]/points-preview/route.ts - CORREGIDO CON LADDERINFO PARA FRONTEND
+// app/api/groups/[id]/points-preview/route.ts - SEGURO CON DEFAULTS
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -26,13 +26,7 @@ type PlayerStats = {
   };
 };
 
-// Calcular estadísticas individuales
-function calculatePlayerStatsInGroup(playerId: string, matches: any[]): {
-  setsWon: number;
-  gamesWon: number;
-  gamesLost: number;
-  h2hWins: number;
-} {
+function calculatePlayerStatsInGroup(playerId: string, matches: any[]) {
   let setsWon = 0;
   let gamesWon = 0;
   let gamesLost = 0;
@@ -64,7 +58,6 @@ function calculatePlayerStatsInGroup(playerId: string, matches: any[]): {
   return { setsWon, gamesWon, gamesLost, h2hWins };
 }
 
-// Comparador unificado de desempates
 function comparePlayersWithUnifiedTiebreakers(a: PlayerStats, b: PlayerStats): number {
   if (a.points !== b.points) return b.points - a.points;
   if (a.setsWon !== b.setsWon) return b.setsWon - a.setsWon;
@@ -74,7 +67,6 @@ function comparePlayersWithUnifiedTiebreakers(a: PlayerStats, b: PlayerStats): n
   return 0;
 }
 
-// Movimiento estilo frontend con tipos estrictos
 function getMovementInfo(position: number, groupNumber: number, totalGroups: number = 10) {
   const isTopGroup = groupNumber === 1;
   const isBottomGroup = groupNumber === totalGroups;
@@ -83,107 +75,38 @@ function getMovementInfo(position: number, groupNumber: number, totalGroups: num
 
   if (position === 1) {
     if (isTopGroup) {
-      return {
-        text: "Se mantiene en el grupo superior",
-        color: "text-yellow-600",
-        bgColor: "bg-yellow-50 border-yellow-200",
-        groups: 0,
-        type: "maintain" as const,
-      };
+      return { text: "Se mantiene en el grupo superior", color: "text-yellow-600", bgColor: "bg-yellow-50 border-yellow-200", groups: 0, type: "maintain" as const };
     } else if (isSecondGroup) {
-      return {
-        text: "Sube al grupo superior",
-        color: "text-green-600",
-        bgColor: "bg-green-50 border-green-200",
-        groups: 1,
-        type: "up" as const,
-      };
+      return { text: "Sube al grupo superior", color: "text-green-600", bgColor: "bg-green-50 border-green-200", groups: 1, type: "up" as const };
     } else {
-      return {
-        text: "Sube 2 grupos",
-        color: "text-green-600",
-        bgColor: "bg-green-50 border-green-200",
-        groups: 2,
-        type: "up" as const,
-      };
+      return { text: "Sube 2 grupos", color: "text-green-600", bgColor: "bg-green-50 border-green-200", groups: 2, type: "up" as const };
     }
   } else if (position === 2) {
     if (isTopGroup) {
-      return {
-        text: "Se mantiene en el grupo superior",
-        color: "text-yellow-600",
-        bgColor: "bg-yellow-50 border-yellow-200",
-        groups: 0,
-        type: "maintain" as const,
-      };
+      return { text: "Se mantiene en el grupo superior", color: "text-yellow-600", bgColor: "bg-yellow-50 border-yellow-200", groups: 0, type: "maintain" as const };
     } else {
-      return {
-        text: "Sube 1 grupo",
-        color: "text-green-600",
-        bgColor: "bg-green-50 border-green-200",
-        groups: 1,
-        type: "up" as const,
-      };
+      return { text: "Sube 1 grupo", color: "text-green-600", bgColor: "bg-green-50 border-green-200", groups: 1, type: "up" as const };
     }
   } else if (position === 3) {
     if (isBottomGroup) {
-      return {
-        text: "Se mantiene en el grupo inferior",
-        color: "text-blue-600",
-        bgColor: "bg-blue-50 border-blue-200",
-        groups: 0,
-        type: "maintain" as const,
-      };
+      return { text: "Se mantiene en el grupo inferior", color: "text-blue-600", bgColor: "bg-blue-50 border-blue-200", groups: 0, type: "maintain" as const };
     } else {
-      return {
-        text: "Baja 1 grupo",
-        color: "text-orange-600",
-        bgColor: "bg-orange-50 border-orange-200",
-        groups: 1,
-        type: "down" as const,
-      };
+      return { text: "Baja 1 grupo", color: "text-orange-600", bgColor: "bg-orange-50 border-orange-200", groups: 1, type: "down" as const };
     }
   } else if (position === 4) {
     if (isBottomGroup) {
-      return {
-        text: "Se mantiene en el grupo inferior",
-        color: "text-blue-600",
-        bgColor: "bg-blue-50 border-blue-200",
-        groups: 0,
-        type: "maintain" as const,
-      };
+      return { text: "Se mantiene en el grupo inferior", color: "text-blue-600", bgColor: "bg-blue-50 border-blue-200", groups: 0, type: "maintain" as const };
     } else if (isPenultimateGroup) {
-      return {
-        text: "Baja al grupo inferior",
-        color: "text-red-600",
-        bgColor: "bg-red-50 border-red-200",
-        groups: 1,
-        type: "down" as const,
-      };
+      return { text: "Baja al grupo inferior", color: "text-red-600", bgColor: "bg-red-50 border-red-200", groups: 1, type: "down" as const };
     } else {
-      return {
-        text: "Baja 2 grupos",
-        color: "text-red-600",
-        bgColor: "bg-red-50 border-red-200",
-        groups: 2,
-        type: "down" as const,
-      };
+      return { text: "Baja 2 grupos", color: "text-red-600", bgColor: "bg-red-50 border-red-200", groups: 2, type: "down" as const };
     }
   } else {
-    return {
-      text: "Se mantiene",
-      color: "text-gray-600",
-      bgColor: "bg-gray-50 border-gray-200",
-      groups: 0,
-      type: "maintain" as const,
-    };
+    return { text: "Se mantiene", color: "text-gray-600", bgColor: "bg-gray-50 border-gray-200", groups: 0, type: "maintain" as const };
   }
 }
 
-export async function GET(
-  req: NextRequest,
-  { params }: { params: { id: string } }
-) {
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions);
     if (!session?.user) {
@@ -229,26 +152,20 @@ export async function GET(
 
     const playerStats: PlayerStats[] = group.players.map((gp) => {
       const stats = calculatePlayerStatsInGroup(gp.playerId, group.matches);
-      const gamesDifference = stats.gamesWon - stats.gamesLost;
+      const gamesDifference = (stats.gamesWon ?? 0) - (stats.gamesLost ?? 0);
 
       return {
         playerId: gp.playerId,
-        name: gp.player.name,
-        points: gp.points || 0,
-        setsWon: stats.setsWon,
-        gamesWon: stats.gamesWon,
-        gamesLost: stats.gamesLost,
+        name: gp.player?.name ?? "Jugador desconocido",
+        points: gp.points ?? 0,
+        setsWon: stats.setsWon ?? 0,
+        gamesWon: stats.gamesWon ?? 0,
+        gamesLost: stats.gamesLost ?? 0,
         gamesDifference,
-        h2hWins: stats.h2hWins,
-        currentPosition: gp.position,
+        h2hWins: stats.h2hWins ?? 0,
+        currentPosition: gp.position ?? 0,
         predictedPosition: 0,
-        movement: {
-          type: "maintain",
-          text: "Se mantiene",
-          groups: 0,
-          color: "text-gray-600",
-          bgColor: "bg-gray-50 border-gray-200",
-        },
+        movement: { type: "maintain", text: "Se mantiene", groups: 0, color: "text-gray-600", bgColor: "bg-gray-50 border-gray-200" },
       };
     });
 
@@ -276,25 +193,11 @@ export async function GET(
         roundNumber: group.round.number,
         totalMatches: group.matches.length,
         completedMatches: group.matches.filter((m) => m.isConfirmed).length,
-        players: playerStats.map((p) => ({
-          playerId: p.playerId,
-          name: p.name,
-          currentPosition: p.currentPosition,
-          predictedPosition: p.predictedPosition,
-          points: p.points,
-          setsWon: p.setsWon,
-          gamesWon: p.gamesWon,
-          gamesLost: p.gamesLost,
-          gamesDifference: p.gamesDifference,
-          h2hWins: p.h2hWins,
-          movement: p.movement,
-          positionChange: p.predictedPosition - p.currentPosition,
-        })),
-        // ✅ añadido para frontend
+        players: playerStats,
         ladderInfo: {
           isTopGroup: currentGroupLevel === 1,
           isBottomGroup: currentGroupLevel === totalGroups,
-          totalGroups: totalGroups,
+          totalGroups,
         },
       },
       metadata: {
@@ -315,11 +218,7 @@ export async function GET(
   } catch (error: any) {
     console.error("[points-preview API] Error:", error);
     return NextResponse.json(
-      {
-        success: false,
-        error: "Error interno del servidor",
-        details: process.env.NODE_ENV === "development" ? error.message : undefined,
-      },
+      { success: false, error: "Error interno del servidor", details: process.env.NODE_ENV === "development" ? error.message : undefined },
       { status: 500 }
     );
   }
