@@ -1,4 +1,4 @@
-// app/mi-grupo/MiGrupoClient.tsx - OPTIMIZADO CON LÃ“GICA MEJORADA DE MOVIMIENTOS
+// app/mi-grupo/MiGrupoClient.tsx - CORREGIDO CON MANEJO SEGURO DE DATOS
 "use client";
 
 import { useEffect, useCallback, useState, useMemo, useRef } from "react";
@@ -58,7 +58,7 @@ function useGroupDataWithTournament(tournamentId?: string) {
     async (silent = false) => {
       if (!isMountedRef.current) return;
 
-      console.log("ðŸš€ Fetch group data optimizado", { tournamentId, silent });
+      console.log("🔄 Fetch group data optimizado", { tournamentId, silent });
 
       if (!silent) {
         setIsLoading(true);
@@ -95,7 +95,7 @@ function useGroupDataWithTournament(tournamentId?: string) {
         setError(null);
         setHasUpdates(hasChanges);
       } catch (err: any) {
-        console.error("âŒ Error fetch group data:", err);
+        console.error("❌ Error fetch group data:", err);
 
         if (!isMountedRef.current) return;
 
@@ -146,16 +146,28 @@ function useGroupDataWithTournament(tournamentId?: string) {
     refresh,
     hasUpdates,
     clearUpdates,
-    loadingMessage: "Cargando informaciÃ³n del grupo...",
+    loadingMessage: "Cargando información del grupo...",
   };
 }
 
-// Tipos optimizados
+// Tipos optimizados y seguros
 type Tournament = {
   id: string;
   title: string;
   isActive: boolean;
   isCurrent: boolean;
+};
+
+type PlayerType = {
+  id: string;
+  name: string;
+  points: number;
+  position: number;
+  isCurrentUser: boolean;
+  sets?: number;
+  games?: number;
+  gamesLost?: number;
+  setsWon?: number;
 };
 
 type GroupData = {
@@ -178,17 +190,7 @@ type GroupData = {
     points: number;
     streak: number;
   };
-  players?: Array<{
-    id: string;
-    name: string;
-    points: number;
-    position: number;
-    isCurrentUser: boolean;
-    sets?: number;
-    games?: number;
-    gamesLost?: number;
-    setsWon?: number;
-  }>;
+  players?: Array<PlayerType>;
   party?: any;
   availableTournaments?: Tournament[];
   allMatches?: Array<any>;
@@ -196,13 +198,25 @@ type GroupData = {
 };
 
 type MatchType = any;
-type PlayerType = any;
 
 function round1(n: number) {
   return Math.round(n * 10) / 10;
 }
 
-// FunciÃ³n mejorada para calcular movimientos con desempates
+// Función segura para validar jugadores
+const isValidPlayer = (player: any): player is PlayerType => {
+  return (
+    player &&
+    typeof player === 'object' &&
+    typeof player.id === 'string' &&
+    typeof player.name === 'string' &&
+    typeof player.points === 'number' &&
+    typeof player.position === 'number' &&
+    typeof player.isCurrentUser === 'boolean'
+  );
+};
+
+// Función mejorada para calcular movimientos con desempates
 const calculateMovementWithTiebreakers = (
   position: number, 
   groupNumber: number, 
@@ -217,7 +231,7 @@ const calculateMovementWithTiebreakers = (
     if (isTopGroup) {
       return {
         icon: <Crown className="w-4 h-4 text-yellow-600" />,
-        text: "Se mantiene en el grupo Ã©lite",
+        text: "Se mantiene en el grupo élite",
         color: "text-yellow-600",
         bgColor: "bg-yellow-50 border-yellow-200",
         groups: 0,
@@ -226,7 +240,7 @@ const calculateMovementWithTiebreakers = (
     } else if (isSecondGroup) {
       return {
         icon: <TrendingUp className="w-4 h-4 text-green-600" />,
-        text: "Sube al grupo Ã©lite",
+        text: "Sube al grupo élite",
         color: "text-green-600",
         bgColor: "bg-green-50 border-green-200",
         groups: 1,
@@ -246,7 +260,7 @@ const calculateMovementWithTiebreakers = (
     if (isTopGroup) {
       return {
         icon: <Crown className="w-4 h-4 text-yellow-600" />,
-        text: "Se mantiene en el grupo Ã©lite",
+        text: "Se mantiene en el grupo élite",
         color: "text-yellow-600",
         bgColor: "bg-yellow-50 border-yellow-200",
         groups: 0,
@@ -323,9 +337,24 @@ const calculateMovementWithTiebreakers = (
   }
 };
 
-// FunciÃ³n mejorada para aplicar desempates
-const sortPlayersWithTiebreakers = (players: PlayerType[]) => {
-  return [...players].sort((a, b) => {
+// Función mejorada y segura para aplicar desempates
+const sortPlayersWithTiebreakers = (players: any[]): PlayerType[] => {
+  if (!Array.isArray(players)) {
+    console.warn("sortPlayersWithTiebreakers: players no es un array", players);
+    return [];
+  }
+
+  // Filtrar jugadores válidos
+  const validPlayers = players.filter(isValidPlayer);
+  
+  if (validPlayers.length !== players.length) {
+    console.warn("Algunos jugadores fueron filtrados por ser inválidos", {
+      original: players.length,
+      valid: validPlayers.length
+    });
+  }
+
+  return validPlayers.sort((a, b) => {
     // 1. Puntos (descendente)
     if (a.points !== b.points) return b.points - a.points;
     
@@ -364,7 +393,7 @@ export default function MiGrupoClient() {
   const { data, isLoading, hasError, error, retry, hasUpdates, clearUpdates, loadingMessage } =
     useGroupDataWithTournament(selectedTournamentId);
 
-  // Estados para comodÃ­n y acciones
+  // Estados para comodín y acciones
   const [comodinRefreshTrigger, setComodinRefreshTrigger] = useState(0);
   const [showActionFeedback, setShowActionFeedback] = useState(false);
   const [previewRefreshTrigger, setPreviewRefreshTrigger] = useState(0);
@@ -374,42 +403,42 @@ export default function MiGrupoClient() {
     if (!data?.hasGroup || isLoading) return;
 
     const interval = setInterval(() => {
-      console.log("ðŸ”„ Auto-refresh");
+      console.log("🔄 Auto-refresh");
       retry();
     }, 120000);
 
     return () => clearInterval(interval);
   }, [data?.hasGroup, isLoading, retry]);
 
-  // Datos derivados
+  // Datos derivados con validación segura
   const groupData: GroupData = data || { hasGroup: false };
 
-  // Determinar datos de sets
+  // Determinar datos de sets con validación
   const matches = useMemo(() => {
     if (groupData._metadata?.usePartyData && groupData.party?.sets) {
-      return groupData.party.sets;
+      return Array.isArray(groupData.party.sets) ? groupData.party.sets : [];
     }
-    return (groupData.allMatches || []).map((match) => ({
-      id: match.id,
-      setNumber: match.setNumber,
-      team1Player1Name: match.team1Player1Name || "",
-      team1Player2Name: match.team1Player2Name || "",
-      team2Player1Name: match.team2Player1Name || "",
-      team2Player2Name: match.team2Player2Name || "",
-      team1Games: match.team1Games,
-      team2Games: match.team2Games,
-      tiebreakScore: match.tiebreakScore || null,
-      isConfirmed: match.isConfirmed || false,
-      hasResult: match.hasResult || (match.team1Games !== null && match.team2Games !== null),
-      isPending:
-        match.isPending || (!match.isConfirmed && (match.team1Games === null || match.team2Games === null)),
-    }));
+    const allMatches = groupData.allMatches || [];
+    return Array.isArray(allMatches) ? allMatches.map((match) => ({
+      id: match?.id || '',
+      setNumber: match?.setNumber || 0,
+      team1Player1Name: match?.team1Player1Name || "",
+      team1Player2Name: match?.team1Player2Name || "",
+      team2Player1Name: match?.team2Player1Name || "",
+      team2Player2Name: match?.team2Player2Name || "",
+      team1Games: match?.team1Games,
+      team2Games: match?.team2Games,
+      tiebreakScore: match?.tiebreakScore || null,
+      isConfirmed: match?.isConfirmed || false,
+      hasResult: match?.hasResult || (match?.team1Games !== null && match?.team2Games !== null),
+      isPending: match?.isPending || (!match?.isConfirmed && (match?.team1Games === null || match?.team2Games === null)),
+    })) : [];
   }, [groupData]);
 
   // Callbacks
   const handleTournamentChange = useCallback(
     (tournamentId: string) => {
-      console.log("ðŸ”„ Cambio torneo:", tournamentId);
+      console.log("🔄 Cambio torneo:", tournamentId);
       if (tournamentId !== selectedTournamentId) {
         setSelectedTournamentId(tournamentId);
         setShowTournamentSelector(false);
@@ -419,7 +448,7 @@ export default function MiGrupoClient() {
   );
 
   const handleComodinAction = useCallback(() => {
-    console.log("ðŸŽ² AcciÃ³n comodÃ­n completada");
+    console.log("🎲 Acción comodín completada");
     setComodinRefreshTrigger((prev) => prev + 1);
     setShowActionFeedback(true);
 
@@ -431,19 +460,27 @@ export default function MiGrupoClient() {
   }, [retry]);
 
   const handlePartyUpdate = useCallback(() => {
-    console.log("ðŸŽ‰ Party actualizado");
+    console.log("🎉 Party actualizado");
     retry();
     setPreviewRefreshTrigger((prev) => prev + 1);
   }, [retry]);
 
   // Trigger preview refresh cuando hay cambios en matches
-  const confirmedSetsCount = matches.filter((m: MatchType) => m.isConfirmed).length;
+  const confirmedSetsCount = matches.filter((m: MatchType) => m?.isConfirmed).length;
   useEffect(() => {
     setPreviewRefreshTrigger((prev) => prev + 1);
   }, [confirmedSetsCount]);
 
   // Helpers mejorados
   const getMatchStatusInfo = useCallback((match: MatchType) => {
+    if (!match) {
+      return {
+        label: "Error",
+        color: "bg-red-100 text-red-700 border-red-200",
+        icon: AlertTriangle,
+      };
+    }
+    
     if (match.isConfirmed) {
       return {
         label: "Completado",
@@ -475,7 +512,7 @@ export default function MiGrupoClient() {
           color: "bg-gradient-to-r from-yellow-100 to-yellow-200 text-yellow-900 border-yellow-300",
           icon: Crown,
           gradient: "from-yellow-50 to-amber-100",
-          description: "Nivel Ã©lite de la escalera - Los mejores jugadores",
+          description: "Nivel élite de la escalera - Los mejores jugadores",
           accent: "border-l-yellow-500"
         };
       case 2:
@@ -484,7 +521,7 @@ export default function MiGrupoClient() {
           color: "bg-gradient-to-r from-blue-100 to-blue-200 text-blue-900 border-blue-300",
           icon: Trophy,
           gradient: "from-blue-50 to-indigo-100",
-          description: "Nivel alto - Aspirantes al grupo Ã©lite",
+          description: "Nivel alto - Aspirantes al grupo élite",
           accent: "border-l-blue-500"
         };
       case 3:
@@ -502,7 +539,7 @@ export default function MiGrupoClient() {
           color: "bg-gradient-to-r from-purple-100 to-purple-200 text-purple-900 border-purple-300",
           icon: Star,
           gradient: "from-purple-50 to-violet-100",
-          description: "Nivel medio - NÃºcleo del torneo",
+          description: "Nivel medio - Núcleo del torneo",
           accent: "border-l-purple-500"
         };
       default:
@@ -517,15 +554,25 @@ export default function MiGrupoClient() {
     }
   }, []);
 
-  // Datos memoizados con lÃ³gica mejorada
+  // Datos memoizados con lógica mejorada y segura
   const { completedMatches, groupInfo, GroupIcon, userMovement, groupStats, sortedPlayers } = useMemo(() => {
-    const completed = matches.filter((m: MatchType) => m.isConfirmed);
+    const completed = matches.filter((m: MatchType) => m?.isConfirmed);
     const info = getGroupLevelInfo(groupData.group?.number || 2, groupData.group?.level);
     
-    // Ordenar jugadores con criterios de desempate
-    const sorted = groupData.players ? sortPlayersWithTiebreakers(groupData.players) : [];
-    const userPlayer = sorted.find(p => p.isCurrentUser);
-    const userPosition = userPlayer ? sorted.findIndex(p => p.isCurrentUser) + 1 : 0;
+    // Ordenar jugadores con criterios de desempate - VALIDACIÓN SEGURA
+    let sorted: PlayerType[] = [];
+    try {
+      sorted = groupData.players ? sortPlayersWithTiebreakers(groupData.players) : [];
+    } catch (error) {
+      console.error("Error al ordenar jugadores:", error);
+      // Fallback: usar jugadores sin ordenar pero validados
+      sorted = Array.isArray(groupData.players) 
+        ? groupData.players.filter(isValidPlayer)
+        : [];
+    }
+    
+    const userPlayer = sorted.find(p => p?.isCurrentUser);
+    const userPosition = userPlayer ? sorted.findIndex(p => p?.isCurrentUser) + 1 : 0;
     
     const movement = userPosition > 0 ? calculateMovementWithTiebreakers(
       userPosition, 
@@ -549,7 +596,7 @@ export default function MiGrupoClient() {
     };
   }, [matches, groupData.group?.number, groupData.group?.level, groupData.players, getGroupLevelInfo]);
 
-  // Verificar si el comodÃ­n debe mostrarse
+  // Verificar si el comodín debe mostrarse
   const shouldShowComodin = useMemo(() => {
     const hasValidSession = sessionStatus === "authenticated" && session?.user?.id;
     const hasValidRoundId = groupData.roundId && groupData.roundId !== "";
@@ -558,23 +605,29 @@ export default function MiGrupoClient() {
     return hasValidSession && hasValidRoundId && hasGroup;
   }, [sessionStatus, session?.user?.id, groupData.roundId, groupData.hasGroup]);
 
-  // Esperar autenticaciÃ³n
+  // Obtener ID del usuario actual de forma segura
+  const currentUserId = useMemo(() => {
+    const userPlayer = sortedPlayers.find(p => p?.isCurrentUser);
+    return userPlayer?.id || session?.user?.id || "";
+  }, [sortedPlayers, session?.user?.id]);
+
+  // Esperar autenticación
   if (sessionStatus === "loading") {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
-        <LoadingState message="Verificando autenticaciÃ³n..." />
+        <LoadingState message="Verificando autenticación..." />
       </div>
     );
   }
 
-  // Sin autenticaciÃ³n
+  // Sin autenticación
   if (sessionStatus === "unauthenticated") {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
         <ErrorState 
-          error="Debes iniciar sesiÃ³n para ver tu grupo" 
+          error="Debes iniciar sesión para ver tu grupo" 
           onRetry={() => window.location.href = "/auth/login"} 
         />
       </div>
@@ -611,7 +664,7 @@ export default function MiGrupoClient() {
               <Trophy className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
               <h3 className="text-lg font-semibold text-yellow-800 mb-2">Selecciona un Torneo</h3>
               <p className="text-yellow-700 mb-4">
-                EstÃ¡s participando en {groupData.availableTournaments.length} torneos. Selecciona uno para ver tu grupo:
+                Estás participando en {groupData.availableTournaments.length} torneos. Selecciona uno para ver tu grupo:
               </p>
 
               <div className="space-y-2 max-w-md mx-auto">
@@ -661,7 +714,7 @@ export default function MiGrupoClient() {
         <div className="fixed top-4 right-4 z-50 bg-green-100 border border-green-300 rounded-lg p-3 shadow-lg animate-in slide-in-from-right-5 duration-300">
           <div className="flex items-center gap-2 text-green-700">
             <CheckCircle className="w-4 h-4" />
-            <span className="text-sm font-medium">ComodÃ­n aplicado correctamente</span>
+            <span className="text-sm font-medium">Comodín aplicado correctamente</span>
           </div>
         </div>
       )}
@@ -783,7 +836,7 @@ export default function MiGrupoClient() {
       {showTournamentOverview && (
         <TournamentOverviewCard 
           tournamentId={groupData.tournament?.id}
-          currentUserId={sortedPlayers.find(p => p.isCurrentUser)?.id}
+          currentUserId={currentUserId}
           compact={false}
         />
       )}
@@ -792,7 +845,7 @@ export default function MiGrupoClient() {
       {showPreviewCard && groupData.group?.id && (
         <PointsPreviewCard
           groupId={groupData.group.id}
-          currentUserId={sortedPlayers.find(p => p.isCurrentUser)?.id}
+          currentUserId={currentUserId}
           showAllPlayers={false}
           compact={false}
           refreshTrigger={previewRefreshTrigger}
@@ -800,7 +853,7 @@ export default function MiGrupoClient() {
         />
       )}
 
-      {/* Sistema de programaciÃ³n UNIFICADO */}
+      {/* Sistema de programación UNIFICADO */}
       {groupData.party?.groupId && (
         <Card className="border-blue-200 bg-blue-50">
           <CardHeader>
@@ -817,7 +870,7 @@ export default function MiGrupoClient() {
                 <button
                   onClick={() => setShowAdvancedOptions(!showAdvancedOptions)}
                   className="text-blue-600 hover:text-blue-800 transition-colors"
-                  title="InformaciÃ³n adicional"
+                  title="Información adicional"
                 >
                   <HelpCircle className="w-4 h-4" />
                 </button>
@@ -827,7 +880,7 @@ export default function MiGrupoClient() {
           <CardContent>
             <PartyScheduling
               groupId={groupData.party.groupId}
-              currentUserId={sortedPlayers.find(p => p.isCurrentUser)?.id ?? ""}
+              currentUserId={currentUserId}
               isParticipant={true}
               onUpdate={handlePartyUpdate}
               enableRefresh={true}
@@ -837,13 +890,13 @@ export default function MiGrupoClient() {
               <div className="mt-4 p-4 bg-white rounded-lg border">
                 <div className="flex items-center gap-2 mb-3">
                   <Settings className="w-4 h-4 text-gray-600" />
-                  <span className="font-medium text-gray-900">InformaciÃ³n Adicional</span>
+                  <span className="font-medium text-gray-900">Información Adicional</span>
                 </div>
                 <div className="space-y-2 text-sm text-gray-600">
-                  <p>â€¢ Los sets se pueden jugar individualmente si no se programa una fecha comÃºn</p>
-                  <p>â€¢ El sistema de programaciÃ³n conjunto simplifica la coordinaciÃ³n</p>
-                  <p>â€¢ Los resultados se confirman individualmente por set</p>
-                  <p>â€¢ Una vez programado, todos los jugadores ven la misma fecha</p>
+                  <p>• Los sets se pueden jugar individualmente si no se programa una fecha común</p>
+                  <p>• El sistema de programación conjunto simplifica la coordinación</p>
+                  <p>• Los resultados se confirman individualmente por set</p>
+                  <p>• Una vez programado, todos los jugadores ven la misma fecha</p>
                 </div>
               </div>
             )}
@@ -858,9 +911,9 @@ export default function MiGrupoClient() {
             <div className="flex items-start gap-2">
               <AlertTriangle className="w-5 h-5 text-yellow-600 mt-0.5" />
               <div>
-                <p className="font-medium text-yellow-900">Sistema de programaciÃ³n no disponible</p>
+                <p className="font-medium text-yellow-900">Sistema de programación no disponible</p>
                 <p className="text-sm text-yellow-800 mt-1">
-                  No se pudo cargar la informaciÃ³n del partido. Los sets se pueden jugar individualmente usando los enlaces
+                  No se pudo cargar la información del partido. Los sets se pueden jugar individualmente usando los enlaces
                   directos de cada set.
                 </p>
               </div>
@@ -903,8 +956,14 @@ export default function MiGrupoClient() {
         
         <CardContent>
           <div className="space-y-3">
-            {/* Jugadores del grupo con escalera visual y desempates */}
-            {sortedPlayers.map((player: PlayerType, index: number) => {
+            {/* Jugadores del grupo con escalera visual y desempates - VALIDACIÓN SEGURA */}
+            {sortedPlayers.length > 0 ? sortedPlayers.map((player: PlayerType, index: number) => {
+              // Validación adicional por si acaso
+              if (!player || !player.id) {
+                console.warn("Jugador inválido encontrado en render:", player);
+                return null;
+              }
+
               const position = index + 1;
               const movement = calculateMovementWithTiebreakers(position, groupData.group?.number || 2);
               
@@ -936,9 +995,9 @@ export default function MiGrupoClient() {
                           : "bg-gradient-to-br from-red-100 to-red-200 text-red-700 border-red-400 shadow-red-200"
                       }`}
                     >
-                      {position === 1 ? "ðŸ¥‡" : 
-                       position === 2 ? "ðŸ¥ˆ" : 
-                       position === 3 ? "ðŸ¥‰" : 
+                      {position === 1 ? "🥇" : 
+                       position === 2 ? "🥈" : 
+                       position === 3 ? "🥉" : 
                        `#${position}`}
                       
                       {/* Indicador de movimiento superpuesto */}
@@ -955,7 +1014,7 @@ export default function MiGrupoClient() {
                       <div className="flex items-center gap-2 mb-1">
                         <span className="font-bold text-lg">
                           {player.name}
-                          {player.isCurrentUser && <span className="text-blue-600 text-sm ml-2 font-normal">(TÃº)</span>}
+                          {player.isCurrentUser && <span className="text-blue-600 text-sm ml-2 font-normal">(Tú)</span>}
                         </span>
                         {groupData.myStatus?.streak && player.isCurrentUser && groupData.myStatus.streak > 0 && (
                           <div className="flex items-center gap-1 bg-orange-100 px-2 py-1 rounded-full">
@@ -998,21 +1057,29 @@ export default function MiGrupoClient() {
                   </div>
                 </div>
               );
-            })}
+            }).filter(Boolean) : (
+              <div className="text-center py-8 text-gray-500">
+                <Users className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                <p>No se pudieron cargar los jugadores del grupo</p>
+                <Button onClick={retry} size="sm" className="mt-2">
+                  Reintentar
+                </Button>
+              </div>
+            )}
           </div>
 
-          {/* InformaciÃ³n de desempates */}
+          {/* Información de desempates */}
           <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
             <div className="flex items-center gap-2 mb-2">
               <Info className="w-4 h-4 text-blue-600" />
               <span className="font-medium text-blue-900 text-sm">Criterios de Desempate</span>
             </div>
             <div className="text-xs text-blue-700 space-y-1">
-              <p>1. Puntos totales â€¢ 2. Sets ganados â€¢ 3. Diferencia de juegos â€¢ 4. Head-to-head â€¢ 5. Juegos ganados</p>
+              <p>1. Puntos totales • 2. Sets ganados • 3. Diferencia de juegos • 4. Head-to-head • 5. Juegos ganados</p>
             </div>
           </div>
 
-          {/* Sets de la ronda con mejor visualizaciÃ³n */}
+          {/* Sets de la ronda con mejor visualización */}
           <div className="mt-6 space-y-4">
             <div className="flex items-center justify-between">
               <h4 className="font-medium text-lg flex items-center gap-2">
@@ -1025,7 +1092,11 @@ export default function MiGrupoClient() {
             </div>
             
             <div className="grid gap-3">
-              {matches.map((match: MatchType) => {
+              {matches.length > 0 ? matches.map((match: MatchType) => {
+                if (!match || !match.id) {
+                  return null;
+                }
+
                 const statusInfo = getMatchStatusInfo(match);
                 const StatusIcon = statusInfo.icon;
                 
@@ -1034,9 +1105,9 @@ export default function MiGrupoClient() {
                     <div className="flex items-center justify-between mb-3">
                       <h5 className="font-medium flex items-center gap-2">
                         <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center text-xs font-bold text-blue-600">
-                          {match.setNumber}
+                          {match.setNumber || '?'}
                         </div>
-                        Set {match.setNumber}
+                        Set {match.setNumber || '?'}
                       </h5>
                       <Badge className={`${statusInfo.color} text-xs flex items-center gap-1`}>
                         <StatusIcon className="w-3 h-3" />
@@ -1047,7 +1118,7 @@ export default function MiGrupoClient() {
                     <div className="space-y-2">
                       <div className="flex items-center justify-between">
                         <div className="text-sm">
-                          <span className="font-medium">{match.team1Player1Name}</span>
+                          <span className="font-medium">{match.team1Player1Name || 'Jugador 1'}</span>
                           {match.team1Player2Name && <span> + <span className="font-medium">{match.team1Player2Name}</span></span>}
                         </div>
                         <div className="text-xl font-bold text-blue-600">
@@ -1061,7 +1132,7 @@ export default function MiGrupoClient() {
                       
                       <div className="flex items-center justify-between">
                         <div className="text-sm">
-                          <span className="font-medium">{match.team2Player1Name}</span>
+                          <span className="font-medium">{match.team2Player1Name || 'Jugador 2'}</span>
                           {match.team2Player2Name && <span> + <span className="font-medium">{match.team2Player2Name}</span></span>}
                         </div>
                         <div className="text-xl font-bold text-blue-600">
@@ -1076,7 +1147,7 @@ export default function MiGrupoClient() {
                       )}
                     </div>
                     
-                    {!match.isConfirmed && !match.hasResult && (
+                    {!match.isConfirmed && !match.hasResult && match.id && (
                       <div className="mt-3">
                         <Link href={`/set/${match.id}`}>
                           <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700">
@@ -1088,16 +1159,21 @@ export default function MiGrupoClient() {
                     )}
                   </div>
                 );
-              })}
+              }).filter(Boolean) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Play className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                  <p>No hay sets programados para esta ronda</p>
+                </div>
+              )}
             </div>
           </div>
 
-          {/* Sistema de comodÃ­n mejorado */}
+          {/* Sistema de comodín mejorado */}
           {shouldShowComodin ? (
             <div className="mt-6 p-4 bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl">
               <div className="flex items-center gap-2 mb-3">
                 <Zap className="w-5 h-5 text-purple-600" />
-                <h4 className="font-medium text-purple-900">Sistema de ComodÃ­n</h4>
+                <h4 className="font-medium text-purple-900">Sistema de Comodín</h4>
               </div>
               <UseComodinButton
                 roundId={groupData.roundId!}
@@ -1112,11 +1188,11 @@ export default function MiGrupoClient() {
                 <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5" />
                 <div>
                   <p className="text-sm text-amber-800">
-                    <strong>ComodÃ­n no disponible:</strong> {
+                    <strong>Comodín no disponible:</strong> {
                       sessionStatus !== "authenticated" 
-                        ? "No has iniciado sesiÃ³n"
+                        ? "No has iniciado sesión"
                         : !groupData.roundId 
-                        ? "No se pudo obtener la informaciÃ³n de la ronda actual"
+                        ? "No se pudo obtener la información de la ronda actual"
                         : "Sistema no disponible"
                     }
                   </p>
@@ -1138,9 +1214,9 @@ export default function MiGrupoClient() {
           <CardContent className="p-4 text-center">
             <div className="flex items-center justify-center gap-2 mb-1">
               <Award className="w-5 h-5 text-blue-600" />
-              <div className="text-2xl font-bold text-blue-600">{groupData.myStatus?.position}Â°</div>
+              <div className="text-2xl font-bold text-blue-600">{groupData.myStatus?.position}°</div>
             </div>
-            <div className="text-sm text-gray-600">Mi PosiciÃ³n</div>
+            <div className="text-sm text-gray-600">Mi Posición</div>
           </CardContent>
         </Card>
         
@@ -1174,7 +1250,7 @@ export default function MiGrupoClient() {
               <div className={`flex items-center justify-center gap-2 mb-1`}>
                 {userMovement.icon}
                 <div className={`text-2xl font-bold ${userMovement.color}`}>
-                  {userMovement.groups > 0 ? `Â±${userMovement.groups}` : "="}
+                  {userMovement.groups > 0 ? `±${userMovement.groups}` : "="}
                 </div>
               </div>
               <div className="text-sm text-gray-600">Mi Movimiento</div>
@@ -1183,12 +1259,12 @@ export default function MiGrupoClient() {
         )}
       </div>
 
-      {/* Enlaces rÃ¡pidos */}
+      {/* Enlaces rápidos */}
       <Card className="bg-gradient-to-r from-gray-50 to-slate-100 border-gray-200">
         <CardContent className="p-4">
           <h3 className="font-medium mb-3 flex items-center gap-2 text-gray-800">
             <Info className="w-4 h-4" />
-            Enlaces RÃ¡pidos
+            Enlaces Rápidos
           </h3>
           <div className="flex flex-wrap gap-2">
             <Link href="/clasificaciones">
