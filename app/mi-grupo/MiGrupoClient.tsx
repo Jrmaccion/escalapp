@@ -203,125 +203,7 @@ function round1(n: number) {
 }
 
 // Función mejorada para calcular movimientos con desempates
-const calculateMovementWithTiebreakers = (
-  position: number, 
-  groupNumber: number, 
-  totalGroups: number = 10
-) => {
-  const isTopGroup = groupNumber === 1;
-  const isBottomGroup = groupNumber === totalGroups;
-  const isSecondGroup = groupNumber === 2;
-  const isPenultimateGroup = groupNumber === totalGroups - 1;
-
-  if (position === 1) {
-    if (isTopGroup) {
-      return {
-        icon: <Crown className="w-4 h-4 text-yellow-600" />,
-        text: "Se mantiene en el grupo élite",
-        color: "text-yellow-600",
-        bgColor: "bg-yellow-50 border-yellow-200",
-        groups: 0,
-        type: "maintain"
-      };
-    } else if (isSecondGroup) {
-      return {
-        icon: <TrendingUp className="w-4 h-4 text-green-600" />,
-        text: "Sube al grupo élite",
-        color: "text-green-600",
-        bgColor: "bg-green-50 border-green-200",
-        groups: 1,
-        type: "up"
-      };
-    } else {
-      return {
-        icon: <ArrowUp className="w-4 h-4 text-green-600" />,
-        text: "Sube 2 grupos",
-        color: "text-green-600",
-        bgColor: "bg-green-50 border-green-200",
-        groups: 2,
-        type: "up"
-      };
-    }
-  } else if (position === 2) {
-    if (isTopGroup) {
-      return {
-        icon: <Crown className="w-4 h-4 text-yellow-600" />,
-        text: "Se mantiene en el grupo élite",
-        color: "text-yellow-600",
-        bgColor: "bg-yellow-50 border-yellow-200",
-        groups: 0,
-        type: "maintain"
-      };
-    } else {
-      return {
-        icon: <TrendingUp className="w-4 h-4 text-green-600" />,
-        text: "Sube 1 grupo",
-        color: "text-green-600",
-        bgColor: "bg-green-50 border-green-200",
-        groups: 1,
-        type: "up"
-      };
-    }
-  } else if (position === 3) {
-    if (isBottomGroup) {
-      return {
-        icon: <Target className="w-4 h-4 text-blue-600" />,
-        text: "Se mantiene en el grupo inferior",
-        color: "text-blue-600",
-        bgColor: "bg-blue-50 border-blue-200",
-        groups: 0,
-        type: "maintain"
-      };
-    } else {
-      return {
-        icon: <TrendingDown className="w-4 h-4 text-orange-600" />,
-        text: "Baja 1 grupo",
-        color: "text-orange-600",
-        bgColor: "bg-orange-50 border-orange-200",
-        groups: 1,
-        type: "down"
-      };
-    }
-  } else if (position === 4) {
-    if (isBottomGroup) {
-      return {
-        icon: <Target className="w-4 h-4 text-blue-600" />,
-        text: "Se mantiene en el grupo inferior",
-        color: "text-blue-600",
-        bgColor: "bg-blue-50 border-blue-200",
-        groups: 0,
-        type: "maintain"
-      };
-    } else if (isPenultimateGroup) {
-      return {
-        icon: <TrendingDown className="w-4 h-4 text-red-600" />,
-        text: "Baja al grupo inferior",
-        color: "text-red-600",
-        bgColor: "bg-red-50 border-red-200",
-        groups: 1,
-        type: "down"
-      };
-    } else {
-      return {
-        icon: <ArrowDown className="w-4 h-4 text-red-600" />,
-        text: "Baja 2 grupos",
-        color: "text-red-600",
-        bgColor: "bg-red-50 border-red-200",
-        groups: 2,
-        type: "down"
-      };
-    }
-  } else {
-    return {
-      icon: <Minus className="w-4 h-4 text-gray-600" />,
-      text: "Se mantiene",
-      color: "text-gray-600",
-      bgColor: "bg-gray-50 border-gray-200",
-      groups: 0,
-      type: "maintain"
-    };
-  }
-};
+// calculateMovementWithTiebreakers eliminada - ahora usamos player.movement
 
 // Función mejorada para aplicar desempates
 const sortPlayersWithTiebreakers = (players: PlayerType[]) => {
@@ -527,10 +409,9 @@ export default function MiGrupoClient() {
     const userPlayer = sorted.find(p => p.isCurrentUser);
     const userPosition = userPlayer ? sorted.findIndex(p => p.isCurrentUser) + 1 : 0;
     
-    const movement = userPosition > 0 ? calculateMovementWithTiebreakers(
-      userPosition, 
-      groupData.group?.number || 2
-    ) : null;
+    const movement = userPosition > 0
+    ? sorted.find(p => p.isCurrentUser)?.movement ?? null
+    : null;
     
     const stats = {
       totalSets: matches.length,
@@ -906,7 +787,7 @@ export default function MiGrupoClient() {
             {/* Jugadores del grupo con escalera visual y desempates */}
             {sortedPlayers.map((player: PlayerType, index: number) => {
               const position = index + 1;
-              const movement = calculateMovementWithTiebreakers(position, groupData.group?.number || 2);
+              const movement = player.movement!;
               
               return (
                 <div
