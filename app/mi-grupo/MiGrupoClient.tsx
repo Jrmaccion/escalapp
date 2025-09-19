@@ -787,7 +787,14 @@ export default function MiGrupoClient() {
             {/* Jugadores del grupo con escalera visual y desempates */}
             {sortedPlayers.map((player: PlayerType, index: number) => {
               const position = index + 1;
-              const movement = player.movement!;
+              const movement = player.movement ?? {
+    type: "maintain" as const,
+    groups: 0,
+    icon: <Minus className="w-4 h-4 text-gray-600" />,
+    text: "Se mantiene",
+    color: "text-gray-600",
+    bgColor: "bg-gray-50 border-gray-200"
+  };
               
               return (
                 <div
