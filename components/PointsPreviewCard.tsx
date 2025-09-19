@@ -1,4 +1,4 @@
-// components/PointsPreviewCard.tsx - MODIFICADO COMPLETO
+// components/PointsPreviewCard.tsx - CORREGIDO CON TIPOS ACTUALIZADOS
 "use client";
 
 import React from 'react';
@@ -17,7 +17,14 @@ import {
   Zap,
   Crown,
   Flame,
-  Info
+  Info,
+  ArrowUp,
+  ArrowDown,
+  Target,
+  Trophy,
+  Medal,
+  Award,
+  Users
 } from "lucide-react";
 import { usePointsPreview } from "@/hooks/usePointsPreview";
 import type { PointsPreview } from "@/lib/points-calculator";
@@ -61,10 +68,10 @@ function PointsPreviewCard({
 
   if (isLoading && !preview) {
     return (
-      <Card className={`border-blue-200 bg-blue-50 ${className}`}>
-        <CardContent className="p-4 text-center">
-          <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto mb-2"></div>
-          <p className="text-sm text-blue-700">Calculando preview de puntos...</p>
+      <Card className={`border-indigo-200 bg-gradient-to-br from-indigo-50 to-purple-50 ${className}`}>
+        <CardContent className="p-6 text-center">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-3"></div>
+          <p className="text-sm text-indigo-700">Calculando preview de puntos...</p>
         </CardContent>
       </Card>
     );
@@ -99,49 +106,73 @@ function PointsPreviewCard({
     );
   }
 
-  const getMovementIcon = (movement: 'up' | 'down' | 'stay') => {
-    switch (movement) {
-      case 'up': return <TrendingUp className="w-4 h-4 text-green-600" />;
-      case 'down': return <TrendingDown className="w-4 h-4 text-red-600" />;
-      default: return <Minus className="w-4 h-4 text-blue-600" />;
+  const getMovementIcon = (movement: any) => {
+    if (!movement || movement.type === 'same') {
+      return <Minus className="w-4 h-4 text-blue-600" />;
     }
+    if (movement.type === 'up') {
+      return <ArrowUp className="w-4 h-4 text-green-600" />;
+    }
+    if (movement.type === 'down') {
+      return <ArrowDown className="w-4 h-4 text-red-600" />;
+    }
+    return <Target className="w-4 h-4 text-gray-600" />;
   };
 
-  const getMovementText = (movement: 'up' | 'down' | 'stay', position: number) => {
-    switch (movement) {
-      case 'up': return position === 1 ? 'Sube de grupo' : 'Mejora posición';
-      case 'down': return 'Baja de grupo';
-      default: return 'Se mantiene';
+  const getMovementBadgeColor = (movement: any) => {
+    if (!movement || movement.type === 'same') {
+      return 'bg-blue-100 text-blue-700 border-blue-200';
     }
-  };
-
-  const getMovementBadgeColor = (movement: 'up' | 'down' | 'stay') => {
-    switch (movement) {
-      case 'up': return 'bg-green-100 text-green-700 border-green-200';
-      case 'down': return 'bg-red-100 text-red-700 border-red-200';
-      default: return 'bg-blue-100 text-blue-700 border-blue-200';
+    if (movement.type === 'up') {
+      return 'bg-green-100 text-green-700 border-green-200';
     }
+    if (movement.type === 'down') {
+      return 'bg-red-100 text-red-700 border-red-200';
+    }
+    return 'bg-gray-100 text-gray-700 border-gray-200';
   };
 
   const getPositionIcon = (position: number) => {
     switch (position) {
-      case 1: return "🥇";
-      case 2: return "🥈"; 
-      case 3: return "🥉";
-      default: return `#${position}`;
+      case 1: return <Crown className="w-5 h-5 text-yellow-500" />;
+      case 2: return <Medal className="w-5 h-5 text-gray-500" />;
+      case 3: return <Award className="w-5 h-5 text-orange-500" />;
+      default: return <Target className="w-4 h-4 text-blue-500" />;
     }
   };
 
   const getPositionBgColor = (position: number, isCurrentUser: boolean) => {
-    if (isCurrentUser) {
-      return "bg-white border-indigo-300 ring-2 ring-indigo-200 shadow-md";
-    }
+    const baseClasses = isCurrentUser 
+      ? "bg-white border-indigo-300 ring-2 ring-indigo-200 shadow-lg" 
+      : "bg-white border-gray-200";
     
     switch (position) {
-      case 1: return "bg-yellow-50 border-yellow-200";
-      case 2: return "bg-gray-50 border-gray-200";
-      case 3: return "bg-orange-50 border-orange-200";
-      default: return "bg-white border-gray-200";
+      case 1: return `${baseClasses} border-yellow-300 bg-gradient-to-br from-yellow-50 to-yellow-100`;
+      case 2: return `${baseClasses} border-gray-300 bg-gradient-to-br from-gray-50 to-gray-100`;
+      case 3: return `${baseClasses} border-orange-300 bg-gradient-to-br from-orange-50 to-orange-100`;
+      default: return baseClasses;
+    }
+  };
+
+  const getLevelBadgeInfo = (level: number) => {
+    if (level === 1) {
+      return {
+        text: "Grupo Superior",
+        className: "bg-gradient-to-r from-yellow-100 to-yellow-200 text-yellow-800 border-yellow-300",
+        icon: <Crown className="w-3 h-3" />
+      };
+    } else if (level <= 3) {
+      return {
+        text: `Grupo Nivel ${level}`,
+        className: "bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 border-blue-300",
+        icon: <Trophy className="w-3 h-3" />
+      };
+    } else {
+      return {
+        text: `Grupo Nivel ${level}`,
+        className: "bg-gradient-to-r from-gray-100 to-gray-200 text-gray-700 border-gray-300",
+        icon: <Users className="w-3 h-3" />
+      };
     }
   };
 
@@ -163,13 +194,15 @@ function PointsPreviewCard({
     );
   }
 
+  const levelInfo = getLevelBadgeInfo(preview.groupLevel);
+
   return (
     <Card className={`border-indigo-200 bg-gradient-to-br from-indigo-50 to-purple-50 shadow-lg ${className}`}>
       <CardHeader className={compact ? "pb-3" : undefined}>
         <div className="flex items-center justify-between">
           <CardTitle className={`flex items-center gap-2 ${compact ? 'text-base' : 'text-lg'}`}>
             <Eye className="w-5 h-5 text-indigo-600" />
-            {preview.isComplete ? "Puntos de la Ronda" : "Preview de Puntos"}
+            {preview.isComplete ? "Resultados Finales" : "Preview de Puntos"}
             {hasChanges && (
               <Badge className="bg-green-500 text-white animate-pulse">
                 <Zap className="w-3 h-3 mr-1" />
@@ -179,6 +212,11 @@ function PointsPreviewCard({
           </CardTitle>
           
           <div className="flex items-center gap-2">
+            <Badge className={`text-xs border ${levelInfo.className}`}>
+              {levelInfo.icon}
+              <span className="ml-1">{levelInfo.text}</span>
+            </Badge>
+            
             <Badge 
               variant="outline" 
               className={`text-xs ${preview.isComplete ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}
@@ -214,7 +252,7 @@ function PointsPreviewCard({
         
         {!showAllPlayers && currentUserId && !preview.isComplete && (
           <p className="text-xs text-indigo-600">
-            Puntos calculados con sets confirmados. Preview provisional.
+            Puntos calculados con sets confirmados. Sistema de escalera actualizado.
           </p>
         )}
       </CardHeader>
@@ -233,22 +271,25 @@ function PointsPreviewCard({
         ) : (
           <div className="space-y-4">
             {playersToShow.map((player) => {
-              const movement = preview.movements[player.playerId] || 'stay';
+              const movement = preview.movements[player.playerId];
               const MovementIcon = getMovementIcon(movement);
               const isCurrentUser = player.playerId === currentUserId;
               
               return (
                 <div
                   key={player.playerId}
-                  className={`p-4 rounded-lg border-2 transition-all hover:shadow-sm ${getPositionBgColor(
+                  className={`p-4 rounded-lg border-2 transition-all hover:shadow-md ${getPositionBgColor(
                     player.provisionalPosition,
                     isCurrentUser
                   )}`}
                 >
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 border-2 border-indigo-200 flex items-center justify-center font-bold text-sm shadow-sm">
-                        {getPositionIcon(player.provisionalPosition)}
+                      <div className="w-12 h-12 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 border-2 border-indigo-200 flex items-center justify-center font-bold text-lg shadow-sm">
+                        {player.provisionalPosition === 1 ? "🥇" : 
+                         player.provisionalPosition === 2 ? "🥈" : 
+                         player.provisionalPosition === 3 ? "🥉" : 
+                         `#${player.provisionalPosition}`}
                       </div>
                       
                       <div className="flex-1">
@@ -271,7 +312,7 @@ function PointsPreviewCard({
                             <span className="flex items-center gap-1">
                               {preview.isComplete ? (
                                 <>
-                                  <span className="text-gray-500">Puntos ganados:</span>
+                                  <span className="text-gray-500">Puntos finales:</span>
                                   <span className="font-bold text-indigo-700">
                                     {player.provisionalPoints.toFixed(1)} pts
                                   </span>
@@ -305,11 +346,16 @@ function PointsPreviewCard({
                           
                           <div className="flex items-center gap-3 text-xs">
                             <span>
-                              <span className="text-gray-500">Sets ganados:</span> {player.setsWon}/{player.setsPlayed}
+                              <span className="text-gray-500">Sets:</span> {player.setsWon}/{player.setsPlayed}
                             </span>
                             <span>
                               <span className="text-gray-500">Juegos:</span> {player.gamesWon}
                             </span>
+                            {player.headToHeadRecord && (
+                              <span>
+                                <span className="text-gray-500">H2H:</span> {player.headToHeadRecord.wins}-{player.headToHeadRecord.losses}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -321,7 +367,7 @@ function PointsPreviewCard({
                       >
                         {MovementIcon}
                         <span className="ml-1">
-                          {getMovementText(movement, player.provisionalPosition)}
+                          {movement ? movement.description : "Se mantiene"}
                         </span>
                       </Badge>
                       
@@ -332,8 +378,8 @@ function PointsPreviewCard({
                       {player.deltaPosition !== 0 && !preview.isComplete && (
                         <div className="text-xs text-gray-500">
                           {player.deltaPosition > 0 
-                            ? `↑ ${player.deltaPosition} pos.` 
-                            : `↓ ${Math.abs(player.deltaPosition)} pos.`
+                            ? `↗ ${player.deltaPosition} pos.` 
+                            : `↘ ${Math.abs(player.deltaPosition)} pos.`
                           }
                         </div>
                       )}
@@ -349,9 +395,9 @@ function PointsPreviewCard({
               );
             })}
             
-            {/* Footer con información del preview */}
+            {/* Footer con información del preview mejorado */}
             <div className="mt-4 p-3 bg-white/60 rounded-lg border border-indigo-100">
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center justify-between text-xs mb-2">
                 <div className="flex items-center gap-4 text-indigo-700">
                   <span className="flex items-center gap-1">
                     <CheckCircle className="w-3 h-3" />
@@ -373,6 +419,28 @@ function PointsPreviewCard({
                       hour: '2-digit', 
                       minute: '2-digit'
                     })}
+                  </div>
+                </div>
+              </div>
+              
+              {/* Sistema de escalera explicado - CORREGIDO */}
+              <div className="mt-2 pt-2 border-t border-indigo-100">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-indigo-600">
+                  <div className="flex items-center gap-1">
+                    <ArrowUp className="w-3 h-3 text-green-600" />
+                    <span>1°: Sube {preview.ladderInfo.isTopGroup ? "0" : preview.groupLevel === 2 ? "1" : "2"}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <ArrowUp className="w-3 h-3 text-green-600" />
+                    <span>2°: Sube {preview.ladderInfo.isTopGroup ? "0" : "1"}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <ArrowDown className="w-3 h-3 text-red-600" />
+                    <span>3°: Baja {preview.ladderInfo.isBottomGroup ? "0" : "1"}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <ArrowDown className="w-3 h-3 text-red-600" />
+                    <span>4°: Baja {preview.ladderInfo.isBottomGroup ? "0" : preview.groupLevel === preview.ladderInfo.totalGroups - 1 ? "1" : "2"}</span>
                   </div>
                 </div>
               </div>

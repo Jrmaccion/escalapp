@@ -27,7 +27,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { CurrentGroupCard } from "@/components/dashboard/CurrentGroupCard";
-import { TournamentOverviewCard } from "@/components/dashboard/TournamentOverviewCard";
+import TournamentOverviewCard from "@/components/dashboard/TournamentOverviewCard";
 
 /** Tipos de API del Dashboard */
 type GroupMember = {

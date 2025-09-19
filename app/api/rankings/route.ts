@@ -1,355 +1,269 @@
-// app/api/rankings/route.ts - VERSIÓN CON SELECTOR DE TORNEOS
+// app/api/rankings/route.ts - UNIFICADO CON DESEMPATES
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-export const dynamic = "force-dynamic";
+export const dynamic = 'force-dynamic';
 
-// Helpers
-const toNum = (v: any) => (typeof v === "number" ? v : v == null ? 0 : Number(v));
+// Query unificada para rankings con desempates
+async function getUnifiedRankings(tournamentId: string, roundNumber?: number) {
+  const roundFilter = roundNumber ? `AND r."number" = ${roundNumber}` : '';
+  
+  const playersStats = await prisma.$queryRaw<any[]>`
+    SELECT 
+      p.id as "playerId",
+      p.name as "playerName",
+      u.name as "userName",
+      COALESCE(SUM(gp.points), 0) as "totalPoints",
+      COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) as "roundsPlayed",
+      CASE 
+        WHEN COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) > 0 
+        THEN COALESCE(SUM(gp.points) / COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END), 0)
+        ELSE 0 
+      END as "averagePoints",
+      -- Estadísticas para desempates
+      COALESCE(SUM(
+        CASE 
+          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id 
+          THEN CASE WHEN m.team1Games > m.team2Games THEN 1 ELSE 0 END
+          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id 
+          THEN CASE WHEN m.team2Games > m.team1Games THEN 1 ELSE 0 END
+          ELSE 0
+        END
+      ), 0) as "setsWon",
+      COALESCE(SUM(
+        CASE 
+          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id 
+          THEN m.team1Games - m.team2Games
+          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id 
+          THEN m.team2Games - m.team1Games
+          ELSE 0
+        END
+      ), 0) as "gamesDifference",
+      COALESCE(SUM(
+        CASE 
+          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id THEN m.team1Games
+          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id THEN m.team2Games
+          ELSE 0
+        END
+      ), 0) as "gamesWon",
+      -- H2H wins (aproximado como sets ganados para simplificar)
+      COALESCE(SUM(
+        CASE 
+          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id 
+          THEN CASE WHEN m.team1Games > m.team2Games THEN 1 ELSE 0 END
+          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id 
+          THEN CASE WHEN m.team2Games > m.team1Games THEN 1 ELSE 0 END
+          ELSE 0
+        END
+      ), 0) as "h2hWins",
+      -- Estadísticas adicionales
+      COUNT(CASE WHEN gp."usedComodin" = true THEN 1 END) as "comodinesUsed",
+      MAX(gp.streak) as "maxStreak",
+      -- Información de grupo actual
+      (
+        SELECT CONCAT(g2.number, '-', gp2.position)
+        FROM "group_players" gp2
+        INNER JOIN "groups" g2 ON gp2."groupId" = g2.id
+        INNER JOIN "rounds" r2 ON g2."roundId" = r2.id
+        WHERE gp2."playerId" = p.id 
+          AND r2."tournamentId" = ${`'${tournamentId}'`}
+          AND r2."isClosed" = false
+        LIMIT 1
+      ) as "currentGroupPosition"
+    FROM "players" p
+    INNER JOIN "users" u ON p."userId" = u.id
+    LEFT JOIN "group_players" gp ON p.id = gp."playerId"
+    LEFT JOIN "groups" g ON gp."groupId" = g.id
+    LEFT JOIN "rounds" r ON g."roundId" = r.id
+    LEFT JOIN "matches" m ON g.id = m."groupId" AND m."isConfirmed" = true
+    WHERE r."tournamentId" = ${`'${tournamentId}'`}
+      AND r."isClosed" = true
+      ${roundFilter}
+    GROUP BY p.id, p.name, u.name
+  `;
 
-function decideWinnerAndGames(
-  g1: number | null,
-  g2: number | null,
-  tiebreakScore: string | null
-): { g1: number; g2: number; winner: 1 | 2 | null } {
-  let a = toNum(g1);
-  let b = toNum(g2);
-  let winner: 1 | 2 | null = null;
+  return playersStats;
+}
 
-  // Caso especial TB: si 4-4 y hay marcador de TB, decidir por TB y computar 5-4
-  if (a === 4 && b === 4 && tiebreakScore) {
-    const m = /^(\d+)-(\d+)$/.exec(tiebreakScore.trim());
-    if (m) {
-      const tb1 = Number(m[1]);
-      const tb2 = Number(m[2]);
-      if (tb1 > tb2) {
-        a = 5;
-        winner = 1;
-      } else if (tb2 > tb1) {
-        b = 5;
-        winner = 2;
-      }
+// Función de ordenamiento unificada para diferentes tipos de ranking
+function sortPlayersForRanking(players: any[], rankingType: 'official' | 'ironman') {
+  return [...players].sort((a, b) => {
+    if (rankingType === 'official') {
+      // Ranking oficial: promedio como criterio principal
+      if (a.averagePoints !== b.averagePoints) return b.averagePoints - a.averagePoints;
+    } else {
+      // Ranking ironman: puntos totales como criterio principal
+      if (a.totalPoints !== b.totalPoints) return b.totalPoints - a.totalPoints;
     }
-  }
-
-  // Caso normal
-  if (winner === null) {
-    if (a > b) winner = 1;
-    else if (b > a) winner = 2;
-  }
-
-  return { g1: a, g2: b, winner };
-}
-
-async function getUserTournaments(session: any) {
-  console.log("=== getUserTournaments DEBUG ===");
-  console.log("Session user:", session?.user);
-  
-  // Resolver playerId
-  let playerId: string | null = session?.user?.playerId ?? null;
-  console.log("Initial playerId from session:", playerId);
-
-  if (!playerId && session?.user) {
-    const userId = session.user.id ?? null;
-    const email = session.user.email ?? null;
-    console.log("Trying fallback - userId:", userId, "email:", email);
-
-    const byUser = userId
-      ? await prisma.player.findUnique({
-          where: { userId },
-          select: { id: true },
-        })
-      : null;
-    console.log("Player found by userId:", byUser);
-
-    const byEmail = !byUser && email
-      ? await prisma.player.findFirst({
-          where: { user: { email } },
-          select: { id: true },
-        })
-      : null;
-    console.log("Player found by email:", byEmail);
-
-    playerId = (byUser ?? byEmail)?.id ?? null;
-    console.log("Resolved playerId:", playerId);
-  }
-
-  if (!playerId) {
-    console.log("No playerId found - returning empty array");
-    return [];
-  }
-
-  // Obtener torneos donde el usuario ha participado
-  console.log("Searching tournaments for playerId:", playerId);
-  const tournaments = await prisma.tournament.findMany({
-    where: {
-      players: {
-        some: { playerId }
-      }
-    },
-    select: {
-      id: true,
-      title: true,
-      isActive: true,
-      startDate: true,
-      endDate: true,
-      rounds: {
-        select: { id: true, number: true, isClosed: true },
-        orderBy: { number: 'desc' }
-      }
-    },
-    orderBy: [
-      { isActive: 'desc' },
-      { startDate: 'desc' }
-    ]
+    
+    // Criterios de desempate comunes
+    if (a.setsWon !== b.setsWon) return b.setsWon - a.setsWon;
+    if (a.gamesDifference !== b.gamesDifference) return b.gamesDifference - a.gamesDifference;
+    if (a.h2hWins !== b.h2hWins) return b.h2hWins - a.h2hWins;
+    if (a.gamesWon !== b.gamesWon) return b.gamesWon - a.gamesWon;
+    
+    return 0;
   });
-
-  console.log("Found tournaments:", tournaments.length);
-  console.log("Tournaments details:", tournaments);
-
-  const filteredTournaments = tournaments.filter(t => t.rounds.length > 0);
-  console.log("Tournaments with rounds:", filteredTournaments.length);
-  
-  return filteredTournaments;
-}
-
-async function pickTournamentId(explicitId?: string | null, userTournaments?: any[]) {
-  if (explicitId) {
-    const t = await prisma.tournament.findUnique({ where: { id: explicitId } });
-    if (t) return t.id;
-  }
-
-  // Priorizar torneo activo del usuario
-  if (userTournaments) {
-    const activeTournament = userTournaments.find(t => t.isActive);
-    if (activeTournament) return activeTournament.id;
-
-    // Si no hay activo, usar el más reciente
-    if (userTournaments.length > 0) return userTournaments[0].id;
-  }
-
-  // Fallback a cualquier torneo activo
-  const active = await prisma.tournament.findFirst({ where: { isActive: true } });
-  if (active) {
-    const anyResults = await prisma.match.count({
-      where: { isConfirmed: true, group: { round: { tournamentId: active.id } } },
-    });
-    if (anyResults > 0) return active.id;
-  }
-
-  return null;
 }
 
 export async function GET(req: NextRequest) {
-  const url = new URL(req.url);
-  const DEBUG = url.searchParams.get("debug") === "1";
-  const REF = url.searchParams.get("ref") ? Number(url.searchParams.get("ref")) : undefined;
-  const TOURNAMENT_ID = url.searchParams.get("tournamentId");
-
-  console.log("=== RANKINGS API DEBUG ===");
-  console.log("Query params:", Object.fromEntries(url.searchParams));
-
-  const debug: any = DEBUG ? { queryParams: Object.fromEntries(url.searchParams), notes: [], steps: {} } : null;
-
   try {
-    const session = await getServerSession(authOptions);
-    console.log("Session:", session?.user);
-    
-    // Obtener torneos del usuario
-    const userTournaments = session ? await getUserTournaments(session) : [];
-    console.log("User tournaments found:", userTournaments.length);
-    console.log("User tournaments:", userTournaments);
+    const { searchParams } = new URL(req.url);
+    const tournamentId = searchParams.get('tournamentId');
+    const type = searchParams.get('type') as 'official' | 'ironman' | 'both' || 'both';
+    const roundNumber = searchParams.get('round');
 
-    // Seleccionar torneo
-    const tournamentId = await pickTournamentId(TOURNAMENT_ID, userTournaments);
-    console.log("Selected tournament ID:", tournamentId);
-    
     if (!tournamentId) {
-      return NextResponse.json({
-        hasActiveTournament: false,
-        hasRankings: false,
-        message: "No hay torneos con datos disponibles.",
-        tournaments: userTournaments.map(t => ({
-          id: t.id,
-          title: t.title,
-          isActive: t.isActive,
-          hasData: t.rounds.some((r: any) => r.isClosed)
-        })),
-        selectedTournament: null,
-        official: [],
-        ironman: [],
-        ...(DEBUG ? { debug } : {}),
-      });
+      return NextResponse.json({ error: "tournamentId requerido" }, { status: 400 });
     }
 
+    // Verificar acceso si hay sesión
+    const session = await getServerSession(authOptions);
+    let isAdmin = false;
+    let isParticipant = false;
+
+    if (session?.user?.id) {
+      isAdmin = session.user.isAdmin || false;
+      
+      // Verificar si es participante
+      const player = await prisma.player.findUnique({
+        where: { userId: session.user.id },
+        select: { id: true }
+      });
+
+      if (player) {
+        const participation = await prisma.tournamentPlayer.findFirst({
+          where: {
+            tournamentId,
+            playerId: player.id
+          }
+        });
+        isParticipant = !!participation;
+      }
+    }
+
+    // Obtener datos del torneo
     const tournament = await prisma.tournament.findUnique({
       where: { id: tournamentId },
-      include: {
-        rounds: { orderBy: { number: "desc" }, select: { id: true, number: true, isClosed: true } },
-      },
-    });
-
-    if (!tournament || tournament.rounds.length === 0) {
-      return NextResponse.json({
-        hasActiveTournament: true,
-        hasRankings: false,
-        message: "El torneo no tiene rondas completadas.",
-        tournaments: userTournaments.map(t => ({
-          id: t.id,
-          title: t.title,
-          isActive: t.isActive,
-          hasData: t.rounds.some((r: any) => r.isClosed)
-        })),
-        selectedTournament: tournament ? { id: tournamentId, title: tournament.title } : null,
-        official: [],
-        ironman: [],
-        ...(DEBUG ? { debug: { ...debug, tournament } } : {}),
-      });
-    }
-
-    const latestClosed = tournament.rounds.find((r) => r.isClosed);
-    const referenceRound = REF
-      ? tournament.rounds.find((r) => r.number === REF) ?? tournament.rounds[0]
-      : latestClosed ?? tournament.rounds[0];
-    const refRoundNumber = referenceRound.number;
-
-    debug && (debug.steps.tournament = {
-      selectedTournament: { id: tournament.id, title: tournament.title },
-      rounds: tournament.rounds,
-      latestClosed: latestClosed?.number ?? null,
-      refRoundNumber,
-    });
-
-    // Obtener todos los jugadores del torneo para incluir los que no tienen puntos
-    const tournamentPlayers = await prisma.tournamentPlayer.findMany({
-      where: { tournamentId: tournament.id },
-      include: { player: { select: { id: true, name: true } } },
-    });
-
-    // Traer todos los sets confirmados ≤ ronda de referencia
-    const matches = await prisma.match.findMany({
-      where: {
-        isConfirmed: true,
-        group: { round: { tournamentId: tournament.id, number: { lte: refRoundNumber } } },
-      },
       select: {
         id: true,
-        team1Player1Id: true,
-        team1Player2Id: true,
-        team2Player1Id: true,
-        team2Player2Id: true,
-        team1Games: true,
-        team2Games: true,
-        tiebreakScore: true,
-        group: { select: { round: { select: { number: true } } } },
-      },
-      orderBy: { id: "asc" },
+        title: true,
+        isPublic: true,
+        totalRounds: true,
+        rounds: {
+          select: { number: true, isClosed: true },
+          orderBy: { number: 'desc' },
+          take: 1
+        }
+      }
     });
 
-    debug && (debug.steps.matches = { confirmedCount: matches.length, sample: matches.slice(0, 5) });
-
-    // Agregar puntos por jugador según reglas
-    const totalByPlayer = new Map<string, number>();
-    const roundsByPlayer = new Map<string, Set<number>>();
-
-    const addPoints = (playerId: string, pts: number, roundNumber: number) => {
-      totalByPlayer.set(playerId, (totalByPlayer.get(playerId) ?? 0) + pts);
-      const s = roundsByPlayer.get(playerId) ?? new Set<number>();
-      s.add(roundNumber);
-      roundsByPlayer.set(playerId, s);
-    };
-
-    for (const m of matches) {
-      const rn = m.group.round.number;
-      const { g1, g2, winner } = decideWinnerAndGames(m.team1Games, m.team2Games, m.tiebreakScore);
-
-      const team1Pts = g1 + (winner === 1 ? 1 : 0);
-      const team2Pts = g2 + (winner === 2 ? 1 : 0);
-
-      if (m.team1Player1Id) addPoints(m.team1Player1Id, team1Pts, rn);
-      if (m.team1Player2Id) addPoints(m.team1Player2Id, team1Pts, rn);
-      if (m.team2Player1Id) addPoints(m.team2Player1Id, team2Pts, rn);
-      if (m.team2Player2Id) addPoints(m.team2Player2Id, team2Pts, rn);
+    if (!tournament) {
+      return NextResponse.json({ error: "Torneo no encontrado" }, { status: 404 });
     }
 
-    const base = tournamentPlayers.map((tp) => {
-      const pid = tp.player.id;
-      const total = totalByPlayer.get(pid) ?? 0;
-      const rounds = roundsByPlayer.get(pid)?.size ?? 0;
-      const avg = rounds > 0 ? total / rounds : 0;
-      return {
-        id: pid,
-        name: tp.player.name,
-        totalPoints: total,
-        roundsPlayed: rounds,
-        averagePoints: avg,
-      };
-    });
+    // Verificar acceso
+    if (!tournament.isPublic && !isAdmin && !isParticipant) {
+      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
+    }
 
-    // Rankings (Oficial por promedio, Ironman por total)
-    const official = [...base]
-      .sort((a, b) =>
-        b.averagePoints !== a.averagePoints ? b.averagePoints - a.averagePoints : b.totalPoints - a.totalPoints
-      )
-      .map((p, i) => ({ ...p, position: i + 1 }));
+    // Obtener estadísticas unificadas
+    const playersStats = await getUnifiedRankings(
+      tournamentId, 
+      roundNumber ? parseInt(roundNumber) : undefined
+    );
 
-    const ironman = [...base]
-      .sort((a, b) =>
-        b.totalPoints !== a.totalPoints ? b.totalPoints - a.totalPoints : b.averagePoints - a.averagePoints
-      )
-      .map((p, i) => ({ ...p, position: i + 1 }));
+    // Convertir BigInt a Number
+    const normalizedStats = playersStats.map(player => ({
+      playerId: player.playerId,
+      playerName: player.playerName,
+      userName: player.userName,
+      totalPoints: Number(player.totalPoints),
+      roundsPlayed: Number(player.roundsPlayed),
+      averagePoints: Number(player.averagePoints),
+      setsWon: Number(player.setsWon),
+      gamesDifference: Number(player.gamesDifference),
+      gamesWon: Number(player.gamesWon),
+      h2hWins: Number(player.h2hWins),
+      comodinesUsed: Number(player.comodinesUsed),
+      maxStreak: Number(player.maxStreak),
+      currentGroupPosition: player.currentGroupPosition
+    }));
 
-    const hasRankings = matches.length > 0 && base.some((p) => p.roundsPlayed > 0 || p.totalPoints > 0);
+    // Crear rankings
+    const rankings: any = {};
 
-    console.log("=== FINAL RESULT DEBUG ===");
-    console.log("hasRankings:", hasRankings);
-    console.log("matches.length:", matches.length);
-    console.log("base players with data:", base.filter(p => p.roundsPlayed > 0 || p.totalPoints > 0).length);
-    console.log("official ranking length:", official.length);
-    console.log("ironman ranking length:", ironman.length);
+    if (type === 'official' || type === 'both') {
+      const officialRanking = sortPlayersForRanking(normalizedStats, 'official');
+      rankings.official = officialRanking.map((player, index) => ({
+        position: index + 1,
+        ...player,
+        isEligible: player.roundsPlayed >= Math.ceil(tournament.totalRounds * 0.5), // 50% mínimo
+        movement: index === 0 ? 'champion' : index < 3 ? 'podium' : 'stable'
+      }));
+    }
 
-    debug && (debug.steps.aggregates = {
-      hasRankings,
-      topOfficialSample: official.slice(0, 5),
-      topIronmanSample: ironman.slice(0, 5),
-    });
+    if (type === 'ironman' || type === 'both') {
+      const ironmanRanking = sortPlayersForRanking(normalizedStats, 'ironman');
+      rankings.ironman = ironmanRanking.map((player, index) => ({
+        position: index + 1,
+        ...player,
+        movement: 'ironman'
+      }));
+    }
 
-    const finalResponse = {
-      hasActiveTournament: true,
-      hasRankings,
-      message: referenceRound.isClosed
-        ? `Clasificaciones hasta la ronda cerrada ${refRoundNumber}.`
-        : `Clasificaciones con progreso hasta la ronda ${refRoundNumber} (en curso).`,
-      tournaments: userTournaments.map(t => ({
-        id: t.id,
-        title: t.title,
-        isActive: t.isActive,
-        hasData: t.rounds.some((r: any) => r.isClosed || matches.length > 0)
-      })),
-      selectedTournament: { id: tournament.id, title: tournament.title },
-      official,
-      ironman,
-      ...(DEBUG ? { debug } : {}),
+    // Estadísticas generales
+    const stats = {
+      totalPlayers: normalizedStats.length,
+      eligiblePlayers: normalizedStats.filter(p => 
+        p.roundsPlayed >= Math.ceil(tournament.totalRounds * 0.5)
+      ).length,
+      completedRounds: tournament.rounds[0]?.isClosed ? tournament.rounds[0].number : 0,
+      totalRounds: tournament.totalRounds,
+      averageParticipation: normalizedStats.length > 0 
+        ? Math.round(normalizedStats.reduce((sum, p) => sum + p.roundsPlayed, 0) / normalizedStats.length * 10) / 10
+        : 0
     };
 
-    console.log("Final response hasRankings:", finalResponse.hasRankings);
-    console.log("Final response hasActiveTournament:", finalResponse.hasActiveTournament);
-
-    return NextResponse.json(finalResponse);
-  } catch (e) {
-    console.error("Error /api/rankings:", e);
-    return NextResponse.json(
-      { 
-        hasActiveTournament: false, 
-        hasRankings: false, 
-        message: "Error interno", 
-        tournaments: [],
-        selectedTournament: null,
-        official: [], 
-        ironman: [] 
+    return NextResponse.json({
+      success: true,
+      tournament: {
+        id: tournament.id,
+        title: tournament.title,
+        isPublic: tournament.isPublic
       },
+      rankings,
+      stats,
+      tiebreakCriteria: {
+        official: [
+          "Promedio de puntos por ronda",
+          "Sets ganados",
+          "Diferencia de juegos", 
+          "Head-to-head wins",
+          "Juegos ganados totales"
+        ],
+        ironman: [
+          "Puntos totales acumulados",
+          "Sets ganados",
+          "Diferencia de juegos",
+          "Head-to-head wins", 
+          "Juegos ganados totales"
+        ]
+      },
+      metadata: {
+        generatedAt: new Date().toISOString(),
+        useUnifiedTiebreakers: true,
+        isAdmin,
+        isParticipant
+      }
+    });
+
+  } catch (error: any) {
+    console.error('[Rankings API] Error:', error);
+    return NextResponse.json(
+      { error: "Error interno del servidor", details: error.message },
       { status: 500 }
     );
   }

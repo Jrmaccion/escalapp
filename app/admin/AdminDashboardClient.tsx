@@ -1,4 +1,4 @@
-// app/admin/AdminDashboardClient.tsx - OPTIMIZADO con selector de torneo
+// app/admin/AdminDashboardClient.tsx - CORRECCIONES MENORES
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -16,7 +16,8 @@ import {
   ChevronDown,
   Zap,
   Settings,
-  Key
+  Key,
+  RefreshCw
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -60,10 +61,10 @@ type Stats = {
 };
 
 type AdminDashboardClientProps = {
-  tournaments: SerializedTournament[]; // 🔄 Ahora múltiples torneos
+  tournaments: SerializedTournament[];
   rounds: SerializedRound[];
   stats: Stats;
-  defaultTournamentId?: string; // El torneo activo por defecto
+  defaultTournamentId?: string;
 };
 
 export default function AdminDashboardClient({
@@ -74,23 +75,20 @@ export default function AdminDashboardClient({
 }: AdminDashboardClientProps) {
   const router = useRouter();
   
-  // 🎯 Estado del torneo seleccionado
   const [selectedTournamentId, setSelectedTournamentId] = useState<string>(
     defaultTournamentId || tournaments[0]?.id || ""
   );
   
-  // 📊 Estado para stats dinámicas del torneo seleccionado
   const [selectedStats, setSelectedStats] = useState<Stats>(stats);
   const [loadingStats, setLoadingStats] = useState(false);
 
-  // 🔍 Torneo y rondas filtradas
   const selectedTournament = useMemo(
     () => tournaments.find(t => t.id === selectedTournamentId),
     [tournaments, selectedTournamentId]
   );
 
   const selectedRounds = useMemo(
-    () => rounds.filter(r => r.groupsCount > 0), // Solo rondas con datos
+    () => rounds.filter(r => r.groupsCount > 0),
     [rounds]
   );
 
@@ -106,7 +104,6 @@ export default function AdminDashboardClient({
     [selectedStats]
   );
 
-  // 📡 Cargar stats específicas del torneo seleccionado
   const loadTournamentStats = async (tournamentId: string) => {
     if (tournamentId === defaultTournamentId) {
       setSelectedStats(stats);
@@ -127,21 +124,18 @@ export default function AdminDashboardClient({
     }
   };
 
-  // 🔄 Recargar stats cuando cambia el torneo
   useEffect(() => {
     if (selectedTournamentId) {
       loadTournamentStats(selectedTournamentId);
     }
   }, [selectedTournamentId]);
 
-  // 💾 Persistir selección en localStorage
   useEffect(() => {
     if (selectedTournamentId) {
       localStorage.setItem('admin-selected-tournament', selectedTournamentId);
     }
   }, [selectedTournamentId]);
 
-  // 🏗️ Cargar selección persistida al montar
   useEffect(() => {
     const saved = localStorage.getItem('admin-selected-tournament');
     if (saved && tournaments.find(t => t.id === saved)) {
@@ -170,7 +164,7 @@ export default function AdminDashboardClient({
     <div className="min-h-screen bg-background py-10">
       <div className="container mx-auto px-4 max-w-7xl">
         
-        {/* 🎯 Header con selector de torneo */}
+        {/* Header con selector de torneo */}
         <div className="mb-8">
           <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4 mb-4">
             <div>
@@ -180,7 +174,7 @@ export default function AdminDashboardClient({
               </p>
             </div>
 
-            {/* 🎛️ Selector de torneo (solo si hay múltiples) */}
+            {/* Selector de torneo */}
             {tournaments.length > 1 && (
               <div className="min-w-[280px]">
                 <label className="block text-sm font-medium text-muted-foreground mb-2">
@@ -204,7 +198,7 @@ export default function AdminDashboardClient({
             )}
           </div>
 
-          {/* 📅 Info del torneo seleccionado */}
+          {/* Info del torneo seleccionado */}
           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <span>
               {format(new Date(selectedTournament.startDate), "d MMM yyyy", { locale: es })} 
@@ -214,11 +208,16 @@ export default function AdminDashboardClient({
             <Badge variant={selectedTournament.isActive ? "default" : "secondary"}>
               {selectedTournament.isActive ? "Activo" : "Inactivo"}
             </Badge>
-            {loadingStats && <Badge variant="outline">Cargando stats...</Badge>}
+            {loadingStats && (
+              <Badge variant="outline" className="animate-pulse">
+                <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                Cargando stats...
+              </Badge>
+            )}
           </div>
         </div>
 
-        {/* 📊 Stats Cards (ahora dinámicas) */}
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           <div className="bg-card text-card-foreground p-6 rounded-lg shadow border">
             <div className="flex items-center justify-between mb-2">
@@ -259,7 +258,7 @@ export default function AdminDashboardClient({
           </div>
         </div>
 
-        {/* 🚀 Quick Actions (ahora dinámicas) */}
+        {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           <Link
             href="/admin/results"
@@ -292,7 +291,7 @@ export default function AdminDashboardClient({
           )}
         </div>
 
-        {/* 🎮 Ronda actual (ahora dinámica) */}
+        {/* Ronda actual */}
         {currentRound && (
           <div className="bg-card text-card-foreground p-6 rounded-lg shadow border mb-8">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -351,7 +350,7 @@ export default function AdminDashboardClient({
           </div>
         )}
 
-        {/* 🏆 Gestión avanzada del torneo seleccionado */}
+        {/* Gestión avanzada del torneo seleccionado */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Panel principal de gestión */}
           <div className="bg-card text-card-foreground rounded-lg shadow border">
@@ -380,6 +379,13 @@ export default function AdminDashboardClient({
                 <Link href={`/admin/tournaments/${selectedTournament.id}?tab=comodines`}>
                   <Zap className="w-4 h-4 mr-2" />
                   Configurar Comodines
+                </Link>
+              </Button>
+
+              <Button variant="outline" className="w-full justify-start" asChild>
+                <Link href="/admin/users">
+                  <Key className="w-4 h-4 mr-2" />
+                  Gestionar Usuarios
                 </Link>
               </Button>
             </div>
@@ -468,44 +474,6 @@ export default function AdminDashboardClient({
               </div>
             </div>
           )}
-        </div>
-        <div className="bg-card text-card-foreground rounded-lg shadow border">
-          <div className="px-6 py-4 border-b">
-            <h3 className="text-lg font-medium text-foreground flex items-center gap-2">
-              <Settings className="w-5 h-5" />
-              Gestión Rápida
-            </h3>
-          </div>
-          <div className="p-6 space-y-3">
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href={`/admin/tournaments/${selectedTournament.id}`}>
-                <Trophy className="w-4 h-4 mr-2" />
-                Configurar Torneo
-              </Link>
-            </Button>
-            
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href={`/admin/tournaments/${selectedTournament.id}?tab=players`}>
-                <Users className="w-4 h-4 mr-2" />
-                Gestionar Jugadores
-              </Link>
-            </Button>
-
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href={`/admin/tournaments/${selectedTournament.id}?tab=comodines`}>
-                <Zap className="w-4 h-4 mr-2" />
-                Configurar Comodines
-              </Link>
-            </Button>
-
-            {/* ✅ NUEVO: Añadir este botón para gestión de usuarios */}
-            <Button variant="outline" className="w-full justify-start" asChild>
-              <Link href="/admin/users">
-                <Key className="w-4 h-4 mr-2" />
-                Gestionar Usuarios
-              </Link>
-            </Button>
-          </div>
         </div>
       </div>
     </div>

@@ -1,9 +1,9 @@
-// lib/tournament-engine.ts - VERSION CORREGIDA COMPLETA (fix P2002 + credits iteration)
+// lib/tournament-engine.ts - VERSION UNIFICADA CON DESEMPATES
 import { prisma } from './prisma';
 import { addDays } from 'date-fns';
 import { computeSubstituteCreditsForRound } from './rounds';
 import { processContinuityStreaksForRound } from './streak-calculator';
-import { GroupManager } from './group-manager'; // ✅ GESTOR CENTRALIZADO
+import { GroupManager } from './group-manager';
 
 // ===============================
 // Errores específicos del engine
@@ -35,7 +35,7 @@ const ENGINE_ERROR_MESSAGES = {
 } as const;
 
 // ===============================
-// Tipos internos
+// Tipos internos unificados
 // ===============================
 interface RoundIntegrityData {
   roundId: string;
@@ -61,14 +61,139 @@ interface RoundSnapshot {
   timestamp: Date;
 }
 
-// Créditos de suplente (tipo mínimo necesario aquí)
+interface PlayerStats {
+  playerId: string;
+  points: number;
+  setsWon: number;
+  gamesWon: number;
+  gamesLost: number;
+  gamesDifference: number;
+  h2hWins: number;
+}
+
 type SubstituteCredit = {
   playerId: string;
   points: number;
 };
 
 // ===============================
-// Helpers de integridad y rollback
+// Funciones unificadas de desempate
+// ===============================
+
+/**
+ * Calcula estadísticas completas de un jugador en los matches del grupo
+ */
+function calculatePlayerStatsInGroup(playerId: string, matches: any[]): PlayerStats {
+  let setsWon = 0;
+  let gamesWon = 0;
+  let gamesLost = 0;
+  let h2hWins = 0;
+
+  for (const match of matches) {
+    if (!match.isConfirmed) continue;
+
+    const isInTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(playerId);
+    const isInTeam2 = [match.team2Player1Id, match.team2Player2Id].includes(playerId);
+
+    if (isInTeam1) {
+      gamesWon += match.team1Games || 0;
+      gamesLost += match.team2Games || 0;
+      if ((match.team1Games || 0) > (match.team2Games || 0)) {
+        setsWon++;
+        h2hWins++;
+      }
+    } else if (isInTeam2) {
+      gamesWon += match.team2Games || 0;
+      gamesLost += match.team1Games || 0;
+      if ((match.team2Games || 0) > (match.team1Games || 0)) {
+        setsWon++;
+        h2hWins++;
+      }
+    }
+  }
+
+  return {
+    playerId,
+    points: 0, // Se asigna desde groupPlayer.points
+    setsWon,
+    gamesWon,
+    gamesLost,
+    gamesDifference: gamesWon - gamesLost,
+    h2hWins
+  };
+}
+
+/**
+ * Función unificada de comparación con todos los criterios de desempate
+ */
+function comparePlayersWithUnifiedTiebreakers(a: PlayerStats, b: PlayerStats): number {
+  // 1. Puntos totales (descendente)
+  if (a.points !== b.points) return b.points - a.points;
+  
+  // 2. Sets ganados (descendente)  
+  if (a.setsWon !== b.setsWon) return b.setsWon - a.setsWon;
+  
+  // 3. Diferencia de juegos (descendente)
+  if (a.gamesDifference !== b.gamesDifference) return b.gamesDifference - a.gamesDifference;
+  
+  // 4. Head-to-head wins (descendente)
+  if (a.h2hWins !== b.h2hWins) return b.h2hWins - a.h2hWins;
+  
+  // 5. Juegos ganados totales (descendente)
+  if (a.gamesWon !== b.gamesWon) return b.gamesWon - a.gamesWon;
+  
+  return 0; // Empate total
+}
+
+/**
+ * Calcula movimientos de escalera con lógica unificada
+ */
+function calculateUnifiedLadderMovement(position: number, groupLevel: number, totalGroups: number) {
+  const isTopGroup = groupLevel === 1;
+  const isBottomGroup = groupLevel === totalGroups;
+  const isSecondGroup = groupLevel === 2;
+  const isPenultimateGroup = groupLevel === totalGroups - 1;
+
+  switch (position) {
+    case 1: // Primer lugar
+      if (isTopGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo élite' };
+      } else if (isSecondGroup) {
+        return { type: 'up', groups: 1, description: 'Sube al grupo élite' };
+      } else {
+        return { type: 'up', groups: 2, description: 'Sube 2 grupos' };
+      }
+    
+    case 2: // Segundo lugar
+      if (isTopGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo élite' };
+      } else {
+        return { type: 'up', groups: 1, description: 'Sube 1 grupo' };
+      }
+    
+    case 3: // Tercer lugar
+      if (isBottomGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo inferior' };
+      } else {
+        return { type: 'down', groups: 1, description: 'Baja 1 grupo' };
+      }
+    
+    case 4: // Cuarto lugar
+      if (isBottomGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo inferior' };
+      } else if (isPenultimateGroup) {
+        return { type: 'down', groups: 1, description: 'Baja al grupo inferior' };
+      } else {
+        return { type: 'down', groups: 2, description: 'Baja 2 grupos' };
+      }
+    
+    default:
+      return { type: 'same', groups: 0, description: 'Se mantiene' };
+  }
+}
+
+// ===============================
+// Helpers de integridad y rollback (sin cambios)
 // ===============================
 async function validateRoundIntegrity(roundId: string): Promise<RoundIntegrityData> {
   const round = await prisma.round.findUnique({
@@ -110,7 +235,6 @@ async function validateRoundIntegrity(roundId: string): Promise<RoundIntegrityDa
     throw new Error(TournamentEngineError.GROUPS_INVALID);
   }
 
-  // Si permites 3/5, adapta esta validación
   const invalidGroups = round.groups.filter((g) => g.players.length !== 4);
   if (invalidGroups.length > 0) {
     throw new Error(TournamentEngineError.GROUPS_INVALID);
@@ -195,10 +319,9 @@ async function restoreFromSnapshot(snapshot: RoundSnapshot): Promise<void> {
 }
 
 // ===============================
-// Motor principal
+// Motor principal con lógica unificada
 // ===============================
 export class TournamentEngine {
-  // ✅ MÉTODO PRINCIPAL CORREGIDO
   static async closeRoundAndGenerateNext(roundId: string) {
     let snapshot: RoundSnapshot | null = null;
 
@@ -238,7 +361,10 @@ export class TournamentEngine {
         console.log(`✅ Rachas de continuidad procesadas para ronda ${integrity.roundNumber}`);
       }
 
-      // 5) Cierre de ronda + datos actualizados para movimientos (transacción atómica)
+      // 5) ⭐ NUEVO: Recalcular posiciones con desempates antes del cierre
+      await this.recalculatePositionsWithTiebreakers(roundId);
+
+      // 6) Cierre de ronda + datos actualizados para movimientos
       const roundData = await prisma.$transaction(async (tx) => {
         const currentRound = await tx.round.findUnique({
           where: { id: roundId },
@@ -253,6 +379,7 @@ export class TournamentEngine {
           data: { isClosed: true },
         });
 
+        // Obtener datos con posiciones ya recalculadas
         const roundWithGroups = await tx.round.findUnique({
           where: { id: roundId },
           include: {
@@ -261,7 +388,18 @@ export class TournamentEngine {
               include: {
                 players: {
                   include: { player: true },
-                  orderBy: { points: 'desc' },
+                  orderBy: { position: 'asc' }, // ⭐ Ahora ordenamos por posición corregida
+                },
+                matches: {
+                  select: {
+                    isConfirmed: true,
+                    team1Games: true,
+                    team2Games: true,
+                    team1Player1Id: true,
+                    team1Player2Id: true,
+                    team2Player1Id: true,
+                    team2Player2Id: true,
+                  },
                 },
               },
               orderBy: { level: 'asc' },
@@ -274,19 +412,16 @@ export class TournamentEngine {
 
       if (!roundData) throw new Error("Error obteniendo datos de la ronda");
 
-      // 6) Calcular movimientos (fuera de transacción)
-      const movements = await this.calculateLadderMovements(roundData.groups);
+      // 7) Calcular movimientos con lógica unificada
+      const movements = await this.calculateUnifiedLadderMovements(roundData.groups);
       console.log(`📊 Movimientos calculados: ${movements.length} jugadores`);
 
-      // 7) Créditos de suplente de la ronda cerrada
-      //    🔧 NORMALIZACIÓN: el resultado puede ser un array o un objeto { credits: [...] }
+      // 8-10) Resto igual...
       const scRaw: any = await computeSubstituteCreditsForRound(roundId);
       const substituteCredits: SubstituteCredit[] = Array.isArray(scRaw)
         ? (scRaw as SubstituteCredit[])
         : (Array.isArray(scRaw?.credits) ? (scRaw.credits as SubstituteCredit[]) : []);
-      console.log(`💳 Créditos de suplente: ${substituteCredits.length}`);
 
-      // 8) Generar siguiente ronda con GroupManager (si no es la última)
       let nextRoundGenerated = false;
       if (roundData.number < roundData.tournament.totalRounds) {
         const nextRoundId = await this.generateNextRoundWithGroupManager(
@@ -298,12 +433,10 @@ export class TournamentEngine {
         nextRoundGenerated = true;
       }
 
-      // 9) Aplicar créditos de suplente
       for (const credit of substituteCredits) {
         await this.applySubstituteCredit(roundData.tournament.id, credit);
       }
 
-      // 10) Actualizar rankings
       await this.updateRankings(roundData.tournament.id, roundData.number);
 
       console.log(`✅ Ronda ${roundData.number} cerrada exitosamente`);
@@ -334,14 +467,116 @@ export class TournamentEngine {
   }
 
   // ===============================
-  // Nueva generación de ronda con GroupManager - FIX P2002
+  // ⭐ NUEVO: Recálculo de posiciones con desempates
+  // ===============================
+  private static async recalculatePositionsWithTiebreakers(roundId: string): Promise<void> {
+    console.log(`🔄 Recalculando posiciones con desempates para ronda ${roundId}`);
+
+    const groups = await prisma.group.findMany({
+      where: { roundId },
+      include: {
+        players: {
+          include: { player: true }
+        },
+        matches: {
+          where: { isConfirmed: true },
+          select: {
+            team1Games: true,
+            team2Games: true,
+            team1Player1Id: true,
+            team1Player2Id: true,
+            team2Player1Id: true,
+            team2Player2Id: true,
+          }
+        }
+      }
+    });
+
+    for (const group of groups) {
+      // Calcular stats para todos los jugadores del grupo
+      const playersWithStats: PlayerStats[] = group.players.map(gp => {
+        const stats = calculatePlayerStatsInGroup(gp.playerId, group.matches);
+        return {
+          ...stats,
+          points: gp.points || 0 // Usar puntos actuales del grupo
+        };
+      });
+
+      // Ordenar con todos los criterios de desempate
+      playersWithStats.sort(comparePlayersWithUnifiedTiebreakers);
+
+      // Actualizar posiciones en la base de datos
+      for (let i = 0; i < playersWithStats.length; i++) {
+        const newPosition = i + 1;
+        const player = playersWithStats[i];
+        
+        await prisma.groupPlayer.updateMany({
+          where: {
+            groupId: group.id,
+            playerId: player.playerId
+          },
+          data: {
+            position: newPosition
+          }
+        });
+
+        console.log(`  Grupo ${group.number}: ${player.playerId} → posición ${newPosition}`);
+      }
+    }
+
+    console.log(`✅ Posiciones recalculadas para ${groups.length} grupos`);
+  }
+
+  // ===============================
+  // ⭐ NUEVO: Cálculo unificado de movimientos
+  // ===============================
+  private static async calculateUnifiedLadderMovements(groups: any[]) {
+    const movements: any[] = [];
+
+    groups.forEach((group, groupIndex) => {
+      // Los jugadores ya están ordenados por posición correcta
+      group.players.forEach((player: any, arrayIndex: number) => {
+        const position = player.position; // Usar posición real, no índice del array
+        const movementInfo = calculateUnifiedLadderMovement(position, group.level, groups.length);
+        
+        let targetGroupChange = 0;
+        switch (movementInfo.type) {
+          case 'up':
+            targetGroupChange = -movementInfo.groups;
+            break;
+          case 'down':
+            targetGroupChange = movementInfo.groups;
+            break;
+          case 'same':
+            targetGroupChange = 0;
+            break;
+        }
+
+        movements.push({
+          playerId: player.playerId,
+          currentGroup: group.level, // Usar level en lugar de índice
+          currentPosition: position,
+          targetGroupChange,
+          movement: movementInfo.type,
+          points: player.points,
+          description: movementInfo.description
+        });
+      });
+    });
+
+    console.log(`📊 Movimientos unificados: ${movements.filter(m => m.movement === 'up').length} suben, ${movements.filter(m => m.movement === 'down').length} bajan, ${movements.filter(m => m.movement === 'same').length} se mantienen`);
+    
+    return movements;
+  }
+
+  // ===============================
+  // Resto de métodos sin cambios
   // ===============================
   private static async generateNextRoundWithGroupManager(
     tournamentId: string,
     roundNumber: number,
     movements: any[]
   ): Promise<string> {
-    // 1) Obtener datos del torneo y ronda anterior
     const tournament = await prisma.tournament.findUnique({
       where: { id: tournamentId },
       include: {
@@ -360,7 +595,6 @@ export class TournamentEngine {
     const startDate = new Date(previousRound.endDate);
     const endDate = addDays(startDate, tournament.roundDurationDays);
 
-    // 2) 🔧 FIX P2002: Usar upsert para evitar conflicto de ronda duplicada
     const newRound = await prisma.round.upsert({
       where: {
         tournamentId_number: {
@@ -383,7 +617,6 @@ export class TournamentEngine {
       },
     });
 
-    // 3) Si la ronda ya existía, limpiar datos previos
     const wasExisting = newRound.createdAt.getTime() !== newRound.updatedAt.getTime();
     if (wasExisting) {
       console.log(`🔄 Reutilizando ronda ${roundNumber} existente, limpiando datos...`);
@@ -392,10 +625,8 @@ export class TournamentEngine {
       console.log(`🆕 Nueva ronda ${roundNumber} creada`);
     }
 
-    // 4) Calcular distribución de grupos según movimientos
     const newGroupsDistribution = this.redistributePlayersWithMovements(movements);
 
-    // 5) Adaptar al formato de GroupManager
     const groupsData = newGroupsDistribution.map((playersInGroup, index) => ({
       level: index + 1,
       players: playersInGroup.map((player: any, position: number) => ({
@@ -404,10 +635,9 @@ export class TournamentEngine {
       })),
     }));
 
-    // 6) Crear grupos y partidos de forma segura
     const result = await GroupManager.updateRoundGroups(newRound.id, groupsData, {
-      deleteExisting: false, // Ya limpiamos arriba si era necesario
-      generateMatches: true, // 3 partidos por grupo (rotación fija)
+      deleteExisting: false,
+      generateMatches: true,
       validateIntegrity: true,
     });
 
@@ -421,22 +651,16 @@ export class TournamentEngine {
     return newRound.id;
   }
 
-  // ===============================
-  // Helper para limpiar datos de ronda existente
-  // ===============================
   private static async _cleanRoundData(roundId: string): Promise<void> {
     await prisma.$transaction(async (tx) => {
-      // Eliminar matches
       await tx.match.deleteMany({
         where: { group: { roundId } }
       });
 
-      // Eliminar group players
       await tx.groupPlayer.deleteMany({
         where: { group: { roundId } }
       });
 
-      // Eliminar grupos
       await tx.group.deleteMany({
         where: { roundId }
       });
@@ -444,11 +668,7 @@ export class TournamentEngine {
     console.log(`🧹 Datos de ronda ${roundId} limpiados`);
   }
 
-  // ===============================
-  // Movimientos de escalera - LÓGICA CORRECTA
-  // ===============================
   private static redistributePlayersWithMovements(movements: any[]): any[][] {
-    // Crear mapa de jugadores por su grupo destino
     const playersByDestGroup = new Map<number, any[]>();
 
     movements.forEach((movement) => {
@@ -463,28 +683,22 @@ export class TournamentEngine {
       });
     });
 
-    // Ordenar grupos por nivel (1, 2, 3...)
     const sortedGroupLevels = Array.from(playersByDestGroup.keys()).sort((a, b) => a - b);
-    
-    // Distribuir jugadores respetando grupos de 4
     const redistribution: any[][] = [];
     let allPlayersOrdered: any[] = [];
 
-    // Recopilar todos los jugadores ordenados por grupo destino y puntos
     sortedGroupLevels.forEach((level) => {
       const playersInLevel = playersByDestGroup.get(level) || [];
       playersInLevel.sort((a, b) => b.previousPoints - a.previousPoints);
       allPlayersOrdered.push(...playersInLevel);
     });
 
-    // Crear grupos de exactamente 4 jugadores
     const GROUP_SIZE = 4;
     for (let i = 0; i < allPlayersOrdered.length; i += GROUP_SIZE) {
       const groupPlayers = allPlayersOrdered.slice(i, i + GROUP_SIZE);
       if (groupPlayers.length === GROUP_SIZE) {
         redistribution.push(groupPlayers);
       } else {
-        // Si hay jugadores sobrantes, añadirlos al último grupo completo
         if (redistribution.length > 0) {
           redistribution[redistribution.length - 1].push(...groupPlayers);
         } else {
@@ -494,71 +708,9 @@ export class TournamentEngine {
     }
 
     console.log(`🔄 Redistribución: ${redistribution.length} grupos generados`);
-    redistribution.forEach((group, idx) => {
-      console.log(`  Grupo ${idx + 1}: ${group.length} jugadores`);
-    });
-
     return redistribution;
   }
 
-  private static async calculateLadderMovements(groups: any[]) {
-    const movements: any[] = [];
-
-    groups.forEach((group, groupIndex) => {
-      group.players.forEach((player: any, positionIndex: number) => {
-        let movement = 'same';
-        let targetGroupChange = 0;
-
-        // Lógica de escalera estándar
-        switch (positionIndex) {
-          case 0: // 1° lugar
-            if (groupIndex > 0) { // No puede subir desde grupo 1
-              targetGroupChange = groupIndex >= 2 ? -2 : -1; // Sube 2 grupos, o 1 si está en grupo 2
-              movement = 'up';
-            }
-            break;
-          
-          case 1: // 2° lugar  
-            if (groupIndex > 0) { // No puede subir desde grupo 1
-              targetGroupChange = -1; // Sube 1 grupo
-              movement = 'up';
-            }
-            break;
-          
-          case 2: // 3° lugar
-            if (groupIndex < groups.length - 1) { // No puede bajar desde último grupo
-              targetGroupChange = 1; // Baja 1 grupo
-              movement = 'down';
-            }
-            break;
-          
-          case 3: // 4° lugar
-            if (groupIndex < groups.length - 1) { // No puede bajar desde último grupo
-              targetGroupChange = groupIndex <= groups.length - 3 ? 2 : 1; // Baja 2 grupos, o 1 si está en penúltimo
-              movement = 'down';
-            }
-            break;
-        }
-
-        movements.push({
-          playerId: player.playerId,
-          currentGroup: groupIndex + 1, // Base-1 para logs
-          currentPosition: positionIndex + 1,
-          targetGroupChange,
-          movement,
-          points: player.points,
-        });
-      });
-    });
-
-    console.log(`📊 Movimientos: ${movements.filter(m => m.movement === 'up').length} suben, ${movements.filter(m => m.movement === 'down').length} bajan, ${movements.filter(m => m.movement === 'same').length} se mantienen`);
-    
-    return movements;
-  }
-
-  // ===============================
-  // Créditos de suplente y rankings
-  // ===============================
   private static async applySubstituteCredit(tournamentId: string, credit: SubstituteCredit) {
     try {
       await prisma.ranking.upsert({
@@ -592,7 +744,7 @@ export class TournamentEngine {
   private static async updateRankings(tournamentId: string, roundNumber: number) {
     console.log(`📊 Actualizando rankings para torneo ${tournamentId}, ronda ${roundNumber}`);
 
-    // Ajusta los nombres de tablas/@@map si en tu schema difieren
+    // Query con desempates unificados
     const playersStats = await prisma.$queryRaw<any[]>`
       SELECT 
         p.id as "playerId",
@@ -603,20 +755,44 @@ export class TournamentEngine {
           WHEN COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) > 0 
           THEN COALESCE(SUM(gp.points) / COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END), 0)
           ELSE 0 
-        END as "averagePoints"
+        END as "averagePoints",
+        -- ⭐ NUEVO: Agregar estadísticas para desempates en rankings
+        COALESCE(SUM(
+          CASE 
+            WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id 
+            THEN CASE WHEN m.team1Games > m.team2Games THEN 1 ELSE 0 END
+            WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id 
+            THEN CASE WHEN m.team2Games > m.team1Games THEN 1 ELSE 0 END
+            ELSE 0
+          END
+        ), 0) as "setsWon",
+        COALESCE(SUM(
+          CASE 
+            WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id THEN m.team1Games
+            WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id THEN m.team2Games
+            ELSE 0
+          END
+        ), 0) as "gamesWon",
+        COALESCE(SUM(
+          CASE 
+            WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id THEN m.team2Games
+            WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id THEN m.team1Games
+            ELSE 0
+          END
+        ), 0) as "gamesLost"
       FROM "players" p
       LEFT JOIN "group_players" gp ON p.id = gp."playerId"
       LEFT JOIN "groups" g ON gp."groupId" = g.id
       LEFT JOIN "rounds" r ON g."roundId" = r.id
+      LEFT JOIN "matches" m ON g.id = m."groupId" AND m."isConfirmed" = true
       WHERE r."tournamentId" = ${tournamentId} AND r."isClosed" = true
       GROUP BY p.id, p.name
-      ORDER BY "averagePoints" DESC
+      ORDER BY "averagePoints" DESC, "setsWon" DESC, ("gamesWon" - "gamesLost") DESC, "gamesWon" DESC
     `;
 
     for (let i = 0; i < playersStats.length; i++) {
       const player = playersStats[i];
 
-      // 🔧 Fix BigInt: Convertir BigInt a Number para Prisma
       const roundsPlayed = Number(player.roundsPlayed);
       const totalPoints = Number(player.totalPoints);
       const averagePoints = Number(player.averagePoints);

@@ -89,6 +89,8 @@
 \app\api\diag\route.ts
 \app\api\groups
 \app\api\groups\[id]
+\app\api\groups\[id]\points-preview
+\app\api\groups\[id]\points-preview\route.ts
 \app\api\groups\[id]\stats
 \app\api\groups\[id]\stats\route.ts
 \app\api\groups\points-preview

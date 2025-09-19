@@ -1,362 +1,476 @@
-// lib/points-calculator.ts
-// Sistema de cálculo de puntos en tiempo real para preview
-
-import { prisma } from "@/lib/prisma";
+// lib/points-calculator.ts - CORREGIDO CON TIPOS ACTUALIZADOS
+import { prisma } from "./prisma";
 
 export type PointsPreview = {
   playerId: string;
   playerName: string;
-  currentPoints: number;        // Puntos oficiales actuales (en BD)
-  provisionalPoints: number;    // Puntos con sets confirmados incluidos
-  deltaPoints: number;          // Diferencia (provisional - current)
-  currentPosition: number;      // Posición oficial actual
-  provisionalPosition: number;  // Posición con sets confirmados
-  deltaPosition: number;        // Cambio de posición
-  setsPlayed: number;          // Sets jugados (confirmados)
-  setsWon: number;             // Sets ganados
-  gamesWon: number;            // Juegos ganados totales
-  streak: number;              // Racha actual
-  usedComodin: boolean;        // Usó comodín en esta ronda
+  currentPoints: number;
+  provisionalPoints: number; // ✅ CORREGIDO: proyectado -> provisional
+  deltaPoints: number; // ✅ AGREGADO
+  setsWon: number;
+  setsPlayed: number; // ✅ CORREGIDO: setsTotal -> setsPlayed
+  gamesWon: number;
+  gamesLost: number;
+  gamesDifference: number;
+  h2hWins: number;
+  headToHeadRecord?: { // ✅ AGREGADO
+    wins: number;
+    losses: number;
+  };
+  currentPosition: number;
+  provisionalPosition: number; // ✅ CORREGIDO: proyectado -> provisional
+  deltaPosition: number; // ✅ AGREGADO: cambio de posición
+  streak: number; // ✅ AGREGADO
+  usedComodin: boolean; // ✅ AGREGADO
+  movement: {
+    type: 'up' | 'down' | 'same';
+    groups: number;
+    description: string;
+  };
+  tiebreakInfo?: {
+    criteria: string[];
+    values: (string | number)[];
+  };
 };
 
 export type GroupPointsPreview = {
   groupId: string;
   groupNumber: number;
-  roundId: string;
-  lastUpdated: Date;
-  players: PointsPreview[];
-  completionRate: number;       // % de sets confirmados
-  isComplete: boolean;          // Todos los sets confirmados
-  movements: {                  // Movimientos de escalera previstos
-    [playerId: string]: 'up' | 'down' | 'stay';
-  };
-  totalSets: number;
+  groupLevel: number; // ✅ CORREGIDO: level -> groupLevel
   completedSets: number;
-  pendingSets: number;
+  totalSets: number;
+  pendingSets: number; // ✅ AGREGADO
+  completionRate: number;
+  isComplete: boolean;
+  players: PointsPreview[];
+  movements: Record<string, PointsPreview['movement']>; // ✅ AGREGADO
+  ladderInfo: { // ✅ AGREGADO
+    isTopGroup: boolean;
+    isBottomGroup: boolean;
+    totalGroups: number;
+  };
+  lastUpdated: string;
 };
 
-/**
- * Calcula puntos provisionales para un grupo basado en sets confirmados
- */
-export async function calculateGroupPointsPreview(groupId: string): Promise<GroupPointsPreview | null> {
-  try {
-    console.log(`[points-calculator] Calculando preview para grupo ${groupId}`);
-
-    // 1. Cargar datos del grupo con sets
-    const group = await prisma.group.findUnique({
-      where: { id: groupId },
-      include: {
-        round: { select: { id: true, number: true } },
-        players: {
-          include: { player: { select: { id: true, name: true } } },
-          orderBy: { position: 'asc' }
-        },
-        matches: {
-          select: {
-            id: true,
-            setNumber: true,
-            team1Player1Id: true,
-            team1Player2Id: true,
-            team2Player1Id: true,
-            team2Player2Id: true,
-            team1Games: true,
-            team2Games: true,
-            isConfirmed: true,
-            updatedAt: true
-          },
-          orderBy: { setNumber: 'asc' }
-        }
-      }
-    });
-
-    if (!group) {
-      console.warn(`[points-calculator] Grupo ${groupId} no encontrado`);
-      return null;
-    }
-
-    // 2. Separar sets confirmados de no confirmados
-    const confirmedSets = group.matches.filter(m => m.isConfirmed);
-    const totalSets = group.matches.length;
-    const completionRate = totalSets > 0 ? (confirmedSets.length / totalSets) * 100 : 0;
-
-    console.log(`[points-calculator] Grupo ${group.number}: ${confirmedSets.length}/${totalSets} sets confirmados (${completionRate.toFixed(1)}%)`);
-
-    // 3. Calcular puntos por jugador
-    const playersPreview: PointsPreview[] = [];
-
-    for (const groupPlayer of group.players) {
-      const playerId = groupPlayer.playerId;
-      const playerName = groupPlayer.player?.name || 'Jugador';
-      
-      // Puntos actuales (oficiales en BD)
-      const currentPoints = groupPlayer.points || 0;
-      const currentPosition = groupPlayer.position || 0;
-      const streak = groupPlayer.streak || 0;
-      const usedComodin = groupPlayer.usedComodin || false;
-      
-      // Calcular puntos provisionales de sets confirmados
-      let provisionalGamesWon = 0;
-      let provisionalSetsWon = 0;
-      let setsParticipated = 0;
-      
-      for (const match of confirmedSets) {
-        const { team1Games, team2Games } = match;
-        if (team1Games === null || team2Games === null) continue;
-
-        // Determinar si este jugador participó y en qué equipo
-        const isTeam1 = match.team1Player1Id === playerId || match.team1Player2Id === playerId;
-        const isTeam2 = match.team2Player1Id === playerId || match.team2Player2Id === playerId;
-        
-        if (!isTeam1 && !isTeam2) continue;
-
-        setsParticipated++;
-
-        // Sumar juegos ganados
-        if (isTeam1) {
-          provisionalGamesWon += team1Games;
-          if (team1Games > team2Games) {
-            provisionalSetsWon += 1;
-            // +1 punto extra por ganar el set
-            provisionalGamesWon += 1;
-          }
-        } else if (isTeam2) {
-          provisionalGamesWon += team2Games;
-          if (team2Games > team1Games) {
-            provisionalSetsWon += 1;
-            // +1 punto extra por ganar el set
-            provisionalGamesWon += 1;
-          }
-        }
-      }
-
-      // Calcular puntos provisionales totales
-      // Sistema: +1 por juego ganado, +1 extra por ganar el set (ya incluido arriba)
-      const provisionalPoints = currentPoints + provisionalGamesWon;
-      
-      playersPreview.push({
-        playerId,
-        playerName,
-        currentPoints,
-        provisionalPoints,
-        deltaPoints: provisionalPoints - currentPoints,
-        currentPosition,
-        provisionalPosition: 0, // Se calculará después del ordenamiento
-        deltaPosition: 0,
-        setsPlayed: setsParticipated,
-        setsWon: provisionalSetsWon,
-        gamesWon: provisionalGamesWon,
-        streak,
-        usedComodin
-      });
-    }
-
-    // 4. Calcular posiciones provisionales (ordenar por puntos provisionales)
-    const sortedByProvisional = [...playersPreview].sort((a, b) => {
-      // Ordenar por puntos provisionales (descendente)
-      if (b.provisionalPoints !== a.provisionalPoints) {
-        return b.provisionalPoints - a.provisionalPoints;
-      }
-      // Desempate por sets ganados
-      if (b.setsWon !== a.setsWon) {
-        return b.setsWon - a.setsWon;
-      }
-      // Desempate por juegos ganados totales
-      if (b.gamesWon !== a.gamesWon) {
-        return b.gamesWon - a.gamesWon;
-      }
-      // Desempate por nombre (alfabético)
-      return a.playerName.localeCompare(b.playerName);
-    });
-
-    // 5. Asignar posiciones provisionales y calcular cambios + movimientos
-    const movements: { [playerId: string]: 'up' | 'down' | 'stay' } = {};
+// Función para calcular head-to-head entre dos jugadores específicos
+function calculateDirectH2H(playerId1: string, playerId2: string, matches: any[]): number {
+  let player1Wins = 0;
+  
+  for (const match of matches) {
+    if (!match.isConfirmed) continue;
     
-    for (let i = 0; i < sortedByProvisional.length; i++) {
-      const player = sortedByProvisional[i];
-      player.provisionalPosition = i + 1;
-      player.deltaPosition = player.currentPosition - player.provisionalPosition;
-      
-      // Determinar movimiento de escalera (sistema 4 jugadores por grupo)
-      // 1° sube, 2° y 3° se mantienen, 4° baja
-      if (player.provisionalPosition === 1) {
-        movements[player.playerId] = 'up';
-      } else if (player.provisionalPosition === sortedByProvisional.length && sortedByProvisional.length > 2) {
-        movements[player.playerId] = 'down';
+    const p1InTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(playerId1);
+    const p1InTeam2 = [match.team2Player1Id, match.team2Player2Id].includes(playerId1);
+    const p2InTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(playerId2);
+    const p2InTeam2 = [match.team2Player1Id, match.team2Player2Id].includes(playerId2);
+    
+    // Solo contar si ambos jugadores están en el match en equipos opuestos
+    if ((p1InTeam1 && p2InTeam2) || (p1InTeam2 && p2InTeam1)) {
+      const team1Won = (match.team1Games || 0) > (match.team2Games || 0);
+      if ((p1InTeam1 && team1Won) || (p1InTeam2 && !team1Won)) {
+        player1Wins++;
+      }
+    }
+  }
+  
+  return player1Wins;
+}
+
+// Función para calcular estadísticas de un jugador
+function calculatePlayerStats(playerId: string, matches: any[]) {
+  let setsWon = 0;
+  let gamesWon = 0;
+  let gamesLost = 0;
+  let h2hWins = 0;
+  let totalSetsPlayed = 0;
+  
+  for (const match of matches) {
+    const isInTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(playerId);
+    const isInTeam2 = [match.team2Player1Id, match.team2Player2Id].includes(playerId);
+    
+    if (isInTeam1 || isInTeam2) {
+      totalSetsPlayed++;
+    }
+    
+    if (!match.isConfirmed) continue;
+    
+    if (isInTeam1) {
+      gamesWon += match.team1Games || 0;
+      gamesLost += match.team2Games || 0;
+      if ((match.team1Games || 0) > (match.team2Games || 0)) {
+        setsWon++;
+        h2hWins++;
+      }
+    } else if (isInTeam2) {
+      gamesWon += match.team2Games || 0;
+      gamesLost += match.team1Games || 0;
+      if ((match.team2Games || 0) > (match.team1Games || 0)) {
+        setsWon++;
+        h2hWins++;
+      }
+    }
+  }
+  
+  return { 
+    setsWon, 
+    setsPlayed: totalSetsPlayed,
+    gamesWon, 
+    gamesLost, 
+    gamesDifference: gamesWon - gamesLost,
+    h2hWins 
+  };
+}
+
+// Función para determinar movimiento de escalera
+function calculateLadderMovement(
+  position: number, 
+  groupLevel: number, 
+  totalGroups: number = 10
+): { type: 'up' | 'down' | 'same'; groups: number; description: string } { // ✅ CORREGIDO: tipo explícito
+  const isTopGroup = groupLevel === 1;
+  const isBottomGroup = groupLevel === totalGroups;
+  const isSecondGroup = groupLevel === 2;
+  const isPenultimateGroup = groupLevel === totalGroups - 1;
+  
+  switch (position) {
+    case 1: // Primer lugar
+      if (isTopGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo élite' };
+      } else if (isSecondGroup) {
+        return { type: 'up', groups: 1, description: 'Sube al grupo élite' };
       } else {
-        movements[player.playerId] = 'stay';
+        return { type: 'up', groups: 2, description: 'Sube 2 grupos' };
       }
-    }
-
-    // 6. Restaurar orden original por posición actual para la respuesta
-    playersPreview.forEach(p => {
-      const sorted = sortedByProvisional.find(s => s.playerId === p.playerId);
-      if (sorted) {
-        p.provisionalPosition = sorted.provisionalPosition;
-        p.deltaPosition = sorted.deltaPosition;
-      }
-    });
-
-    // Ordenar por posición provisional para la respuesta final
-    const finalPlayers = playersPreview.sort((a, b) => a.provisionalPosition - b.provisionalPosition);
-
-    console.log(`[points-calculator] Preview calculado para ${finalPlayers.length} jugadores`);
-
-    return {
-      groupId,
-      groupNumber: group.number,
-      roundId: group.round.id,
-      lastUpdated: new Date(),
-      players: finalPlayers,
-      completionRate: Math.round(completionRate * 100) / 100,
-      isComplete: completionRate === 100,
-      movements,
-      totalSets,
-      completedSets: confirmedSets.length,
-      pendingSets: totalSets - confirmedSets.length
-    };
-
-  } catch (error) {
-    console.error('[points-calculator] Error calculating group points preview:', error);
-    return null;
-  }
-}
-
-/**
- * Calcula preview para múltiples grupos de una ronda
- */
-export async function calculateRoundPointsPreview(roundId: string): Promise<GroupPointsPreview[]> {
-  try {
-    console.log(`[points-calculator] Calculando preview para ronda ${roundId}`);
-
-    const groups = await prisma.group.findMany({
-      where: { roundId },
-      select: { id: true, number: true },
-      orderBy: { number: 'asc' }
-    });
-
-    console.log(`[points-calculator] Encontrados ${groups.length} grupos en la ronda`);
-
-    const previews: GroupPointsPreview[] = [];
     
-    for (const group of groups) {
-      const preview = await calculateGroupPointsPreview(group.id);
-      if (preview) {
-        previews.push(preview);
+    case 2: // Segundo lugar
+      if (isTopGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo élite' };
+      } else {
+        return { type: 'up', groups: 1, description: 'Sube 1 grupo' };
+      }
+    
+    case 3: // Tercer lugar
+      if (isBottomGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo inferior' };
+      } else {
+        return { type: 'down', groups: 1, description: 'Baja 1 grupo' };
+      }
+    
+    case 4: // Cuarto lugar
+      if (isBottomGroup) {
+        return { type: 'same', groups: 0, description: 'Se mantiene en grupo inferior' };
+      } else if (isPenultimateGroup) {
+        return { type: 'down', groups: 1, description: 'Baja al grupo inferior' };
+      } else {
+        return { type: 'down', groups: 2, description: 'Baja 2 grupos' };
+      }
+    
+    default:
+      return { type: 'same', groups: 0, description: 'Se mantiene' };
+  }
+}
+
+// Función de comparación mejorada con desempates
+function comparePlayersWithTiebreakers(a: any, b: any): number {
+  // 1. Puntos proyectados (descendente)
+  if (a.provisionalPoints !== b.provisionalPoints) {
+    return b.provisionalPoints - a.provisionalPoints;
+  }
+  
+  // 2. Sets ganados (descendente)
+  if (a.setsWon !== b.setsWon) {
+    return b.setsWon - a.setsWon;
+  }
+  
+  // 3. Diferencia de juegos (descendente)
+  if (a.gamesDifference !== b.gamesDifference) {
+    return b.gamesDifference - a.gamesDifference;
+  }
+  
+  // 4. Head-to-head wins (descendente)
+  if (a.h2hWins !== b.h2hWins) {
+    return b.h2hWins - a.h2hWins;
+  }
+  
+  // 5. Juegos ganados totales (descendente)
+  if (a.gamesWon !== b.gamesWon) {
+    return b.gamesWon - a.gamesWon;
+  }
+  
+  return 0; // Empate total
+}
+
+// Función principal para obtener preview de puntos
+export async function getGroupPointsPreview(groupId: string): Promise<GroupPointsPreview> {
+  console.log(`🎯 Calculando preview de puntos para grupo: ${groupId}`);
+
+  // Obtener datos completos del grupo
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+    include: {
+      round: {
+        include: {
+          tournament: {
+            select: {
+              continuityEnabled: true,
+              continuityPointsPerSet: true,
+              continuityPointsPerRound: true,
+              continuityMinRounds: true,
+              continuityMaxBonus: true,
+              continuityMode: true,
+            }
+          }
+        }
+      },
+      players: {
+        include: {
+          player: {
+            include: {
+              user: { select: { name: true } }
+            }
+          }
+        },
+        orderBy: { position: 'asc' }
+      },
+      matches: {
+        orderBy: { setNumber: 'asc' }
       }
     }
+  });
 
-    console.log(`[points-calculator] Preview calculado para ${previews.length} grupos`);
-    return previews;
-  } catch (error) {
-    console.error('[points-calculator] Error calculating round points preview:', error);
-    return [];
+  if (!group) {
+    throw new Error("Grupo no encontrado");
   }
-}
 
-/**
- * Obtiene solo la preview de un jugador específico en su grupo
- */
-export async function getPlayerPointsPreview(playerId: string, roundId?: string): Promise<PointsPreview | null> {
-  try {
-    console.log(`[points-calculator] Obteniendo preview para jugador ${playerId}`, { roundId });
+  const completedSets = group.matches.filter(m => m.isConfirmed).length;
+  const totalSets = group.matches.length;
+  const pendingSets = totalSets - completedSets; // ✅ AGREGADO
+  const completionRate = totalSets > 0 ? (completedSets / totalSets) * 100 : 0;
 
-    // Buscar grupo actual del jugador
-    const groupPlayer = await prisma.groupPlayer.findFirst({
-      where: {
-        playerId,
-        ...(roundId && { group: { roundId } })
-      },
-      include: { 
-        group: { 
-          select: { id: true, roundId: true, number: true } 
-        } 
-      },
-      orderBy: { group: { round: { number: 'desc' } } }
-    });
+  // ✅ Calcular información de la escalera
+  const totalGroupsInTournament = await prisma.group.count({
+    where: { round: { tournamentId: group.round.tournamentId, isClosed: false } }
+  });
 
-    if (!groupPlayer) {
-      console.log(`[points-calculator] No se encontró grupo para jugador ${playerId}`);
-      return null;
+  const ladderInfo = {
+    isTopGroup: group.level === 1,
+    isBottomGroup: group.level === totalGroupsInTournament,
+    totalGroups: totalGroupsInTournament
+  };
+  
+  // Calcular preview para cada jugador
+  const playersPreview: PointsPreview[] = group.players.map(groupPlayer => {
+    const stats = calculatePlayerStats(groupPlayer.playerId, group.matches);
+    
+    // Calcular puntos actuales y proyectados
+    const currentPoints = groupPlayer.points || 0;
+    let provisionalPoints = currentPoints;
+    
+    // Agregar puntos de sets completados que aún no están en groupPlayer.points
+    const pendingPoints = stats.setsWon * 1.0; // 1 punto por set ganado
+    provisionalPoints = Math.max(currentPoints, pendingPoints);
+    
+    // Si hay rachas de continuidad habilitadas, estimarlas
+    if (group.round.tournament.continuityEnabled && groupPlayer.streak > 0) {
+      const streakBonus = Math.min(
+        groupPlayer.streak * (group.round.tournament.continuityPointsPerSet || 1),
+        group.round.tournament.continuityMaxBonus || 10
+      );
+      provisionalPoints += streakBonus;
     }
 
-    console.log(`[points-calculator] Jugador ${playerId} encontrado en grupo ${groupPlayer.group.number}`);
-
-    const preview = await calculateGroupPointsPreview(groupPlayer.groupId);
-    const playerPreview = preview?.players.find(p => p.playerId === playerId) || null;
-
-    if (playerPreview) {
-      console.log(`[points-calculator] Preview obtenido para jugador: ${playerPreview.provisionalPoints} pts (${playerPreview.provisionalPosition}° pos)`);
-    }
-
-    return playerPreview;
-
-  } catch (error) {
-    console.error('[points-calculator] Error getting player points preview:', error);
-    return null;
-  }
-}
-
-/**
- * Verifica si un grupo ha cambiado desde el último cálculo
- */
-export async function hasGroupChanged(groupId: string, lastCalculated: Date): Promise<boolean> {
-  try {
-    const latestMatch = await prisma.match.findFirst({
-      where: { 
-        groupId,
-        updatedAt: { gt: lastCalculated }
-      },
-      select: { updatedAt: true }
-    });
-
-    const hasChanged = !!latestMatch;
-    if (hasChanged) {
-      console.log(`[points-calculator] Grupo ${groupId} ha cambiado desde ${lastCalculated.toISOString()}`);
-    }
-
-    return hasChanged;
-  } catch (error) {
-    console.error('[points-calculator] Error checking group changes:', error);
-    return true; // En caso de error, asumir que cambió
-  }
-}
-
-/**
- * Obtiene estadísticas rápidas de un grupo sin calcular todo el preview
- */
-export async function getGroupQuickStats(groupId: string): Promise<{
-  completionRate: number;
-  completedSets: number;
-  totalSets: number;
-  hasChanges: boolean;
-} | null> {
-  try {
-    const matches = await prisma.match.findMany({
-      where: { groupId },
-      select: { 
-        id: true, 
-        isConfirmed: true,
-        updatedAt: true 
-      }
-    });
-
-    const totalSets = matches.length;
-    const completedSets = matches.filter(m => m.isConfirmed).length;
-    const completionRate = totalSets > 0 ? (completedSets / totalSets) * 100 : 0;
-
-    // Verificar si hay cambios recientes (últimos 5 minutos)
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const hasChanges = matches.some(m => m.updatedAt > fiveMinutesAgo && m.isConfirmed);
+    const deltaPoints = provisionalPoints - currentPoints; // ✅ AGREGADO
 
     return {
-      completionRate: Math.round(completionRate * 100) / 100,
-      completedSets,
-      totalSets,
-      hasChanges
+      playerId: groupPlayer.playerId,
+      playerName: groupPlayer.player.name,
+      currentPoints,
+      provisionalPoints,
+      deltaPoints, // ✅ AGREGADO
+      setsWon: stats.setsWon,
+      setsPlayed: stats.setsPlayed, // ✅ CORREGIDO
+      gamesWon: stats.gamesWon,
+      gamesLost: stats.gamesLost,
+      gamesDifference: stats.gamesDifference,
+      h2hWins: stats.h2hWins,
+      headToHeadRecord: { // ✅ AGREGADO
+        wins: stats.h2hWins,
+        losses: stats.setsPlayed - stats.setsWon
+      },
+      currentPosition: groupPlayer.position,
+      provisionalPosition: 0, // Se calculará después del ordenamiento
+      deltaPosition: 0, // ✅ AGREGADO
+      streak: groupPlayer.streak, // ✅ AGREGADO
+      usedComodin: groupPlayer.usedComodin, // ✅ AGREGADO
+      movement: { type: 'same', groups: 0, description: '' },
+      tiebreakInfo: {
+        criteria: ['Puntos', 'Sets', 'Dif. Juegos', 'H2H', 'Juegos'],
+        values: [provisionalPoints, stats.setsWon, stats.gamesDifference, stats.h2hWins, stats.gamesWon]
+      }
     };
+  });
 
-  } catch (error) {
-    console.error('[points-calculator] Error getting group quick stats:', error);
-    return null;
+  // Resolver empates con head-to-head directo
+  for (let i = 0; i < playersPreview.length; i++) {
+    for (let j = i + 1; j < playersPreview.length; j++) {
+      const playerA = playersPreview[i];
+      const playerB = playersPreview[j];
+      
+      // Si están empatados en puntos y sets, calcular H2H directo
+      if (playerA.provisionalPoints === playerB.provisionalPoints && 
+          playerA.setsWon === playerB.setsWon) {
+        const directH2H = calculateDirectH2H(playerA.playerId, playerB.playerId, group.matches);
+        
+        if (directH2H > 0) {
+          playerA.tiebreakInfo!.criteria.push('H2H Directo');
+          playerA.tiebreakInfo!.values.push(`${directH2H}-${0}`);
+          playerB.tiebreakInfo!.criteria.push('H2H Directo');
+          playerB.tiebreakInfo!.values.push(`${0}-${directH2H}`);
+        }
+      }
+    }
   }
+
+  // Ordenar jugadores con criterios de desempate
+  playersPreview.sort(comparePlayersWithTiebreakers);
+
+  // ✅ Crear mapa de movimientos
+  const movements: Record<string, PointsPreview['movement']> = {};
+
+  // Asignar posiciones proyectadas y calcular movimientos
+  playersPreview.forEach((player, index) => {
+    const provisionalPosition = index + 1;
+    player.provisionalPosition = provisionalPosition;
+    player.deltaPosition = player.currentPosition - provisionalPosition; // ✅ AGREGADO
+    player.movement = calculateLadderMovement(
+      provisionalPosition, 
+      group.level, 
+      totalGroupsInTournament
+    );
+    
+    // ✅ Agregar al mapa de movimientos
+    movements[player.playerId] = player.movement;
+  });
+
+  console.log(`✅ Preview calculado: ${playersPreview.length} jugadores, ${completionRate.toFixed(1)}% completado`);
+
+  return {
+    groupId,
+    groupNumber: group.number,
+    groupLevel: group.level, // ✅ CORREGIDO
+    completedSets,
+    totalSets,
+    pendingSets, // ✅ AGREGADO
+    completionRate: Math.round(completionRate),
+    isComplete: completionRate === 100,
+    players: playersPreview,
+    movements, // ✅ AGREGADO
+    ladderInfo, // ✅ AGREGADO
+    lastUpdated: new Date().toISOString()
+  };
 }
+
+// Función auxiliar para obtener preview de un jugador específico
+export async function getPlayerPointsPreview(
+  groupId: string, 
+  playerId: string
+): Promise<PointsPreview | null> {
+  const groupPreview = await getGroupPointsPreview(groupId);
+  return groupPreview.players.find(p => p.playerId === playerId) || null;
+}
+
+// Función para calcular estadísticas rápidas del grupo
+export async function getGroupStats(groupId: string) {
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+    include: {
+      matches: { select: { isConfirmed: true } },
+      players: { select: { id: true } }
+    }
+  });
+
+  if (!group) {
+    throw new Error("Grupo no encontrado");
+  }
+
+  const completedSets = group.matches.filter(m => m.isConfirmed).length;
+  const totalSets = group.matches.length;
+  
+  return {
+    completionRate: totalSets > 0 ? Math.round((completedSets / totalSets) * 100) : 0,
+    completedSets,
+    totalSets,
+    playersCount: group.players.length,
+    hasRecentChanges: false // Se puede implementar lógica de timestamps
+  };
+}
+
+// Función para validar integridad de datos
+export async function validateGroupIntegrity(groupId: string): Promise<{
+  isValid: boolean;
+  errors: string[];
+  warnings: string[];
+}> {
+  const group = await prisma.group.findUnique({
+    where: { id: groupId },
+    include: {
+      players: { include: { player: true } },
+      matches: true
+    }
+  });
+
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!group) {
+    errors.push("Grupo no encontrado");
+    return { isValid: false, errors, warnings };
+  }
+
+  // Validar número de jugadores
+  if (group.players.length !== 4) {
+    errors.push(`Grupo debe tener exactamente 4 jugadores, tiene ${group.players.length}`);
+  }
+
+  // Validar número de sets
+  if (group.matches.length !== 3) {
+    errors.push(`Grupo debe tener exactamente 3 sets, tiene ${group.matches.length}`);
+  }
+
+  // Validar posiciones únicas
+  const positions = group.players.map(p => p.position).sort();
+  const expectedPositions = [1, 2, 3, 4];
+  if (JSON.stringify(positions) !== JSON.stringify(expectedPositions)) {
+    errors.push("Las posiciones de los jugadores no son únicas o están fuera de rango");
+  }
+
+  // Validar que todos los jugadores participen en todos los sets
+  for (const match of group.matches) {
+    const playersInMatch = [
+      match.team1Player1Id,
+      match.team1Player2Id,
+      match.team2Player1Id,
+      match.team2Player2Id
+    ].filter(Boolean);
+
+    const uniquePlayers = new Set(playersInMatch);
+    if (uniquePlayers.size !== 4) {
+      warnings.push(`Set ${match.setNumber} no tiene exactamente 4 jugadores únicos`);
+    }
+
+    // Verificar que todos los jugadores del grupo están en el match
+    const groupPlayerIds = group.players.map(p => p.playerId);
+    for (const playerId of groupPlayerIds) {
+      if (!playersInMatch.includes(playerId)) {
+        warnings.push(`Jugador ${playerId} no participa en set ${match.setNumber}`);
+      }
+    }
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+export { getGroupPointsPreview as calculateGroupPointsPreview };

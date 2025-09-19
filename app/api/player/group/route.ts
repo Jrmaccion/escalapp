@@ -1,9 +1,69 @@
-// app/api/player/group/route.ts - VERSIÓN CORREGIDA
+// app/api/player/group/route.ts - VERSIÓN CORREGIDA CON DESEMPATES UNIFICADOS
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PartyManager } from "@/lib/party-manager";
+
+// ✅ FUNCIONES UNIFICADAS DE DESEMPATES (igual que en points-calculator.ts)
+function calculatePlayerStatsInGroup(playerId: string, matches: any[]) {
+  let setsWon = 0;
+  let gamesWon = 0;
+  let gamesLost = 0;
+  let h2hWins = 0;
+
+  for (const match of matches) {
+    if (!match.isConfirmed) continue;
+
+    const isInTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(playerId);
+    const isInTeam2 = [match.team2Player1Id, match.team2Player2Id].includes(playerId);
+
+    if (isInTeam1) {
+      gamesWon += match.team1Games || 0;
+      gamesLost += match.team2Games || 0;
+      if ((match.team1Games || 0) > (match.team2Games || 0)) {
+        setsWon++;
+        h2hWins++;
+      }
+    } else if (isInTeam2) {
+      gamesWon += match.team2Games || 0;
+      gamesLost += match.team1Games || 0;
+      if ((match.team2Games || 0) > (match.team1Games || 0)) {
+        setsWon++;
+        h2hWins++;
+      }
+    }
+  }
+
+  return {
+    playerId,
+    points: 0, // Se asigna desde groupPlayer.points
+    setsWon,
+    gamesWon,
+    gamesLost,
+    gamesDifference: gamesWon - gamesLost,
+    h2hWins
+  };
+}
+
+function comparePlayersWithUnifiedTiebreakers(a: any, b: any): number {
+  // 1. Puntos totales (descendente)
+  if (a.points !== b.points) return b.points - a.points;
+  
+  // 2. Sets ganados (descendente)  
+  if (a.setsWon !== b.setsWon) return b.setsWon - a.setsWon;
+  
+  // 3. Diferencia de juegos (descendente)
+  if (a.gamesDifference !== b.gamesDifference) return b.gamesDifference - a.gamesDifference;
+  
+  // 4. Head-to-head wins (descendente)
+  if (a.h2hWins !== b.h2hWins) return b.h2hWins - a.h2hWins;
+  
+  // 5. Juegos ganados totales (descendente)
+  if (a.gamesWon !== b.gamesWon) return b.gamesWon - a.gamesWon;
+  
+  return 0; // Empate total
+}
 
 // Helper para resolver playerId
 async function resolvePlayerId(session: any): Promise<string | null> {
@@ -174,7 +234,7 @@ export async function GET(request: NextRequest) {
     const currentRound = pickCurrentRound(rounds);
     console.log(`[/api/player/group] Ronda actual: ${currentRound.number}`);
 
-    // 5. Buscar grupo del jugador
+    // 5. Buscar grupo del jugador - ✅ INCLUIR MATCHES PARA DESEMPATES
     let group = await prisma.group.findFirst({
       where: { 
         roundId: currentRound.id, 
@@ -187,11 +247,23 @@ export async function GET(request: NextRequest) {
           } 
         },
         players: { 
-          include: { player: true }, 
-          orderBy: { points: 'desc' }
+          include: { player: true }
+          // ❌ NO ordenar aquí - lo haremos con desempates después
         },
         matches: {
-          orderBy: { setNumber: 'asc' }
+          orderBy: { setNumber: 'asc' },
+          select: {
+            id: true,
+            setNumber: true,
+            team1Player1Id: true,
+            team1Player2Id: true,
+            team2Player1Id: true,
+            team2Player2Id: true,
+            team1Games: true,
+            team2Games: true,
+            tiebreakScore: true,
+            isConfirmed: true,
+          }
         },
       },
     });
@@ -212,11 +284,22 @@ export async function GET(request: NextRequest) {
             } 
           },
           players: { 
-            include: { player: true }, 
-            orderBy: { points: 'desc' }
+            include: { player: true }
           },
           matches: {
-            orderBy: { setNumber: 'asc' }
+            orderBy: { setNumber: 'asc' },
+            select: {
+              id: true,
+              setNumber: true,
+              team1Player1Id: true,
+              team1Player2Id: true,
+              team2Player1Id: true,
+              team2Player2Id: true,
+              team1Games: true,
+              team2Games: true,
+              tiebreakScore: true,
+              isConfirmed: true,
+            }
           },
         },
         orderBy: { round: { number: 'desc' } },
@@ -264,10 +347,22 @@ export async function GET(request: NextRequest) {
       nameById.set(gp.playerId, gp.player?.name ?? "Jugador");
     });
 
-    // 8. Calcular posiciones y puntos
-    const sortedByPoints = group.players
-      .slice()
-      .sort((a, b) => (b.points || 0) - (a.points || 0));
+    // 8. ✅ APLICAR DESEMPATES UNIFICADOS - REEMPLAZAR LÍNEAS 244-253
+    const playersWithStats = group.players.map(gp => {
+      const stats = calculatePlayerStatsInGroup(gp.playerId, group.matches);
+      return {
+        ...gp,
+        points: gp.points || 0,
+        setsWon: stats.setsWon,
+        gamesWon: stats.gamesWon,
+        gamesLost: stats.gamesLost,
+        gamesDifference: stats.gamesDifference,
+        h2hWins: stats.h2hWins,
+      };
+    });
+
+    // ✅ ORDENAR CON DESEMPATES UNIFICADOS
+    const sortedByTiebreakers = playersWithStats.sort(comparePlayersWithUnifiedTiebreakers);
 
     const currentPlayer = group.players.find(gp => gp.playerId === playerId);
 
@@ -316,10 +411,10 @@ export async function GET(request: NextRequest) {
       isPending: !match.isConfirmed,
     }));
 
-    // 11. **RESPUESTA FINAL CORREGIDA**
+    // 11. **RESPUESTA FINAL CORREGIDA CON POSICIONES DE DESEMPATES**
     const response = {
       hasGroup: true,
-      roundId: group.round.id, // ✅ CRÍTICO: Asegurar que roundId existe
+      roundId: group.round.id,
       tournament: {
         id: tournamentId,
         title: group.round.tournament.title,
@@ -327,22 +422,29 @@ export async function GET(request: NextRequest) {
         totalRounds: selectedTournament.totalRounds || 0,
       },
       group: {
-        id: group.id, // ✅ CRÍTICO: ID real del grupo
+        id: group.id,
         number: group.number,
-        level: `Nivel ${group.number}`, // Asumir que number = level
+        level: `Nivel ${group.number}`,
         totalPlayers: group.players.length,
       },
       myStatus: {
-        position: sortedByPoints.findIndex(gp => gp.playerId === playerId) + 1,
+        // ✅ USAR POSICIÓN CON DESEMPATES
+        position: sortedByTiebreakers.findIndex(gp => gp.playerId === playerId) + 1,
         points: currentPlayer?.points || 0,
         streak: currentPlayer?.streak || 0,
       },
-      players: sortedByPoints.map((gp, index) => ({
+      // ✅ USAR JUGADORES ORDENADOS CON DESEMPATES
+      players: sortedByTiebreakers.map((gp, index) => ({
         id: gp.playerId,
         name: gp.player?.name ?? "Jugador",
         points: gp.points || 0,
-        position: index + 1,
+        position: index + 1, // Nueva posición basada en desempates
         isCurrentUser: gp.playerId === playerId,
+        // ✅ INCLUIR STATS PARA COMPATIBILIDAD CON FRONTEND
+        sets: gp.setsWon,
+        games: gp.gamesWon,
+        gamesLost: gp.gamesLost,
+        setsWon: gp.setsWon,
       })),
       
       // ✅ DATOS DEL PARTIDO (corregidos)
@@ -365,6 +467,7 @@ export async function GET(request: NextRequest) {
         partyApiVersion: "1.1",
         hasPartyScheduling: !!partyForUI,
         tournamentSelectionEnabled: tournamentPlayers.length > 1,
+        tiebreakerSystemEnabled: true, // ✅ NUEVO FLAG
         debug: process.env.NODE_ENV === 'development' ? {
           playerId,
           tournamentId,
@@ -373,12 +476,14 @@ export async function GET(request: NextRequest) {
           roundNumber: group.round.number,
           currentRoundId: currentRound.id,
           currentRoundNumber: currentRound.number,
-          partyDataStatus: partyData?.status || 'null'
+          partyDataStatus: partyData?.status || 'null',
+          playersBeforeTiebreakers: group.players.map(gp => ({ id: gp.playerId, points: gp.points })),
+          playersAfterTiebreakers: sortedByTiebreakers.map((gp, i) => ({ id: gp.playerId, points: gp.points, position: i + 1 }))
         } : undefined
       }
     };
 
-    console.log(`[/api/player/group] Respuesta preparada exitosamente`);
+    console.log(`[/api/player/group] Respuesta preparada exitosamente con desempates`);
     return NextResponse.json(response);
 
   } catch (error: any) {
