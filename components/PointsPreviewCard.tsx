@@ -1,4 +1,4 @@
-// components/PointsPreviewCard.tsx - CORREGIDO CON TIPOS ACTUALIZADOS
+// components/PointsPreviewCard.tsx - CORREGIDO CON VALIDACIÓN ROBUSTA
 "use client";
 
 import React from 'react';
@@ -27,7 +27,54 @@ import {
   Users
 } from "lucide-react";
 import { usePointsPreview } from "@/hooks/usePointsPreview";
-import type { PointsPreview } from "@/lib/points-calculator";
+
+// Tipos seguros con validación
+type SafePlayer = {
+  playerId: string;
+  playerName: string;
+  currentPoints: number;
+  provisionalPoints: number;
+  deltaPoints: number;
+  setsWon: number;
+  setsPlayed: number;
+  gamesWon: number;
+  gamesLost: number;
+  gamesDifference: number;
+  h2hWins: number;
+  headToHeadRecord?: {
+    wins: number;
+    losses: number;
+  };
+  currentPosition: number;
+  provisionalPosition: number;
+  deltaPosition: number;
+  streak: number;
+  usedComodin: boolean;
+  movement: {
+    type: 'up' | 'down' | 'same';
+    groups: number;
+    description: string;
+  };
+};
+
+type SafePreview = {
+  groupId: string;
+  groupNumber: number;
+  groupLevel: number;
+  completedSets: number;
+  totalSets: number;
+  pendingSets: number;
+  completionRate: number;
+  isComplete: boolean;
+  players: SafePlayer[];
+  movements: Record<string, SafePlayer['movement']>;
+  ladderInfo: {
+    isTopGroup: boolean;
+    isBottomGroup: boolean;
+    totalGroups: number;
+  };
+  lastUpdated: string;
+};
 
 type Props = {
   groupId: string;
@@ -38,6 +85,118 @@ type Props = {
   refreshTrigger?: number;
 };
 
+// Función de validación y transformación segura
+function validateAndTransformPreview(rawPreview: any): SafePreview | null {
+  if (!rawPreview || typeof rawPreview !== 'object') {
+    console.warn("Preview data is invalid:", rawPreview);
+    return null;
+  }
+
+  try {
+    // Validar propiedades principales
+    const groupId = rawPreview.groupId || '';
+    const groupNumber = Number(rawPreview.groupNumber) || 0;
+    const groupLevel = Number(rawPreview.groupLevel || rawPreview.level) || 1;
+    const completedSets = Number(rawPreview.completedSets) || 0;
+    const totalSets = Number(rawPreview.totalSets) || 0;
+    const pendingSets = Number(rawPreview.pendingSets) || Math.max(0, totalSets - completedSets);
+    const completionRate = Number(rawPreview.completionRate) || (totalSets > 0 ? Math.round((completedSets / totalSets) * 100) : 0);
+    const isComplete = Boolean(rawPreview.isComplete) || completionRate === 100;
+
+    // Validar jugadores
+    const rawPlayers = Array.isArray(rawPreview.players) ? rawPreview.players : [];
+    const validPlayers: SafePlayer[] = [];
+
+    for (const player of rawPlayers) {
+      if (!player || typeof player !== 'object' || !player.playerId) {
+        console.warn("Invalid player data:", player);
+        continue;
+      }
+
+      const safeBPlayer: SafePlayer = {
+        playerId: String(player.playerId),
+        playerName: String(player.playerName || player.name || 'Jugador desconocido'),
+        currentPoints: Number(player.currentPoints || player.points) || 0,
+        provisionalPoints: Number(player.provisionalPoints || player.projectedPoints || player.currentPoints || player.points) || 0,
+        deltaPoints: Number(player.deltaPoints) || 0,
+        setsWon: Number(player.setsWon || player.sets) || 0,
+        setsPlayed: Number(player.setsPlayed || player.setsTotal) || 0,
+        gamesWon: Number(player.gamesWon || player.games) || 0,
+        gamesLost: Number(player.gamesLost) || 0,
+        gamesDifference: Number(player.gamesDifference) || 0,
+        h2hWins: Number(player.h2hWins) || 0,
+        headToHeadRecord: player.headToHeadRecord ? {
+          wins: Number(player.headToHeadRecord.wins) || 0,
+          losses: Number(player.headToHeadRecord.losses) || 0
+        } : undefined,
+        currentPosition: Number(player.currentPosition || player.position) || 0,
+        provisionalPosition: Number(player.provisionalPosition || player.projectedPosition) || 0,
+        deltaPosition: Number(player.deltaPosition) || 0,
+        streak: Number(player.streak) || 0,
+        usedComodin: Boolean(player.usedComodin),
+        movement: {
+          type: (player.movement?.type || 'same') as 'up' | 'down' | 'same',
+          groups: Number(player.movement?.groups) || 0,
+          description: String(player.movement?.description || player.movement?.text || 'Se mantiene')
+        }
+      };
+
+      // Calcular deltas si no están disponibles
+      if (!safeBPlayer.deltaPoints) {
+        safeBPlayer.deltaPoints = safeBPlayer.provisionalPoints - safeBPlayer.currentPoints;
+      }
+      if (!safeBPlayer.deltaPosition) {
+        safeBPlayer.deltaPosition = safeBPlayer.currentPosition - safeBPlayer.provisionalPosition;
+      }
+      if (!safeBPlayer.gamesDifference) {
+        safeBPlayer.gamesDifference = safeBPlayer.gamesWon - safeBPlayer.gamesLost;
+      }
+
+      validPlayers.push(safeBPlayer);
+    }
+
+    // Validar movements
+    const movements: Record<string, SafePlayer['movement']> = {};
+    if (rawPreview.movements && typeof rawPreview.movements === 'object') {
+      for (const [playerId, movement] of Object.entries(rawPreview.movements)) {
+        if (movement && typeof movement === 'object') {
+          movements[playerId] = {
+            type: (movement as any).type || 'same',
+            groups: Number((movement as any).groups) || 0,
+            description: String((movement as any).description || (movement as any).text || 'Se mantiene')
+          };
+        }
+      }
+    }
+
+    // Validar ladderInfo
+    const ladderInfo = {
+      isTopGroup: Boolean(rawPreview.ladderInfo?.isTopGroup) || groupLevel === 1,
+      isBottomGroup: Boolean(rawPreview.ladderInfo?.isBottomGroup),
+      totalGroups: Number(rawPreview.ladderInfo?.totalGroups) || 10
+    };
+
+    return {
+      groupId,
+      groupNumber,
+      groupLevel,
+      completedSets,
+      totalSets,
+      pendingSets,
+      completionRate,
+      isComplete,
+      players: validPlayers,
+      movements,
+      ladderInfo,
+      lastUpdated: rawPreview.lastUpdated || new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error("Error validating preview data:", error, rawPreview);
+    return null;
+  }
+}
+
 function PointsPreviewCard({ 
   groupId, 
   currentUserId, 
@@ -47,7 +206,7 @@ function PointsPreviewCard({
   refreshTrigger
 }: Props) {
   const { 
-    preview, 
+    preview: rawPreview, 
     isLoading, 
     error, 
     hasChanges, 
@@ -58,6 +217,12 @@ function PointsPreviewCard({
     refreshInterval: 30000,
     autoRefreshOnSetConfirmation: true
   });
+
+  // Validar y transformar datos de forma segura
+  const preview = React.useMemo(() => {
+    if (!rawPreview) return null;
+    return validateAndTransformPreview(rawPreview);
+  }, [rawPreview]);
 
   // Trigger refresh when parent requests it
   React.useEffect(() => {
@@ -88,7 +253,7 @@ function PointsPreviewCard({
                 Preview no disponible
               </p>
               <p className="text-xs text-amber-700 mt-1">
-                {error || "No se pudo calcular el preview de puntos"}
+                {error || "No se pudo procesar los datos del preview"}
               </p>
               <Button 
                 onClick={refresh} 
@@ -106,7 +271,7 @@ function PointsPreviewCard({
     );
   }
 
-  const getMovementIcon = (movement: any) => {
+  const getMovementIcon = (movement: SafePlayer['movement']) => {
     if (!movement || movement.type === 'same') {
       return <Minus className="w-4 h-4 text-blue-600" />;
     }
@@ -119,7 +284,7 @@ function PointsPreviewCard({
     return <Target className="w-4 h-4 text-gray-600" />;
   };
 
-  const getMovementBadgeColor = (movement: any) => {
+  const getMovementBadgeColor = (movement: SafePlayer['movement']) => {
     if (!movement || movement.type === 'same') {
       return 'bg-blue-100 text-blue-700 border-blue-200';
     }
@@ -176,7 +341,7 @@ function PointsPreviewCard({
     }
   };
 
-  // Filtrar y ordenar jugadores
+  // Filtrar y ordenar jugadores - VALIDACIÓN SEGURA
   const playersToShow = showAllPlayers 
     ? preview.players 
     : preview.players.filter(p => p.playerId === currentUserId);
@@ -187,8 +352,12 @@ function PointsPreviewCard({
         <CardContent className="p-4 text-center">
           <Info className="w-6 h-6 text-amber-600 mx-auto mb-2" />
           <p className="text-sm text-amber-800">
-            No se encontraron datos para tu jugador
+            No se encontraron datos para tu jugador en este grupo
           </p>
+          <Button onClick={refresh} size="sm" className="mt-2">
+            <RefreshCw className="w-3 h-3 mr-1" />
+            Actualizar datos
+          </Button>
         </CardContent>
       </Card>
     );
@@ -271,7 +440,13 @@ function PointsPreviewCard({
         ) : (
           <div className="space-y-4">
             {playersToShow.map((player) => {
-              const movement = preview.movements[player.playerId];
+              // Validación adicional del jugador
+              if (!player || !player.playerId) {
+                console.warn("Invalid player in render:", player);
+                return null;
+              }
+
+              const movement = preview.movements[player.playerId] || player.movement;
               const MovementIcon = getMovementIcon(movement);
               const isCurrentUser = player.playerId === currentUserId;
               
@@ -349,7 +524,7 @@ function PointsPreviewCard({
                               <span className="text-gray-500">Sets:</span> {player.setsWon}/{player.setsPlayed}
                             </span>
                             <span>
-                              <span className="text-gray-500">Juegos:</span> {player.gamesWon}
+                              <span className="text-gray-500">Juegos:</span> {player.gamesWon}-{player.gamesLost}
                             </span>
                             {player.headToHeadRecord && (
                               <span>
@@ -393,7 +568,7 @@ function PointsPreviewCard({
                   </div>
                 </div>
               );
-            })}
+            }).filter(Boolean)}
             
             {/* Footer con información del preview mejorado */}
             <div className="mt-4 p-3 bg-white/60 rounded-lg border border-indigo-100">
@@ -423,7 +598,7 @@ function PointsPreviewCard({
                 </div>
               </div>
               
-              {/* Sistema de escalera explicado - CORREGIDO */}
+              {/* Sistema de escalera explicado */}
               <div className="mt-2 pt-2 border-t border-indigo-100">
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-indigo-600">
                   <div className="flex items-center gap-1">
