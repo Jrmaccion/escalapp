@@ -1,4 +1,4 @@
-// app/api/groups/[id]/points-preview/route.ts - CORREGIDO CON DESEMPATES UNIFICADOS
+// app/api/groups/[id]/points-preview/route.ts - CORREGIDO CON MOVEMENT INFO COMPLETO Y TIPADO
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
@@ -17,8 +17,13 @@ type PlayerStats = {
   h2hWins: number;
   currentPosition: number;
   predictedPosition: number;
-  movement: "up" | "down" | "same";
-  movementDescription: string;
+  movement: {
+    type: "up" | "down" | "maintain";
+    text: string;
+    groups: number;
+    color: string;
+    bgColor: string;
+  };
 };
 
 // Calcular estadísticas individuales
@@ -69,34 +74,109 @@ function comparePlayersWithUnifiedTiebreakers(a: PlayerStats, b: PlayerStats): n
   return 0;
 }
 
-// Calcular movimientos en la escalera
-function calculateMovementInfo(position: number, groupLevel: number, totalGroups: number) {
-  const isTopGroup = groupLevel === 1;
-  const isBottomGroup = groupLevel === totalGroups;
-  const isSecondGroup = groupLevel === 2;
-  const isPenultimateGroup = groupLevel === totalGroups - 1;
+// Movimiento estilo frontend con tipos estrictos
+function getMovementInfo(position: number, groupNumber: number, totalGroups: number = 10) {
+  const isTopGroup = groupNumber === 1;
+  const isBottomGroup = groupNumber === totalGroups;
+  const isSecondGroup = groupNumber === 2;
+  const isPenultimateGroup = groupNumber === totalGroups - 1;
 
-  switch (position) {
-    case 1:
-      if (isTopGroup) return { type: "same", description: "Se mantiene en grupo élite" };
-      if (isSecondGroup) return { type: "up", description: "Sube al grupo élite" };
-      return { type: "up", description: "Sube 2 grupos" };
-
-    case 2:
-      if (isTopGroup) return { type: "same", description: "Se mantiene en grupo élite" };
-      return { type: "up", description: "Sube 1 grupo" };
-
-    case 3:
-      if (isBottomGroup) return { type: "same", description: "Se mantiene en grupo inferior" };
-      return { type: "down", description: "Baja 1 grupo" };
-
-    case 4:
-      if (isBottomGroup) return { type: "same", description: "Se mantiene en grupo inferior" };
-      if (isPenultimateGroup) return { type: "down", description: "Baja al grupo inferior" };
-      return { type: "down", description: "Baja 2 grupos" };
-
-    default:
-      return { type: "same", description: "Se mantiene" };
+  if (position === 1) {
+    if (isTopGroup) {
+      return {
+        text: "Se mantiene en el grupo superior",
+        color: "text-yellow-600",
+        bgColor: "bg-yellow-50 border-yellow-200",
+        groups: 0,
+        type: "maintain" as const,
+      };
+    } else if (isSecondGroup) {
+      return {
+        text: "Sube al grupo superior",
+        color: "text-green-600",
+        bgColor: "bg-green-50 border-green-200",
+        groups: 1,
+        type: "up" as const,
+      };
+    } else {
+      return {
+        text: "Sube 2 grupos",
+        color: "text-green-600",
+        bgColor: "bg-green-50 border-green-200",
+        groups: 2,
+        type: "up" as const,
+      };
+    }
+  } else if (position === 2) {
+    if (isTopGroup) {
+      return {
+        text: "Se mantiene en el grupo superior",
+        color: "text-yellow-600",
+        bgColor: "bg-yellow-50 border-yellow-200",
+        groups: 0,
+        type: "maintain" as const,
+      };
+    } else {
+      return {
+        text: "Sube 1 grupo",
+        color: "text-green-600",
+        bgColor: "bg-green-50 border-green-200",
+        groups: 1,
+        type: "up" as const,
+      };
+    }
+  } else if (position === 3) {
+    if (isBottomGroup) {
+      return {
+        text: "Se mantiene en el grupo inferior",
+        color: "text-blue-600",
+        bgColor: "bg-blue-50 border-blue-200",
+        groups: 0,
+        type: "maintain" as const,
+      };
+    } else {
+      return {
+        text: "Baja 1 grupo",
+        color: "text-orange-600",
+        bgColor: "bg-orange-50 border-orange-200",
+        groups: 1,
+        type: "down" as const,
+      };
+    }
+  } else if (position === 4) {
+    if (isBottomGroup) {
+      return {
+        text: "Se mantiene en el grupo inferior",
+        color: "text-blue-600",
+        bgColor: "bg-blue-50 border-blue-200",
+        groups: 0,
+        type: "maintain" as const,
+      };
+    } else if (isPenultimateGroup) {
+      return {
+        text: "Baja al grupo inferior",
+        color: "text-red-600",
+        bgColor: "bg-red-50 border-red-200",
+        groups: 1,
+        type: "down" as const,
+      };
+    } else {
+      return {
+        text: "Baja 2 grupos",
+        color: "text-red-600",
+        bgColor: "bg-red-50 border-red-200",
+        groups: 2,
+        type: "down" as const,
+      };
+    }
+  } else {
+    return {
+      text: "Se mantiene",
+      color: "text-gray-600",
+      bgColor: "bg-gray-50 border-gray-200",
+      groups: 0,
+      type: "maintain" as const,
+    };
   }
 }
 
@@ -162,8 +242,13 @@ export async function GET(
         h2hWins: stats.h2hWins,
         currentPosition: gp.position,
         predictedPosition: 0,
-        movement: "same",
-        movementDescription: "",
+        movement: {
+          type: "maintain",
+          text: "Se mantiene",
+          groups: 0,
+          color: "text-gray-600",
+          bgColor: "bg-gray-50 border-gray-200",
+        },
       };
     });
 
@@ -171,17 +256,16 @@ export async function GET(
 
     sortedStats.forEach((player, index) => {
       const predictedPosition = index + 1;
-      const movementInfo = calculateMovementInfo(predictedPosition, currentGroupLevel, totalGroups);
+      const movementInfo = getMovementInfo(predictedPosition, currentGroupLevel, totalGroups);
 
       const originalPlayer = playerStats.find((p) => p.playerId === player.playerId);
       if (originalPlayer) {
         originalPlayer.predictedPosition = predictedPosition;
-        originalPlayer.movement = movementInfo.type as "up" | "down" | "same";
-        originalPlayer.movementDescription = movementInfo.description;
+        originalPlayer.movement = movementInfo;
       }
     });
 
-    const response = {
+    return NextResponse.json({
       success: true,
       data: {
         groupId: group.id,
@@ -204,7 +288,6 @@ export async function GET(
           gamesDifference: p.gamesDifference,
           h2hWins: p.h2hWins,
           movement: p.movement,
-          movementDescription: p.movementDescription,
           positionChange: p.predictedPosition - p.currentPosition,
         })),
       },
@@ -219,21 +302,10 @@ export async function GET(
           ],
           note: "Se aplican en orden hasta desempatar",
         },
-        movementInfo: {
-          description: "Sistema de escalera actualizado",
-          rules: [
-            "1° lugar: Sube 2 grupos (excepto grupo élite)",
-            "2° lugar: Sube 1 grupo (excepto grupo élite)",
-            "3° lugar: Baja 1 grupo (excepto grupo inferior)",
-            "4° lugar: Baja 2 grupos (excepto grupo inferior)",
-          ],
-        },
         calculatedAt: new Date().toISOString(),
         version: "1.0",
       },
-    };
-
-    return NextResponse.json(response);
+    });
   } catch (error: any) {
     console.error("[points-preview API] Error:", error);
     return NextResponse.json(
