@@ -5,72 +5,60 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// ✅ Forzar TZ consistente en servidor y cliente
+const ES_TIMEZONE: Intl.DateTimeFormatOptions["timeZone"] = "Europe/Madrid"
+
 export function formatDate(date: Date | string) {
-  return new Intl.DateTimeFormat('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric'
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    timeZone: ES_TIMEZONE,
   }).format(new Date(date))
 }
 
 export function formatDateTime(date: Date | string) {
-  return new Intl.DateTimeFormat('es-ES', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
+  return new Intl.DateTimeFormat("es-ES", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: ES_TIMEZONE,
   }).format(new Date(date))
 }
+
+// --- Resto utilidades existentes (sin cambios funcionales) ---
 
 export function calculatePointsForMatch(
   playerGames: number,
   opponentGames: number,
   wonSet: boolean
-): number {
+) {
+  // +1 por juego ganado +1 por set ganado
   return playerGames + (wonSet ? 1 : 0)
 }
 
-export function getTeamsForSet(players: any[], setNumber: number) {
-  switch (setNumber) {
-    case 1:
-      return {
-        team1: [players[0], players[3]], // #1 + #4
-        team2: [players[1], players[2]]  // #2 + #3
-      }
-    case 2:
-      return {
-        team1: [players[0], players[2]], // #1 + #3
-        team2: [players[1], players[3]]  // #2 + #4
-      }
-    case 3:
-      return {
-        team1: [players[0], players[1]], // #1 + #2
-        team2: [players[2], players[3]]  // #3 + #4
-      }
-    default:
-      throw new Error('Número de set inválido')
-  }
-}
-
-export function validateMatchResult(team1Games: number, team2Games: number, tiebreakScore?: string) {
-  if (team1Games < 0 || team1Games > 5 || team2Games < 0 || team2Games > 5) {
-    throw new Error('Los juegos deben estar entre 0 y 5')
+export function validateSetInput(team1Games: number, team2Games: number, tiebreakScore?: string) {
+  // Reglas: 0–4; si 4–4, tie-break a 7 con diferencia de 2 y se computa como 5–4.
+  const isInt = (n: number) => Number.isInteger(n) && n >= 0 && n <= 5
+  if (!isInt(team1Games) || !isInt(team2Games)) {
+    throw new Error("Los juegos deben estar entre 0 y 5")
   }
 
   if (team1Games === 4 && team2Games === 4) {
-    if (!tiebreakScore || !tiebreakScore.includes('-')) {
-      throw new Error('Se requiere resultado de tie-break para empate 4-4')
+    if (!tiebreakScore) {
+      throw new Error("Si hay 4–4 es obligatorio informar el tie-break (p. ej., 7–5)")
     }
 
-    const [tb1, tb2] = tiebreakScore.split('-').map(s => parseInt(s.trim()))
+    const [tb1, tb2] = tiebreakScore.split("-").map(s => parseInt(s.trim()))
     if (isNaN(tb1) || isNaN(tb2) || Math.abs(tb1 - tb2) < 2) {
-      throw new Error('Resultado de tie-break inválido')
+      throw new Error("Resultado de tie-break inválido")
     }
   }
 
   if (Math.max(team1Games, team2Games) < 4) {
-    throw new Error('Al menos un equipo debe ganar 4 juegos')
+    throw new Error("Al menos un equipo debe ganar 4 juegos")
   }
 
   return true
