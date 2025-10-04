@@ -1,4 +1,4 @@
-// app/historial/HistorialClient.tsx - VERSIÓN MEJORADA CON ICONOS Y PREVIEW
+// app/historial/HistorialClient.tsx - CON ICONOS PARA GRUPOS SKIPPED
 "use client";
 
 import { useState, useEffect } from "react";
@@ -18,7 +18,8 @@ import {
   Award,
   Circle,
   Star,
-  Search
+  XCircle,
+  PauseCircle
 } from "lucide-react";
 
 type HistoryData = {
@@ -36,6 +37,9 @@ type HistoryData = {
     movement: 'up' | 'down' | 'same';
     movementText: string;
     date: string;
+    wasSkipped?: boolean;
+    skippedReason?: string;
+    technicalPoints?: boolean;
     matches: Array<{
       vs: string;
       result: string;
@@ -77,8 +81,16 @@ export default function HistorialClient() {
     fetchData();
   }, []);
 
-  // Iconos y textos para el sistema de movimientos
-  const getMovementInfo = (position: number, movement: 'up' | 'down' | 'same') => {
+  const getMovementInfo = (position: number, movement: 'up' | 'down' | 'same', wasSkipped?: boolean) => {
+    if (wasSkipped) {
+      return {
+        icon: <XCircle className="w-4 h-4 text-red-600" />,
+        text: "Grupo no disputado",
+        color: "text-red-600",
+        bgColor: "bg-red-50 border-red-200"
+      };
+    }
+
     switch (position) {
       case 1:
         return {
@@ -135,8 +147,16 @@ export default function HistorialClient() {
     }
   };
 
-  // ✅ MEJORADO: Reemplazar emojis por iconos confiables
-  const getPositionInfo = (position: number) => {
+  const getPositionInfo = (position: number, wasSkipped?: boolean) => {
+    if (wasSkipped) {
+      return {
+        icon: <PauseCircle className="w-4 h-4 text-gray-600" />,
+        class: "bg-gray-100 text-gray-700 border-gray-300",
+        text: "Grupo no disputado - Puntos técnicos",
+        number: "⏸️"
+      };
+    }
+
     switch (position) {
       case 1:
         return {
@@ -184,13 +204,11 @@ export default function HistorialClient() {
     );
   }
 
-  // ✅ MEJORADO: Estado vacío con preview completo
   if (!data?.hasHistory) {
     return (
       <div className="px-4 py-6 max-w-6xl mx-auto space-y-6">
         <Breadcrumbs />
         
-        {/* Estado vacío mejorado con preview */}
         <div className="text-center py-12">
           <History className="h-16 w-16 text-gray-400 mx-auto mb-6" />
           <h2 className="text-2xl font-bold text-gray-900 mb-4">Tu historial se está construyendo</h2>
@@ -198,11 +216,10 @@ export default function HistorialClient() {
             {data?.message || "Una vez que participes en rondas completadas, aquí verás tu evolución y progreso en el torneo."}
           </p>
 
-          {/* Preview de cómo se verá */}
+          {/* Preview simplificado */}
           <div className="max-w-2xl mx-auto">
             <h3 className="text-lg font-semibold mb-4 text-gray-800">Así se verá tu historial:</h3>
             
-            {/* Ejemplo de estadísticas */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <div className="text-xl font-bold text-blue-600">5</div>
@@ -222,7 +239,6 @@ export default function HistorialClient() {
               </div>
             </div>
 
-            {/* Ejemplo de ronda */}
             <div className="bg-white border border-gray-200 rounded-lg p-4 mb-6 text-left">
               <div className="flex items-center justify-between mb-3">
                 <h4 className="font-semibold flex items-center gap-2">
@@ -259,7 +275,6 @@ export default function HistorialClient() {
               </div>
             </div>
 
-            {/* Información del sistema */}
             <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 text-left">
               <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
                 <TrendingUp className="w-4 h-4" />
@@ -273,6 +288,10 @@ export default function HistorialClient() {
                 <div className="flex items-center gap-2">
                   <ArrowDown className="w-4 h-4 text-red-600" />
                   <span><strong>3º-4º lugar:</strong> Bajas de grupo</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <XCircle className="w-4 h-4 text-gray-600" />
+                  <span><strong>No disputado:</strong> Puntos técnicos</span>
                 </div>
               </div>
               <p className="text-xs text-blue-600 mt-2">
@@ -346,30 +365,34 @@ export default function HistorialClient() {
         </Card>
       </div>
 
-      {/* Información del sistema de escalera actualizado */}
+      {/* Información del sistema actualizado */}
       <Card className="bg-blue-50 border-blue-200">
         <CardContent className="p-4">
           <h4 className="font-semibold text-blue-900 mb-3 flex items-center gap-2">
             <TrendingUp className="w-4 h-4" />
-            Sistema de Escalera Actualizado
+            Sistema de Escalera
           </h4>
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm text-blue-700">
             <div className="flex items-center gap-2">
               <ArrowUp className="w-4 h-4 text-green-600" />
-              <span><strong>1º lugar:</strong> Sube 2 grupos</span>
+              <span><strong>1º:</strong> Sube 2 grupos</span>
             </div>
             <div className="flex items-center gap-2">
               <ArrowUp className="w-4 h-4 text-green-600" />
-              <span><strong>2º lugar:</strong> Sube 1 grupo</span>
+              <span><strong>2º:</strong> Sube 1 grupo</span>
             </div>
             <div className="flex items-center gap-2">
               <ArrowDown className="w-4 h-4 text-red-600" />
-              <span><strong>3º lugar:</strong> Baja 1 grupo</span>
+              <span><strong>3º:</strong> Baja 1 grupo</span>
             </div>
             <div className="flex items-center gap-2">
               <ArrowDown className="w-4 h-4 text-red-600" />
-              <span><strong>4º lugar:</strong> Baja 2 grupos</span>
+              <span><strong>4º:</strong> Baja 2 grupos</span>
             </div>
+          </div>
+          <div className="mt-3 text-xs text-blue-600">
+            <XCircle className="w-3 h-3 inline mr-1" />
+            Los grupos no disputados reciben puntos técnicos y penalización de -1 grupo
           </div>
         </CardContent>
       </Card>
@@ -379,16 +402,22 @@ export default function HistorialClient() {
         <h2 className="text-xl font-semibold">Evolución por Rondas</h2>
         
         {data.rounds.map((roundData) => {
-          const movementInfo = getMovementInfo(roundData.position, roundData.movement);
-          const positionInfo = getPositionInfo(roundData.position);
+          const movementInfo = getMovementInfo(roundData.position, roundData.movement, roundData.wasSkipped);
+          const positionInfo = getPositionInfo(roundData.position, roundData.wasSkipped);
           
           return (
-            <Card key={roundData.round} className="hover:shadow-md transition-shadow">
+            <Card key={roundData.round} className={`hover:shadow-md transition-shadow ${roundData.wasSkipped ? 'border-red-200' : ''}`}>
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <CardTitle className="flex items-center gap-2">
                     <Calendar className="w-5 h-5" />
                     Ronda {roundData.round}
+                    {roundData.wasSkipped && (
+                      <Badge className="bg-red-100 text-red-700 ml-2">
+                        <XCircle className="w-3 h-3 mr-1" />
+                        No Disputado
+                      </Badge>
+                    )}
                   </CardTitle>
                   <div className="flex items-center gap-3">
                     <Badge variant="outline">
@@ -404,13 +433,36 @@ export default function HistorialClient() {
                 </div>
               </CardHeader>
               <CardContent>
+                {/* Alert si fue SKIPPED */}
+                {roundData.wasSkipped && (
+                  <div className="mb-4 bg-red-50 border border-red-200 rounded-lg p-4">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-red-600 mt-0.5" />
+                      <div className="text-sm text-red-700">
+                        <div className="font-semibold mb-1">Grupo No Disputado</div>
+                        <p>Este grupo no completó los 3 sets requeridos.</p>
+                        {roundData.skippedReason && (
+                          <p className="text-xs mt-1">Razón: {roundData.skippedReason}</p>
+                        )}
+                        {roundData.technicalPoints && (
+                          <p className="text-xs mt-1">
+                            Se aplicaron puntos técnicos (50% de la media)
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
                   <div>
                     <div className="text-sm text-gray-600">Grupo</div>
                     <div className="font-bold">Grupo {roundData.group}</div>
                   </div>
                   <div>
-                    <div className="text-sm text-gray-600">Posición Final</div>
+                    <div className="text-sm text-gray-600">
+                      {roundData.wasSkipped ? 'Estado Final' : 'Posición Final'}
+                    </div>
                     <div className="flex items-center gap-2 font-bold">
                       <span className={`px-2 py-1 rounded border text-sm flex items-center gap-1 ${positionInfo.class}`}>
                         {positionInfo.icon}
@@ -423,12 +475,19 @@ export default function HistorialClient() {
                   </div>
                   <div>
                     <div className="text-sm text-gray-600">Puntos Obtenidos</div>
-                    <div className="font-bold text-lg">{roundData.points.toFixed(1)} pts</div>
+                    <div className="font-bold text-lg flex items-center gap-2">
+                      {roundData.points.toFixed(1)} pts
+                      {roundData.technicalPoints && (
+                        <Badge className="bg-orange-100 text-orange-700 text-xs">
+                          Técnicos
+                        </Badge>
+                      )}
+                    </div>
                   </div>
                 </div>
                 
-                {/* Sets de la ronda */}
-                {roundData.matches.length > 0 && (
+                {/* Sets de la ronda (solo si NO fue SKIPPED) */}
+                {!roundData.wasSkipped && roundData.matches.length > 0 && (
                   <div>
                     <h4 className="font-medium mb-3">Sets jugados en esta ronda:</h4>
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -449,16 +508,26 @@ export default function HistorialClient() {
                   </div>
                 )}
 
-                {/* Explicación del movimiento específico */}
+                {/* Explicación del movimiento */}
                 <div className="mt-4 p-3 bg-gray-50 rounded-lg">
                   <div className="flex items-start gap-2">
                     <Trophy className="w-4 h-4 text-blue-500 mt-0.5" />
                     <div className="text-sm text-gray-700">
-                      <strong>Resultado:</strong> Terminaste en {roundData.position}º lugar del grupo {roundData.group}.{" "}
-                      {roundData.position === 1 && "¡Excelente! Como campeón del grupo, subiste 2 grupos para la siguiente ronda."}
-                      {roundData.position === 2 && "¡Bien jugado! Como subcampeón, subiste 1 grupo para la siguiente ronda."}
-                      {roundData.position === 3 && "Bajaste 1 grupo para la siguiente ronda. ¡A por la revancha!"}
-                      {roundData.position === 4 && "Bajaste 2 grupos para la siguiente ronda. ¡Oportunidad de mejora!"}
+                      <strong>Resultado:</strong>{" "}
+                      {roundData.wasSkipped ? (
+                        <>
+                          Tu grupo no completó los sets requeridos. Recibiste puntos técnicos (50% de la media) 
+                          y bajaste 1 grupo como penalización.
+                        </>
+                      ) : (
+                        <>
+                          Terminaste en {roundData.position}º lugar del grupo {roundData.group}.{" "}
+                          {roundData.position === 1 && "¡Excelente! Como campeón del grupo, subiste 2 grupos para la siguiente ronda."}
+                          {roundData.position === 2 && "¡Bien jugado! Como subcampeón, subiste 1 grupo para la siguiente ronda."}
+                          {roundData.position === 3 && "Bajaste 1 grupo para la siguiente ronda. ¡A por la revancha!"}
+                          {roundData.position === 4 && "Bajaste 2 grupos para la siguiente ronda. ¡Oportunidad de mejora!"}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -468,17 +537,17 @@ export default function HistorialClient() {
         })}
       </div>
 
-      {/* Información adicional actualizada */}
+      {/* Información adicional */}
       <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-        <h4 className="font-medium text-purple-900 mb-2">Información del Sistema de Escalera</h4>
+        <h4 className="font-medium text-purple-900 mb-2">Información del Sistema</h4>
         <ul className="text-sm text-purple-700 space-y-1">
           <li>• <strong>1º lugar:</strong> Sube 2 grupos (máximo progreso)</li>
           <li>• <strong>2º lugar:</strong> Sube 1 grupo (buen rendimiento)</li>
           <li>• <strong>3º lugar:</strong> Baja 1 grupo (oportunidad de mejora)</li>
           <li>• <strong>4º lugar:</strong> Baja 2 grupos (necesita más práctica)</li>
+          <li>• <strong>Grupo no disputado:</strong> Puntos técnicos (50%) + penalización -1 grupo</li>
           <li>• Solo se muestran rondas completadas y cerradas</li>
           <li>• Cada ronda tiene 3 sets con rotación de parejas</li>
-          <li>• Las estadísticas se actualizan automáticamente</li>
         </ul>
       </div>
     </div>

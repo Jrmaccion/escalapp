@@ -19,6 +19,14 @@ enum MatchStatus {
   CANCELLED      // Cancelado
 }
 
+enum GroupStatus {
+  PENDING
+  IN_PROGRESS
+  PLAYED
+  SKIPPED
+  POSTPONED
+}
+
 // ===== Models =====
 model User {
   id              String   @id @default(cuid())
@@ -140,6 +148,11 @@ model Group {
   roundId String
   number  Int
   level   Int
+  
+  // ✅ NUEVO: Estado del grupo y gestión de no disputados
+  status        GroupStatus @default(PENDING)
+  skippedReason String?
+  graceEndAt    DateTime?
 
   // Relaciones
   players GroupPlayer[]
@@ -162,6 +175,9 @@ model GroupPlayer {
   comodinReason      String?   @db.Text
   comodinAt          DateTime?
   substitutePlayerId String?
+  
+  // ✅ NUEVO: Bloqueo para movimientos de escalera
+  locked             Boolean   @default(false)
 
   // Relaciones
   group  Group  @relation(fields: [groupId], references: [id], onDelete: Cascade)
@@ -205,7 +221,7 @@ model Match {
   group    Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
   proposer User? @relation("MatchProposer", fields: [proposedById], references: [id])
 
-  // ✅ NUEVO: Tracking de disputas
+  // Tracking de disputas
   disputedBy     String?
   disputedAt     DateTime?
   disputeReason  String?
@@ -253,13 +269,13 @@ model Ranking {
   @@map("rankings")
 }
 
-// Historial de “rachas/continuidad”
+// Historial de "rachas/continuidad"
 model StreakHistory {
   id          String   @id @default(cuid())
   playerId    String
   roundId     String
   groupId     String
-  streakType  String   // "SET_WIN", "MATCH_WIN", "POSITION_WIN"
+  streakType  String   // "SET_WIN", "MATCH_WIN", "POSITION_WIN", "CONTINUITY_BONUS", "BROKEN_NO_PLAY"
   streakCount Int
   bonusPoints Float
   createdAt   DateTime @default(now())

@@ -7,82 +7,129 @@ import { prisma } from "@/lib/prisma";
 export const dynamic = 'force-dynamic';
 
 // Query unificada para rankings con desempates
-async function getUnifiedRankings(tournamentId: string, roundNumber?: number) {
-  const roundFilter = roundNumber ? `AND r."number" = ${roundNumber}` : '';
-  
-  const playersStats = await prisma.$queryRaw<any[]>`
-    SELECT 
-      p.id as "playerId",
-      p.name as "playerName",
-      u.name as "userName",
-      COALESCE(SUM(gp.points), 0) as "totalPoints",
-      COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) as "roundsPlayed",
-      CASE 
-        WHEN COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) > 0 
-        THEN COALESCE(SUM(gp.points) / COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END), 0)
-        ELSE 0 
-      END as "averagePoints",
-      -- Estadísticas para desempates
-      COALESCE(SUM(
-        CASE 
-          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id 
-          THEN CASE WHEN m.team1Games > m.team2Games THEN 1 ELSE 0 END
-          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id 
-          THEN CASE WHEN m.team2Games > m.team1Games THEN 1 ELSE 0 END
-          ELSE 0
-        END
-      ), 0) as "setsWon",
-      COALESCE(SUM(
-        CASE 
-          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id 
-          THEN m.team1Games - m.team2Games
-          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id 
-          THEN m.team2Games - m.team1Games
-          ELSE 0
-        END
-      ), 0) as "gamesDifference",
-      COALESCE(SUM(
-        CASE 
-          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id THEN m.team1Games
-          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id THEN m.team2Games
-          ELSE 0
-        END
-      ), 0) as "gamesWon",
-      -- H2H wins (aproximado como sets ganados para simplificar)
-      COALESCE(SUM(
-        CASE 
-          WHEN m.team1Player1Id = p.id OR m.team1Player2Id = p.id 
-          THEN CASE WHEN m.team1Games > m.team2Games THEN 1 ELSE 0 END
-          WHEN m.team2Player1Id = p.id OR m.team2Player2Id = p.id 
-          THEN CASE WHEN m.team2Games > m.team1Games THEN 1 ELSE 0 END
-          ELSE 0
-        END
-      ), 0) as "h2hWins",
-      -- Estadísticas adicionales
-      COUNT(CASE WHEN gp."usedComodin" = true THEN 1 END) as "comodinesUsed",
-      MAX(gp.streak) as "maxStreak",
-      -- Información de grupo actual
-      (
-        SELECT CONCAT(g2.number, '-', gp2.position)
-        FROM "group_players" gp2
-        INNER JOIN "groups" g2 ON gp2."groupId" = g2.id
-        INNER JOIN "rounds" r2 ON g2."roundId" = r2.id
-        WHERE gp2."playerId" = p.id 
-          AND r2."tournamentId" = ${`'${tournamentId}'`}
-          AND r2."isClosed" = false
-        LIMIT 1
-      ) as "currentGroupPosition"
-    FROM "players" p
-    INNER JOIN "users" u ON p."userId" = u.id
-    LEFT JOIN "group_players" gp ON p.id = gp."playerId"
-    LEFT JOIN "groups" g ON gp."groupId" = g.id
-    LEFT JOIN "rounds" r ON g."roundId" = r.id
-    LEFT JOIN "matches" m ON g.id = m."groupId" AND m."isConfirmed" = true
-    WHERE r."tournamentId" = ${`'${tournamentId}'`}
-      AND r."isClosed" = true
-      ${roundFilter}
-    GROUP BY p.id, p.name, u.name
-  `;
+async function getUnifiedRankings(tournamentId: string) {
+  const tournamentPlayers = await prisma.tournamentPlayer.findMany({
+    where: { tournamentId },
+    include: {
+      player: {
+        include: {
+          user: true,
+          groupPlayers: {
+            where: {
+              group: {
+                round: {
+                  tournamentId,
+                  isClosed: true
+                }
+              }
+            },
+            include: {
+              group: {
+                include: {
+                  round: true,
+                  matches: {
+                    where: { isConfirmed: true }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  });
+
+  const playersStats = tournamentPlayers.map(tp => {
+    const player = tp.player;
+    let totalPoints = 0;
+    let roundsPlayed = 0;
+    let setsWon = 0;
+    let gamesWon = 0;
+    let gamesLost = 0;
+    let comodinesUsed = 0;
+    let maxStreak = 0;
+
+    player.groupPlayers.forEach(gp => {
+      if (!gp.usedComodin) {
+        roundsPlayed++;
+        totalPoints += gp.points;
+      } else {
+        comodinesUsed++;
+      }
+
+      if (gp.streak > maxStreak) {
+        maxStreak = gp.streak;
+      }
+
+      gp.group.matches.forEach(match => {
+        const isInMatch = [
+          match.team1Player1Id,
+          match.team1Player2Id,
+          match.team2Player1Id,
+          match.team2Player2Id
+        ].includes(player.id);
+
+        if (isInMatch) {
+          const isTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(player.id);
+          
+          if (isTeam1) {
+            gamesWon += match.team1Games || 0;
+            gamesLost += match.team2Games || 0;
+            if ((match.team1Games || 0) > (match.team2Games || 0)) {
+              setsWon++;
+            }
+          } else {
+            gamesWon += match.team2Games || 0;
+            gamesLost += match.team1Games || 0;
+            if ((match.team2Games || 0) > (match.team1Games || 0)) {
+              setsWon++;
+            }
+          }
+        }
+      });
+    });
+
+    const averagePoints = roundsPlayed > 0 ? totalPoints / roundsPlayed : 0;
+
+    return {
+      playerId: player.id,
+      playerName: player.name,
+      userName: player.user.name,
+      totalPoints,
+      roundsPlayed,
+      averagePoints,
+      setsWon,
+      gamesDifference: gamesWon - gamesLost,
+      gamesWon,
+      h2hWins: setsWon,
+      comodinesUsed,
+      maxStreak,
+      currentGroupPosition: null as string | null
+    };
+  });
+
+  // Obtener posición actual
+  const currentRound = await prisma.round.findFirst({
+    where: { tournamentId, isClosed: false },
+    include: {
+      groups: {
+        include: {
+          players: true
+        }
+      }
+    }
+  });
+
+  if (currentRound) {
+    playersStats.forEach(stat => {
+      currentRound.groups.forEach(group => {
+        const gp = group.players.find(p => p.playerId === stat.playerId);
+        if (gp) {
+          stat.currentGroupPosition = `${group.number}-${gp.position}`;
+        }
+      });
+    });
+  }
 
   return playersStats;
 }
@@ -170,10 +217,8 @@ export async function GET(req: NextRequest) {
     }
 
     // Obtener estadísticas unificadas
-    const playersStats = await getUnifiedRankings(
-      tournamentId, 
-      roundNumber ? parseInt(roundNumber) : undefined
-    );
+    // Obtener estadísticas unificadas
+    const playersStats = await getUnifiedRankings(tournamentId);
 
     // Convertir BigInt a Number
     const normalizedStats = playersStats.map(player => ({

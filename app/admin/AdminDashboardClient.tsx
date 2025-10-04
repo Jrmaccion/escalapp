@@ -1,4 +1,4 @@
-// app/admin/AdminDashboardClient.tsx - CORRECCIONES MENORES
+// app/admin/AdminDashboardClient.tsx - CORRECCIONES MENORES + acción Recalcular Puntos
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -82,11 +82,17 @@ export default function AdminDashboardClient({
   const [selectedStats, setSelectedStats] = useState<Stats>(stats);
   const [loadingStats, setLoadingStats] = useState(false);
 
+  // Estado para recalcular puntos
+  const [isRecalculating, setIsRecalculating] = useState(false);
+  const [recalcMessage, setRecalcMessage] = useState<string | null>(null);
+  const [recalcError, setRecalcError] = useState<string | null>(null);
+
   const selectedTournament = useMemo(
     () => tournaments.find(t => t.id === selectedTournamentId),
     [tournaments, selectedTournamentId]
   );
 
+  // Nota: si necesitas filtrar rounds por torneo, ajusta aquí.
   const selectedRounds = useMemo(
     () => rounds.filter(r => r.groupsCount > 0),
     [rounds]
@@ -121,6 +127,50 @@ export default function AdminDashboardClient({
       console.error("Error loading tournament stats:", error);
     } finally {
       setLoadingStats(false);
+    }
+  };
+
+  // 👉 Acción: Recalcular puntos de la ronda actual
+  const handleRecalculatePoints = async () => {
+    if (!currentRound?.id) return;
+    const ok = window.confirm(
+      "¿Recalcular puntos de la ronda actual? Esto recomputa puntuaciones, rachas y clasificaciones."
+    );
+    if (!ok) return;
+
+    setIsRecalculating(true);
+    setRecalcMessage(null);
+    setRecalcError(null);
+
+    try {
+      const res = await fetch("/api/admin/recalculate-points", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roundId: currentRound.id }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Fallo al recalcular (HTTP ${res.status})`);
+      }
+
+      // Opcional: leer respuesta JSON si la API devuelve detalle
+      // const payload = await res.json();
+
+      setRecalcMessage("Puntos recalculados correctamente.");
+      // refrescar datos: stats (cliente) + rounds/tournament (SSR)
+      await loadTournamentStats(selectedTournamentId);
+      router.refresh();
+    } catch (e: any) {
+      console.error("Recalcular puntos error:", e);
+      setRecalcError(e?.message || "Error al recalcular puntos.");
+    } finally {
+      setIsRecalculating(false);
+      // Ocultar mensajes pasados 3s
+      setTimeout(() => {
+        setRecalcMessage(null);
+        setRecalcError(null);
+      }, 3000);
     }
   };
 
@@ -259,7 +309,7 @@ export default function AdminDashboardClient({
         </div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-1 md-grid-cols-2 md:grid-cols-2 gap-4 mb-8">
           <Link
             href="/admin/results"
             className="block p-4 bg-primary/5 hover:bg-primary/10 rounded-lg border border-primary/20 transition-colors"
@@ -329,6 +379,19 @@ export default function AdminDashboardClient({
                 </div>
               </div>
 
+              {/* Mensajes de recálculo */}
+              {(recalcMessage || recalcError) && (
+                <div
+                  className={`mt-2 text-sm rounded-md border px-3 py-2 ${
+                    recalcError
+                      ? "border-red-200 bg-red-50 text-red-700"
+                      : "border-green-200 bg-green-50 text-green-700"
+                  }`}
+                >
+                  {recalcError || recalcMessage}
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-3 pt-4">
                 <Button asChild>
                   <Link href={`/admin/rounds/${currentRound.id}`}>
@@ -344,6 +407,18 @@ export default function AdminDashboardClient({
                   <Link href={`/admin/tournaments/${selectedTournament.id}`}>
                     Configurar Torneo
                   </Link>
+                </Button>
+                {/* Acción: Recalcular puntos de la ronda */}
+                <Button
+                  size="sm"
+                  variant="default"
+                  className="flex items-center gap-2"
+                  onClick={handleRecalculatePoints}
+                  disabled={isRecalculating || !currentRound?.id}
+                  title="Recalcular puntos, rachas y clasificaciones de la ronda"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isRecalculating ? "animate-spin" : ""}`} />
+                  {isRecalculating ? "Recalculando..." : "Recalcular Puntos"}
                 </Button>
               </div>
             </div>
@@ -469,6 +544,17 @@ export default function AdminDashboardClient({
                       <CheckCircle className="w-4 h-4 mr-2" />
                       Validar Resultados
                     </Link>
+                  </Button>
+                  {/* Duplicamos la acción aquí para tenerla también en este panel */}
+                  <Button
+                    size="sm"
+                    className="w-full flex items-center gap-2"
+                    onClick={handleRecalculatePoints}
+                    disabled={isRecalculating || !currentRound?.id}
+                    title="Recalcular puntos, rachas y clasificaciones de la ronda"
+                  >
+                    <RefreshCw className={`w-4 h-4 ${isRecalculating ? "animate-spin" : ""}`} />
+                    {isRecalculating ? "Recalculando..." : "Recalcular Puntos"}
                   </Button>
                 </div>
               </div>

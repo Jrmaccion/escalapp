@@ -1,4 +1,4 @@
-// app/clasificaciones/ClasificacionesClient.tsx - CORREGIDO
+// app/clasificaciones/ClasificacionesClient.tsx - CON SOPORTE PUNTOS TÉCNICOS
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
@@ -19,12 +19,13 @@ import {
   TrendingUp,
   TrendingDown,
   Flame,
-  Star
+  Star,
+  XCircle,
+  PauseCircle
 } from "lucide-react";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import TournamentSelector from "@/components/TournamentSelector";
 
-// Tipos unificados
 type Player = {
   position: number;
   playerId: string;
@@ -42,6 +43,8 @@ type Player = {
   currentGroupPosition?: string;
   isEligible: boolean;
   movement: string;
+  technicalPointsRounds?: number; // ✅ NUEVO
+  skippedRounds?: number;         // ✅ NUEVO
 };
 
 type Rankings = {
@@ -116,12 +119,50 @@ export default function ClasificacionesClient() {
       setLoading(false);
     }
   }, []);
+  // NUEVO: Cargar torneo activo al montar el componente
+    useEffect(() => {
+      async function loadActiveTournament() {
+        try {
+          const response = await fetch('/api/tournaments?activeOnly=true');
+          const result = await response.json();
+          
+          // FIX: result es un array directo, no tiene propiedad 'tournaments'
+          if (Array.isArray(result) && result[0]?.id) {
+            setSelectedTournamentId(result[0].id);
+            console.log('✅ Torneo cargado:', result[0].title);
+          }
+        } catch (err) {
+          console.error('Error loading active tournament:', err);
+        }
+      }
+      loadActiveTournament();
+    }, []);
 
-  useEffect(() => {
-    if (selectedTournamentId) {
-      fetchRankings(selectedTournamentId);
-    }
-  }, [selectedTournamentId, fetchRankings]);
+  // NUEVO: Cargar torneo activo al montar el componente
+    useEffect(() => {
+      async function loadActiveTournament() {
+        try {
+          const response = await fetch('/api/tournaments?activeOnly=true');
+          const result = await response.json();
+          
+          // FIX: result es un array directo, no tiene propiedad 'tournaments'
+          if (Array.isArray(result) && result[0]?.id) {
+            setSelectedTournamentId(result[0].id);
+            console.log('✅ Torneo cargado:', result[0].title);
+          }
+        } catch (err) {
+          console.error('Error loading active tournament:', err);
+        }
+      }
+      loadActiveTournament();
+    }, []);
+
+    // Ejecutar fetchRankings cuando cambia selectedTournamentId
+    useEffect(() => {
+      if (selectedTournamentId) {
+        fetchRankings(selectedTournamentId);
+      }
+    }, [selectedTournamentId, fetchRankings]);
 
   const getPositionIcon = (position: number, type: 'official' | 'ironman') => {
     if (position === 1) {
@@ -180,7 +221,6 @@ export default function ClasificacionesClient() {
         </div>
         
         <div className="flex items-center gap-3">
-          {/* ✅ CORREGIDO: Props actualizadas */}
           <TournamentSelector
             value={selectedTournamentId}
             onChange={setSelectedTournamentId}
@@ -320,6 +360,8 @@ export default function ClasificacionesClient() {
                     {data.rankings[activeTab]?.map((player) => {
                       const currentPos = parseCurrentPosition(player.currentGroupPosition);
                       const isCurrentUser = session?.user?.id === player.playerId && data.metadata.isParticipant;
+                      const hasTechnicalPoints = (player.technicalPointsRounds || 0) > 0;
+                      const hasSkippedRounds = (player.skippedRounds || 0) > 0;
                       
                       return (
                         <div
@@ -329,13 +371,13 @@ export default function ClasificacionesClient() {
                           } ${isCurrentUser ? 'ring-2 ring-blue-300' : ''}`}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-4">
+                            <div className="flex items-center gap-4 flex-1">
                               <div className="flex items-center justify-center w-12 h-12">
                                 {getPositionIcon(player.position, activeTab)}
                               </div>
                               
                               <div className="flex-1">
-                                <div className="flex items-center gap-2 mb-1">
+                                <div className="flex items-center gap-2 mb-1 flex-wrap">
                                   <span className="font-bold text-lg">{player.playerName}</span>
                                   {isCurrentUser && (
                                     <Badge className="bg-blue-600 text-white text-xs">
@@ -345,6 +387,13 @@ export default function ClasificacionesClient() {
                                   {!player.isEligible && activeTab === 'official' && (
                                     <Badge variant="outline" className="text-xs bg-yellow-100 text-yellow-800">
                                       No elegible
+                                    </Badge>
+                                  )}
+                                  {/* ✅ NUEVO: Badge de puntos técnicos */}
+                                  {hasTechnicalPoints && (
+                                    <Badge className="bg-gray-100 text-gray-700 text-xs flex items-center gap-1">
+                                      <PauseCircle className="w-3 h-3" />
+                                      {player.technicalPointsRounds} técnica{player.technicalPointsRounds! > 1 ? 's' : ''}
                                     </Badge>
                                   )}
                                   {player.maxStreak > 0 && (
@@ -365,6 +414,13 @@ export default function ClasificacionesClient() {
                                     }
                                   </span>
                                   <span>{player.roundsPlayed} rondas</span>
+                                  {/* ✅ NUEVO: Indicador de rondas no disputadas */}
+                                  {hasSkippedRounds && (
+                                    <span className="text-gray-500 flex items-center gap-1">
+                                      <XCircle className="w-3 h-3" />
+                                      {player.skippedRounds} no disp.
+                                    </span>
+                                  )}
                                   <span>{player.setsWon} sets</span>
                                   {player.gamesDifference > 0 ? (
                                     <span className="text-green-600">+{player.gamesDifference} juegos</span>
@@ -377,10 +433,18 @@ export default function ClasificacionesClient() {
                                     <span className="text-purple-600">{player.comodinesUsed} comodines</span>
                                   )}
                                 </div>
+
+                                {/* ✅ NUEVO: Tooltip informativo para puntos técnicos */}
+                                {hasTechnicalPoints && (
+                                  <div className="mt-2 text-xs text-gray-500 bg-gray-50 px-2 py-1 rounded inline-block">
+                                    <Info className="w-3 h-3 inline mr-1" />
+                                    {player.technicalPointsRounds} ronda{player.technicalPointsRounds! > 1 ? 's' : ''} con puntos técnicos (50% media)
+                                  </div>
+                                )}
                               </div>
                             </div>
                             
-                            <div className="text-right">
+                            <div className="text-right ml-4">
                               {currentPos && (
                                 <div className="text-sm">
                                   <div className="text-gray-600">Grupo Actual:</div>
@@ -415,6 +479,7 @@ export default function ClasificacionesClient() {
                   <li>• Requiere participar en al menos 50% de las rondas</li>
                   <li>• Determina al campeón del torneo</li>
                   <li>• Premia la consistencia y calidad</li>
+                  <li>• Las rondas con puntos técnicos cuentan en el promedio</li>
                 </ul>
               </CardContent>
             </Card>
@@ -432,10 +497,27 @@ export default function ClasificacionesClient() {
                   <li>• No requiere participación mínima</li>
                   <li>• Premia la participación constante</li>
                   <li>• Premio especial para el líder Ironman</li>
+                  <li>• Los puntos técnicos suman al total</li>
                 </ul>
               </CardContent>
             </Card>
           </div>
+
+          {/* ✅ NUEVO: Información sobre puntos técnicos */}
+          <Card className="bg-gray-50 border-gray-200">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-2">
+                <PauseCircle className="w-5 h-5 text-gray-600 shrink-0 mt-0.5" />
+                <div className="text-sm text-gray-700">
+                  <div className="font-medium mb-1">Puntos Técnicos</div>
+                  <p>
+                    Los jugadores en grupos no disputados reciben puntos técnicos equivalentes al 50% de la media. 
+                    Estas rondas cuentan en las estadísticas pero rompen rachas de continuidad.
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
         </>
       )}
     </div>

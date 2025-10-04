@@ -1,4 +1,4 @@
-// app/admin/rounds/[id]/RoundDetailClient.tsx - CORREGIDO COMPLETO
+// app/admin/rounds/[id]/RoundDetailClient.tsx - CON SOPORTE GRUPOS SKIPPED
 "use client";
 
 import { useMemo, useState, useEffect } from "react";
@@ -6,7 +6,6 @@ import Breadcrumbs from "@/components/Breadcrumbs";
 import MatchGenerationPanel from "@/components/MatchGenerationPanel";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
 import ManualGroupManager from "@/components/ManualGroupManager";
-
 import CloseRoundButton from "@/components/CloseRoundButton";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,12 +21,17 @@ import {
   Send,
   Shield,
   Ban,
+  XCircle,
+  AlertTriangle,
+  PauseCircle,
+  PlayCircle,
 } from "lucide-react";
 import { format, differenceInDays, isAfter, isBefore } from "date-fns";
 import { es } from "date-fns/locale";
 import Link from "next/link";
 
-/** Tipos UI */
+type GroupStatus = "PENDING" | "IN_PROGRESS" | "PLAYED" | "SKIPPED" | "POSTPONED";
+
 type Match = {
   id: string;
   setNumber: number;
@@ -40,7 +44,11 @@ type Match = {
   tiebreakScore: string | null;
   isConfirmed: boolean;
   status?: string | null;
+  // Fechas de programación a nivel de set (si las usas)
+  proposedDate?: string | null;
+  acceptedDate?: string | null;
   groupNumber: number;
+  groupStatus?: GroupStatus;
 };
 
 export default function RoundDetailClient({
@@ -53,22 +61,19 @@ export default function RoundDetailClient({
   const [selectedFilter, setSelectedFilter] = useState<"all" | "pending" | "completed">("all");
   const [useManualManager, setUseManualManager] = useState<boolean>(true);
 
-  // Aplanar sets con nº de grupo para la lista compacta
   const allMatches: Match[] = round.groups.flatMap((group: any) =>
-    group.matches.map((match: any) => ({
+    (group.matches || []).map((match: any) => ({
       ...match,
       groupNumber: group.number,
+      groupStatus: group.status as GroupStatus | undefined,
     }))
   );
 
-  // =========================
-  // FIX HIDRATACIÓN: usar flag mounted para evitar desajustes SSR/CSR
-  // =========================
+  // Evitar drift SSR/CSR en contadores relativos al “ahora”
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-
-  // En SSR usamos una referencia estable (startDate) para no depender de "ahora".
   const now = mounted ? new Date() : new Date(round.startDate);
+
   const daysToEnd = differenceInDays(new Date(round.endDate), now);
   const daysToStart = differenceInDays(new Date(round.startDate), now);
 
@@ -84,7 +89,30 @@ export default function RoundDetailClient({
   const totalSets = allMatches.length;
   const totalPartidos = Math.ceil(totalSets / 3);
   const completedSets = allMatches.filter((m) => m.isConfirmed).length;
-  const scheduledSets = allMatches.filter((m) => m.status === "SCHEDULED").length;
+
+  // Programados: consideramos SCHEDULED o acceptedDate definida
+  const scheduledSets = allMatches.filter(
+    (m) => m.status === "SCHEDULED" || !!m.acceptedDate
+  ).length;
+
+  // ✅ Conteo por estado de grupo (faltaba IN_PROGRESS)
+  const groupsByStatus = useMemo(() => {
+  const counts: Record<GroupStatus, number> & { total: number } = {
+    PLAYED: 0,
+    SKIPPED: 0,
+    PENDING: 0,
+    POSTPONED: 0,
+    IN_PROGRESS: 0,
+    total: round.groups.length,
+  };
+
+  for (const group of round.groups ?? []) {
+    const st: GroupStatus = group.status ?? "PENDING";
+    counts[st] += 1; // ya no hace falta @ts-expect-error
+  }
+
+  return counts;
+}, [round.groups]);
 
   const filteredMatches = allMatches.filter((match) => {
     switch (selectedFilter) {
@@ -106,25 +134,60 @@ export default function RoundDetailClient({
 
   const getPlayerName = (playerId: string): string => {
     for (const group of round.groups) {
-      const gp = group.players.find((p: any) => p.player.id === playerId);
+      const gp = (group.players || []).find((p: any) => p.player.id === playerId);
       if (gp) return gp.player.name;
     }
     return "Jugador desconocido";
   };
 
-  // Datos serializados para pasar a ambos gestores
+  // Helper visual de estado de grupo
+  const getGroupStatusInfo = (status: GroupStatus) => {
+    switch (status) {
+      case "PLAYED":
+        return { label: "Jugado", color: "bg-green-100 text-green-700 border-green-200", icon: CheckCircle };
+      case "SKIPPED":
+        return { label: "No Disputado", color: "bg-red-100 text-red-700 border-red-200", icon: XCircle };
+      case "POSTPONED":
+        return { label: "Prórroga", color: "bg-orange-100 text-orange-700 border-orange-200", icon: Clock };
+      case "IN_PROGRESS":
+        return { label: "En Curso", color: "bg-blue-100 text-blue-700 border-blue-200", icon: PlayCircle };
+      default:
+        return { label: "Pendiente", color: "bg-gray-100 text-gray-700 border-gray-200", icon: PauseCircle };
+    }
+  };
+
+  // Marcar grupo como SKIPPED (ajusta la ruta si en backend usas /api/rounds/[id]/groups/[groupId]/skip)
+  const handleMarkAsSkipped = async (groupId: string, reason: string) => {
+    try {
+      const response = await fetch(`/api/groups/${groupId}/skip`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        alert("Error al marcar grupo como no disputado");
+      }
+    } catch (error) {
+      console.error("Error:", error);
+      alert("Error de conexión");
+    }
+  };
+
   const mgrGroups = round.groups.map((group: any) => ({
     id: group.id,
     number: group.number,
     level: group.level ?? 0,
-    players: group.players.map((gp: any) => ({
+    status: group.status as GroupStatus | undefined,
+    players: (group.players || []).map((gp: any) => ({
       id: gp.player.id,
       name: gp.player.name,
       position: gp.position,
     })),
   }));
 
-  // ✅ FIX: ManualGroupManager espera availablePlayers: Player[]
   const availablePlayersList = eligiblePlayers.map((p: any) => ({
     id: p.id ?? p.player?.id ?? p.playerId,
     name: p.name ?? p.player?.name ?? p.playerName ?? "Jugador",
@@ -134,41 +197,17 @@ export default function RoundDetailClient({
     window.location.reload();
   };
 
-  // =============== CORREGIDO: Panel de Programación (Admin) ===============
+  // ========= Programación de partidos por grupo (admin) =========
   type AdminScheduleState = Record<
     string,
     {
-      inputValue: string; // siempre string
+      inputValue: string; // "YYYY-MM-DDTHH:mm"
       loading: boolean;
       msg?: { type: "success" | "error"; text: string };
     }
   >;
 
-  const initialAdminState: AdminScheduleState = useMemo(() => {
-    const obj: AdminScheduleState = {};
-    for (const g of round.groups) {
-      const first = g.matches?.[0];
-
-      // ✅ evita usar && / || que introducen booleanos al tipo
-      let baseDate = "";
-      if (first?.acceptedDate) {
-        baseDate = toLocalInputValue(new Date(first.acceptedDate));
-      } else if (first?.proposedDate) {
-        baseDate = toLocalInputValue(new Date(first.proposedDate));
-      }
-
-      obj[g.id] = {
-        inputValue: baseDate, // siempre string
-        loading: false,
-      };
-    }
-    return obj;
-  }, [round.groups]);
-
-  const [adminSchedule, setAdminSchedule] = useState<AdminScheduleState>(initialAdminState);
-
   function toLocalInputValue(date: Date): string {
-    // convierte Date a "YYYY-MM-DDTHH:mm" para <input type="datetime-local">
     const pad = (n: number) => String(n).padStart(2, "0");
     const yyyy = date.getFullYear();
     const mm = pad(date.getMonth() + 1);
@@ -179,158 +218,104 @@ export default function RoundDetailClient({
   }
 
   function fromLocalInputValue(value: string): Date | null {
-    // crea Date local desde "YYYY-MM-DDTHH:mm"
     if (!value) return null;
     const d = new Date(value);
     return isNaN(d.getTime()) ? null : d;
   }
 
-  // 🔧 CORREGIDO: handlePropose - usar POST con parámetros correctos
+  const initialAdminState: AdminScheduleState = useMemo(() => {
+    const obj: AdminScheduleState = {};
+    for (const g of round.groups) {
+      const first = g.matches?.[0];
+      let baseDate = "";
+      if (first?.acceptedDate) baseDate = toLocalInputValue(new Date(first.acceptedDate));
+      else if (first?.proposedDate) baseDate = toLocalInputValue(new Date(first.proposedDate));
+      obj[g.id] = { inputValue: baseDate, loading: false };
+    }
+    return obj;
+  }, [round.groups]);
+
+  const [adminSchedule, setAdminSchedule] = useState<AdminScheduleState>(initialAdminState);
+
   const handlePropose = async (groupId: string) => {
     const st = adminSchedule[groupId];
     const date = fromLocalInputValue(st?.inputValue || "");
     if (!date) {
-      setAdminSchedule((s) => ({
-        ...s,
-        [groupId]: { ...s[groupId], msg: { type: "error", text: "Selecciona una fecha válida." } },
-      }));
+      setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], msg: { type: "error", text: "Selecciona una fecha válida." } } }));
       return;
     }
-
     setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: true, msg: undefined } }));
 
     try {
       const response = await fetch(`/api/parties/${groupId}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          proposedDate: date.toISOString(),
-          message: "Fecha propuesta por administrador",
-        }),
+        body: JSON.stringify({ proposedDate: date.toISOString(), message: "Fecha propuesta por administrador" }),
       });
-
       const data = await response.json();
-
       setAdminSchedule((s) => ({
         ...s,
         [groupId]: {
           ...s[groupId],
           loading: false,
-          msg: {
-            type: data.success ? "success" : "error",
-            text: data.message || (data.success ? "Propuesta enviada." : "Error al proponer."),
-          },
+          msg: { type: data.success ? "success" : "error", text: data.message || (data.success ? "Propuesta enviada." : "Error al proponer.") },
         },
       }));
-
-      if (data.success) {
-        setTimeout(() => window.location.reload(), 1000);
-      }
+      if (data.success) setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
       console.error("Error proposing date:", error);
-      setAdminSchedule((s) => ({
-        ...s,
-        [groupId]: {
-          ...s[groupId],
-          loading: false,
-          msg: { type: "error", text: "Error de conexión" },
-        },
-      }));
+      setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: false, msg: { type: "error", text: "Error de conexión" } } }));
     }
   };
 
-  // 🔧 CORREGIDO: handleForceSchedule - usar PATCH con parámetros correctos
   const handleForceSchedule = async (groupId: string) => {
     const st = adminSchedule[groupId];
     const date = fromLocalInputValue(st?.inputValue || "");
     if (!date) {
-      setAdminSchedule((s) => ({
-        ...s,
-        [groupId]: { ...s[groupId], msg: { type: "error", text: "Selecciona una fecha válida." } },
-      }));
+      setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], msg: { type: "error", text: "Selecciona una fecha válida." } } }));
       return;
     }
-
     setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: true, msg: undefined } }));
 
     try {
       const response = await fetch(`/api/parties/${groupId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "admin_force_schedule",
-          adminAction: true,
-          forcedDate: date.toISOString(),
-        }),
+        body: JSON.stringify({ action: "admin_force_schedule", adminAction: true, forcedDate: date.toISOString() }),
       });
-
       const data = await response.json();
-
       setAdminSchedule((s) => ({
         ...s,
         [groupId]: {
           ...s[groupId],
           loading: false,
-          msg: {
-            type: data.success ? "success" : "error",
-            text:
-              data.message ||
-              (data.success ? "Partido programado (forzado por admin)." : "Error al forzar programación."),
-          },
+          msg: { type: data.success ? "success" : "error", text: data.message || (data.success ? "Partido programado (forzado por admin)." : "Error al forzar programación.") },
         },
       }));
-
-      if (data.success) {
-        setTimeout(() => window.location.reload(), 1000);
-      }
+      if (data.success) setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
       console.error("Error forcing schedule:", error);
-      setAdminSchedule((s) => ({
-        ...s,
-        [groupId]: {
-          ...s[groupId],
-          loading: false,
-          msg: { type: "error", text: "Error de conexión" },
-        },
-      }));
+      setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: false, msg: { type: "error", text: "Error de conexión" } } }));
     }
   };
 
   const handleCancel = async (groupId: string) => {
     setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: true, msg: undefined } }));
-
     try {
-      const response = await fetch(`/api/parties/${groupId}`, {
-        method: "DELETE",
-      });
-
+      const response = await fetch(`/api/parties/${groupId}`, { method: "DELETE" });
       const data = await response.json();
-
       setAdminSchedule((s) => ({
         ...s,
         [groupId]: {
           ...s[groupId],
           loading: false,
-          msg: {
-            type: data.success ? "success" : "error",
-            text: data.message || (data.success ? "Fecha cancelada." : "Error al cancelar fecha."),
-          },
+          msg: { type: data.success ? "success" : "error", text: data.message || (data.success ? "Fecha cancelada." : "Error al cancelar fecha.") },
         },
       }));
-
-      if (data.success) {
-        setTimeout(() => window.location.reload(), 1000);
-      }
+      if (data.success) setTimeout(() => window.location.reload(), 1000);
     } catch (error) {
       console.error("Error canceling date:", error);
-      setAdminSchedule((s) => ({
-        ...s,
-        [groupId]: {
-          ...s[groupId],
-          loading: false,
-          msg: { type: "error", text: "Error de conexión" },
-        },
-      }));
+      setAdminSchedule((s) => ({ ...s, [groupId]: { ...s[groupId], loading: false, msg: { type: "error", text: "Error de conexión" } } }));
     }
   };
 
@@ -363,7 +348,7 @@ export default function RoundDetailClient({
         </div>
       </div>
 
-      {/* Estado */}
+      {/* Estado + métricas */}
       <Card>
         <CardContent className="p-6">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
@@ -376,7 +361,6 @@ export default function RoundDetailClient({
                 {status === "closed" && <Badge className="bg-gray-200 text-gray-800">Cerrada</Badge>}
                 {status === "upcoming" && (
                   <Badge className="bg-blue-100 text-blue-700">
-                    {/* En SSR no mostramos números dependientes del reloj */}
                     {mounted ? `Próxima (${daysToStart} días)` : "Próxima"}
                   </Badge>
                 )}
@@ -392,10 +376,18 @@ export default function RoundDetailClient({
             <div className="text-center">
               <div className="flex items-center justify-center gap-2 mb-2">
                 <Users className="w-5 h-5 text-purple-600" />
-                <span className="font-medium">Partidos</span>
+                <span className="font-medium">Grupos</span>
               </div>
-              <div className="text-2xl font-bold">{totalPartidos}</div>
-              <div className="text-xs text-gray-500">{totalSets} sets</div>
+              <div className="text-2xl font-bold">{groupsByStatus.total}</div>
+              <div className="flex items-center justify-center gap-2 mt-1 text-xs">
+                <Badge className="bg-green-100 text-green-700">{groupsByStatus.PLAYED} jugados</Badge>
+                {groupsByStatus.IN_PROGRESS > 0 && (
+                  <Badge className="bg-blue-100 text-blue-700">{groupsByStatus.IN_PROGRESS} en curso</Badge>
+                )}
+                {groupsByStatus.SKIPPED > 0 && (
+                  <Badge className="bg-red-100 text-red-700">{groupsByStatus.SKIPPED} no disputados</Badge>
+                )}
+              </div>
             </div>
 
             <div className="text-center">
@@ -419,16 +411,55 @@ export default function RoundDetailClient({
         </CardContent>
       </Card>
 
-      {/* Debug info temporal */}
-      {eligiblePlayers.length === 0 && (
-        <Card className="border-yellow-200 bg-yellow-50">
-          <CardContent className="p-4">
-            <div className="text-yellow-800">
-              <strong>DEBUG:</strong> No se encontraron jugadores elegibles para esta ronda.
-              <br />
-              Ronda: {round.number} | Torneo: {round.tournament.id} | Título: {round.tournament.title}
-              <br />
-              Revisa que los jugadores estén inscritos con joinedRound ≤ {round.number}
+      {/* ✅ Panel de Gestión de Grupos No Disputados */}
+      {!round.isClosed && groupsByStatus.SKIPPED > 0 && (
+        <Card className="border-red-200 bg-red-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-red-900">
+              <AlertTriangle className="w-5 h-5" />
+              Grupos No Disputados ({groupsByStatus.SKIPPED})
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-red-700">
+              Los siguientes grupos no completaron sus 3 sets y recibirán puntos técnicos al cerrar la ronda.
+            </p>
+
+            {round.groups
+              .filter((g: any) => g.status === "SKIPPED")
+              .map((group: any) => {
+                const confirmedSets = group.matches?.filter((m: any) => m.isConfirmed).length || 0;
+                return (
+                  <div key={group.id} className="bg-white border border-red-200 rounded-lg p-4">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium">Grupo {group.number}</div>
+                        <div className="text-sm text-gray-600">
+                          {confirmedSets}/3 sets confirmados
+                          {group.skippedReason && ` • ${group.skippedReason}`}
+                        </div>
+                      </div>
+                      <Badge className="bg-red-100 text-red-700">No Disputado</Badge>
+                    </div>
+                  </div>
+                );
+              })}
+
+            {/* 🔒 Política alineada con especificación del proyecto */}
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800">
+              <strong>Al cerrar la ronda:</strong>
+              <ul className="list-disc list-inside mt-1 space-y-1">
+                <li>
+                  <strong>Puntos técnicos</strong>: Rondas 1–2 → <em>media de la jornada</em>; Rondas ≥3 →{" "}
+                  <em>media personal</em>.
+                </li>
+                <li>
+                  <strong>Racha</strong>: <em>congelada</em> (no suma ni se rompe).
+                </li>
+                <li>
+                  <strong>Movimientos</strong>: jugadores <em>no se mueven</em> (grupo congelado).
+                </li>
+              </ul>
             </div>
           </CardContent>
         </Card>
@@ -451,18 +482,10 @@ export default function RoundDetailClient({
               </Badge>
             </div>
             <div className="flex gap-2">
-              <Button
-                variant={useManualManager ? "default" : "outline"}
-                size="sm"
-                onClick={() => setUseManualManager(true)}
-              >
+              <Button variant={useManualManager ? "default" : "outline"} size="sm" onClick={() => setUseManualManager(true)}>
                 Manual
               </Button>
-              <Button
-                variant={!useManualManager ? "default" : "outline"}
-                size="sm"
-                onClick={() => setUseManualManager(false)}
-              >
+              <Button variant={!useManualManager ? "default" : "outline"} size="sm" onClick={() => setUseManualManager(false)}>
                 Panel clásico
               </Button>
             </div>
@@ -474,12 +497,11 @@ export default function RoundDetailClient({
               initialGroups={round.groups.map((group: any) => ({
                 id: group.id,
                 level: group.level ?? 0,
-                players: group.players.map((gp: any) => ({
+                players: (group.players || []).map((gp: any) => ({
                   id: gp.player.id,
                   name: gp.player.name,
                 })),
               }))}
-              // ✅ ahora pasamos el array de jugadores disponibles
               availablePlayers={availablePlayersList}
               onSave={onGroupsSaved}
             />
@@ -493,6 +515,7 @@ export default function RoundDetailClient({
                 totalPlayers: eligiblePlayers.length,
               }}
               groups={mgrGroups}
+              // si tu componente espera un número, deja length; si espera lista, pásale availablePlayersList
               availablePlayers={eligiblePlayers.length}
               isAdmin={true}
             />
@@ -500,7 +523,7 @@ export default function RoundDetailClient({
         </CardContent>
       </Card>
 
-      {/* CORREGIDO: Panel de Programación por Grupo (Admin) */}
+      {/* Programación por grupo (Admin) */}
       {!round.isClosed && (
         <Card>
           <CardHeader>
@@ -520,18 +543,14 @@ export default function RoundDetailClient({
               {round.groups.map((g: any) => {
                 const st = adminSchedule[g.id] || ({ inputValue: "", loading: false } as any);
                 const first = g.matches?.[0];
-                const info =
-                  first?.acceptedDate
-                    ? `Programado: ${format(new Date(first.acceptedDate), "d MMM yyyy HH:mm", { locale: es })}`
-                    : first?.proposedDate
-                    ? `Propuesto: ${format(new Date(first.proposedDate), "d MMM yyyy HH:mm", { locale: es })}`
-                    : "Sin fecha";
+                const info = first?.acceptedDate
+                  ? `Programado: ${format(new Date(first.acceptedDate), "d MMM yyyy HH:mm", { locale: es })}`
+                  : first?.proposedDate
+                  ? `Propuesto: ${format(new Date(first.proposedDate), "d MMM yyyy HH:mm", { locale: es })}`
+                  : "Sin fecha";
 
                 return (
-                  <div
-                    key={g.id}
-                    className="flex flex-col md:flex-row items-center gap-3 p-3 border rounded-lg bg-gray-50"
-                  >
+                  <div key={g.id} className="flex flex-col md:flex-row items-center gap-3 p-3 border rounded-lg bg-gray-50">
                     <div className="w-full md:w-40 shrink-0">
                       <Badge variant="outline" className="w-full justify-center">
                         Grupo {g.number}
@@ -543,51 +562,27 @@ export default function RoundDetailClient({
                       type="datetime-local"
                       className="w-full md:w-64 border rounded-lg px-3 py-2"
                       value={st.inputValue || ""}
-                      onChange={(e) =>
-                        setAdminSchedule((s) => ({
-                          ...s,
-                          [g.id]: { ...s[g.id], inputValue: e.target.value, msg: undefined },
-                        }))
-                      }
+                      onChange={(e) => setAdminSchedule((s) => ({ ...s, [g.id]: { ...s[g.id], inputValue: e.target.value, msg: undefined } }))}
                       disabled={st.loading}
                     />
 
                     <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={st.loading}
-                        onClick={() => handlePropose(g.id)}
-                      >
+                      <Button size="sm" variant="outline" disabled={st.loading} onClick={() => handlePropose(g.id)}>
                         <Send className="w-4 h-4 mr-2" />
                         {st.loading ? "..." : "Proponer"}
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="default"
-                        disabled={st.loading}
-                        onClick={() => handleForceSchedule(g.id)}
-                      >
+                      <Button size="sm" variant="default" disabled={st.loading} onClick={() => handleForceSchedule(g.id)}>
                         <Shield className="w-4 h-4 mr-2" />
                         {st.loading ? "..." : "Forzar programado"}
                       </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        disabled={st.loading}
-                        onClick={() => handleCancel(g.id)}
-                      >
+                      <Button size="sm" variant="destructive" disabled={st.loading} onClick={() => handleCancel(g.id)}>
                         <Ban className="w-4 h-4 mr-2" />
                         {st.loading ? "..." : "Cancelar"}
                       </Button>
                     </div>
 
                     {st.msg && (
-                      <div
-                        className={`text-sm ${
-                          st.msg.type === "success" ? "text-green-600" : "text-red-600"
-                        }`}
-                      >
+                      <div className={`text-sm ${st.msg.type === "success" ? "text-green-600" : "text-red-600"}`}>
                         {st.msg.text}
                       </div>
                     )}
@@ -606,12 +601,12 @@ export default function RoundDetailClient({
           id: group.id,
           number: group.number,
           level: group.level ?? 0,
-          players: group.players.map((gp: any) => ({
+          players: (group.players || []).map((gp: any) => ({
             id: gp.player.id,
             name: gp.player.name,
             position: gp.position,
           })),
-          matches: group.matches.map((m: any) => ({
+          matches: (group.matches || []).map((m: any) => ({
             id: m.id,
             setNumber: m.setNumber,
           })),
@@ -654,25 +649,13 @@ export default function RoundDetailClient({
             {/* Filtros */}
             <div className="flex flex-wrap gap-2 items-center justify-between">
               <div className="flex flex-wrap gap-2">
-                <Button
-                  variant={selectedFilter === "all" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedFilter("all")}
-                >
+                <Button variant={selectedFilter === "all" ? "default" : "outline"} size="sm" onClick={() => setSelectedFilter("all")}>
                   Todos ({totalSets})
                 </Button>
-                <Button
-                  variant={selectedFilter === "pending" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedFilter("pending")}
-                >
+                <Button variant={selectedFilter === "pending" ? "default" : "outline"} size="sm" onClick={() => setSelectedFilter("pending")}>
                   Pendientes ({totalSets - completedSets})
                 </Button>
-                <Button
-                  variant={selectedFilter === "completed" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setSelectedFilter("completed")}
-                >
+                <Button variant={selectedFilter === "completed" ? "default" : "outline"} size="sm" onClick={() => setSelectedFilter("completed")}>
                   Completados ({completedSets})
                 </Button>
               </div>
@@ -741,9 +724,7 @@ export default function RoundDetailClient({
                             </div>
                           </div>
 
-                          {match.tiebreakScore && (
-                            <div className="text-xs text-blue-600 mt-1">Tie-break: {match.tiebreakScore}</div>
-                          )}
+                          {match.tiebreakScore && <div className="text-xs text-blue-600 mt-1">Tie-break: {match.tiebreakScore}</div>}
                         </div>
 
                         <div className="ml-4 flex items-center gap-2">
@@ -812,6 +793,12 @@ export default function RoundDetailClient({
               </Button>
 
               <CloseRoundButton roundId={round.id} />
+
+              {groupsByStatus.SKIPPED > 0 && (
+                <Badge className="bg-red-100 text-red-700 px-3 py-2">
+                  {groupsByStatus.SKIPPED} grupo(s) no disputado(s) — recibirán puntos técnicos
+                </Badge>
+              )}
 
               <Button variant="outline" asChild>
                 <Link href="/admin/players">Gestionar Jugadores</Link>

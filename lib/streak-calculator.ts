@@ -1,20 +1,21 @@
-// lib/streak-calculator.ts - VERSIÓN CORREGIDA PARA RACHAS DE CONTINUIDAD
+// lib/streak-calculator.ts - VERSIÓN COMPLETA CON SOPORTE PARA GRUPOS SKIPPED
 import { prisma } from "@/lib/prisma";
+import { GroupStatus } from "@prisma/client";
 
 export interface ContinuityStreakConfig {
   continuityEnabled: boolean;
-  continuityPointsPerSet: number;    // Puntos por set en ronda consecutiva
-  continuityPointsPerRound: number;  // Puntos por ronda consecutiva  
-  continuityMinRounds: number;       // Rondas mínimas para bonus (normalmente 2)
-  continuityMaxBonus: number;        // Límite máximo de puntos bonus por ronda
-  continuityMode: "SETS" | "MATCHES" | "BOTH"; // "SETS" = por set jugado, "MATCHES" = por ronda
+  continuityPointsPerSet: number;
+  continuityPointsPerRound: number;
+  continuityMinRounds: number;
+  continuityMaxBonus: number;
+  continuityMode: "SETS" | "MATCHES" | "BOTH";
 }
 
 export interface PlayerContinuityData {
   playerId: string;
-  roundsStreak: number;           // Rondas consecutivas participadas
-  bonusPoints: number;            // Puntos bonus obtenidos esta ronda
-  hasParticipated: boolean;       // Si participó en esta ronda
+  roundsStreak: number;
+  bonusPoints: number;
+  hasParticipated: boolean;
 }
 
 /**
@@ -76,8 +77,9 @@ export async function calculateContinuityStreaksForRound(
     for (const groupPlayer of group.players) {
       const playerId = groupPlayer.playerId;
       
-      // Determinar si participó en esta ronda (no usó comodín)
-      const hasParticipated = !groupPlayer.usedComodin;
+      // ✅ Determinar si participó en esta ronda
+      // Si el grupo está SKIPPED, NO cuenta como participación
+      const hasParticipated = group.status !== GroupStatus.SKIPPED && !groupPlayer.usedComodin;
       
       // Calcular racha de continuidad
       const continuityStreak = calculatePlayerContinuityStreak(
@@ -91,17 +93,13 @@ export async function calculateContinuityStreaksForRound(
       let bonusPoints = 0;
       if (hasParticipated && continuityStreak >= config.continuityMinRounds) {
         if (config.continuityMode === "SETS") {
-          // Bonus por cada set (3 sets por ronda)
           bonusPoints = config.continuityPointsPerSet * 3;
         } else if (config.continuityMode === "MATCHES") {
-          // Bonus por ronda completa
           bonusPoints = config.continuityPointsPerRound;
         } else { // "BOTH"
-          // Ambos modos (sets + ronda)
           bonusPoints = (config.continuityPointsPerSet * 3) + config.continuityPointsPerRound;
         }
         
-        // Aplicar límite máximo
         bonusPoints = Math.min(bonusPoints, config.continuityMaxBonus);
       }
 
@@ -118,8 +116,9 @@ export async function calculateContinuityStreaksForRound(
 }
 
 /**
- * Calcula la racha de continuidad de un jugador específico
- * Cuenta rondas consecutivas donde participó (sin comodín)
+ * ✅ ACTUALIZADO: Calcula la racha de continuidad de un jugador específico
+ * Cuenta rondas consecutivas donde participó (sin comodín y grupo jugado)
+ * Si el grupo está SKIPPED, la racha se ROMPE
  */
 function calculatePlayerContinuityStreak(
   playerId: string,
@@ -127,7 +126,7 @@ function calculatePlayerContinuityStreak(
   currentRoundNumber: number,
   participatedThisRound: boolean
 ): number {
-  // Si no participó esta ronda, la racha se rompe
+  // Si no participó esta ronda (incluye SKIPPED y comodín), la racha se rompe
   if (!participatedThisRound) {
     return 0;
   }
@@ -139,9 +138,19 @@ function calculatePlayerContinuityStreak(
     const round = allRounds.find(r => r.number === roundNum);
     if (!round) break;
 
-    // Buscar si el jugador participó en esta ronda
     let participatedInRound = false;
     for (const group of round.groups) {
+      // ✅ CRÍTICO: Si el grupo está SKIPPED, rompe la racha
+      if (group.status === GroupStatus.SKIPPED) {
+        const wasInSkippedGroup = group.players.find((gp: any) => gp.playerId === playerId);
+        if (wasInSkippedGroup) {
+          // El jugador estaba en un grupo SKIPPED → racha se rompe aquí
+          console.log(`Racha de ${playerId} rota en R${roundNum} (grupo SKIPPED)`);
+          return streak;
+        }
+        continue;
+      }
+
       const groupPlayer = group.players.find((gp: any) => gp.playerId === playerId);
       if (groupPlayer && !groupPlayer.usedComodin) {
         participatedInRound = true;
@@ -265,11 +274,8 @@ export async function getPlayerContinuityStats(
     where: {
       playerId,
       streakType: "CONTINUITY_BONUS",
-      roundId: {
-        in: await prisma.round.findMany({
-          where: { tournamentId },
-          select: { id: true }
-        }).then(rounds => rounds.map(r => r.id))
+      round: {
+        tournamentId
       }
     },
     orderBy: { createdAt: 'desc' }

@@ -2,7 +2,7 @@ name: escalapp
 
 services:
   db:
-    image: postgres:15
+    image: postgres:17
     container_name: escalapp-postgres
     restart: unless-stopped
     environment:
@@ -25,12 +25,17 @@ services:
       dockerfile: Dockerfile
     container_name: escalapp-web
     restart: unless-stopped
-    env_file:
-      - .env
-      - .env.local
+    # OJO: sin env_file para que no exija .env
     environment:
-      # Controla si se ejecutan seeds al arrancar (por defecto, NO)
-      SEED_ON_START: ${SEED_ON_START:-false}
+      # Prisma debe apuntar al servicio 'db' dentro del network de Docker
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/escalapp?schema=public"
+      # Evita el warning y controla seeding
+      SEED_ON_START: "false"
+      # NextAuth en local
+      NEXTAUTH_URL: "http://localhost:3000"
+      NEXTAUTH_SECRET: "dev-secret"
+      AUTH_TRUST_HOST: "true"
+      NODE_ENV: "development"
     ports:
       - "3000:3000"
     depends_on:
@@ -49,7 +54,6 @@ services:
       "
 
   # Servicio opcional para sembrar datos bajo demanda
-  # Se ejecuta SOLO si indicas el profile 'seed'
   init-db:
     build:
       context: .
@@ -57,9 +61,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    env_file:
-      - .env
-      - .env.local
+    environment:
+      DATABASE_URL: "postgresql://postgres:postgres@db:5432/escalapp?schema=public"
+      NODE_ENV: "development"
     volumes:
       - .:/app
       - /app/node_modules

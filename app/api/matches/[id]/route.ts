@@ -251,6 +251,15 @@ async function updateGroupPositionsAtomic(groupId: string, tx: any): Promise<voi
     orderBy: [{ points: "desc" }, { streak: "desc" }],
   });
 
+  // FASE 1: Mover todos a posiciones temporales (1000+)
+  for (let i = 0; i < groupPlayers.length; i++) {
+    await tx.groupPlayer.update({
+      where: { id: groupPlayers[i].id },
+      data: { position: 1000 + i },
+    });
+  }
+
+  // FASE 2: Mover a posiciones finales (1, 2, 3, 4)
   for (let i = 0; i < groupPlayers.length; i++) {
     await tx.groupPlayer.update({
       where: { id: groupPlayers[i].id },

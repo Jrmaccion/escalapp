@@ -1,12 +1,13 @@
-// app/api/rounds/[id]/close/route.ts - VERSIÓN ROBUSTA CON TOURNAMENT ENGINE
+// app/api/rounds/[id]/close/route.ts - VERSIÓN COMPLETA CON DETECCIÓN DE GRUPOS SKIPPED
 import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
-import { TournamentEngine } from "@/lib/tournament-engine"; // ✅ Usar engine robusto
+import { TournamentEngine } from "@/lib/tournament-engine";
 import { processContinuityStreaksForRound } from "@/lib/streak-calculator";
+import { applyTechnicalPoints } from "@/lib/points-calculator";
+import { GroupStatus } from "@prisma/client";
 
-// ✅ Enum para errores específicos
 enum CloseRoundError {
   UNAUTHORIZED = "UNAUTHORIZED",
   ROUND_NOT_FOUND = "ROUND_NOT_FOUND",
@@ -32,10 +33,9 @@ const CLOSE_ERROR_MESSAGES = {
 type ClosePayload = {
   generateNext?: boolean;
   groupSize?: number;
-  forceClose?: boolean; // Para casos excepcionales
+  forceClose?: boolean;
 };
 
-// ✅ Validación previa al cierre
 async function validateRoundForClosure(roundId: string): Promise<{
   round: any;
   incompleteMatches: number;
@@ -80,7 +80,6 @@ async function validateRoundForClosure(roundId: string): Promise<{
     throw new Error(CloseRoundError.TOURNAMENT_NOT_FOUND);
   }
 
-  // Contar partidos incompletos
   const allMatches = round.groups.flatMap(g => g.matches);
   const incompleteMatches = allMatches.filter(m => !m.isConfirmed).length;
 
@@ -102,10 +101,9 @@ async function validateRoundForClosure(roundId: string): Promise<{
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   const startTime = Date.now();
-  console.log(`🚀 Iniciando cierre de ronda: ${params.id}`);
+  console.log(`Iniciando cierre de ronda: ${params.id}`);
   
   try {
-    // 1. Verificar autorización
     const session = await getServerSession(authOptions);
     if (!session?.user?.isAdmin) {
       return NextResponse.json({ 
@@ -115,23 +113,20 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const roundId = decodeURIComponent(params.id);
 
-    // 2. Parsear payload
     let body: ClosePayload = {};
     try {
       body = (await req.json()) as ClosePayload;
     } catch {
-      // Body vacío está OK - usar defaults
+      // Body vacío está OK
     }
     const { generateNext = true, forceClose = false } = body;
 
-    // 3. Validación inicial
     const { round, incompleteMatches, tournamentConfig } = await validateRoundForClosure(roundId);
 
-    console.log(`📊 Ronda ${round.number}: ${incompleteMatches} partidos incompletos`);
+    console.log(`Ronda ${round.number}: ${incompleteMatches} partidos incompletos`);
 
-    // 4. Verificar si ya está cerrada (idempotencia)
     if (round.isClosed) {
-      console.log(`ℹ️ Ronda ${round.number} ya estaba cerrada`);
+      console.log(`Ronda ${round.number} ya estaba cerrada`);
       return NextResponse.json({
         success: true,
         message: "Ronda ya estaba cerrada",
@@ -143,8 +138,79 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       });
     }
 
-    // 5. Verificar partidos incompletos
-    if (incompleteMatches > 0 && !forceClose) {
+    // ======================================================================
+    // DETECCIÓN Y MARCADO DE GRUPOS NO DISPUTADOS (SKIPPED)
+    // ======================================================================
+    console.log(`Detectando grupos no disputados...`);
+    const groupsData = await prisma.group.findMany({
+      where: { roundId },
+      include: {
+        matches: {
+          select: { isConfirmed: true }
+        },
+        players: {
+          select: { playerId: true }
+        }
+      }
+    });
+
+    const skippedGroups: string[] = [];
+    const playedGroups: string[] = [];
+
+    for (const group of groupsData) {
+      const confirmedMatches = group.matches.filter(m => m.isConfirmed).length;
+      
+      if (confirmedMatches < 3) {
+        // Grupo no tiene 3 sets confirmados → marcar como SKIPPED
+        await prisma.group.update({
+          where: { id: group.id },
+          data: {
+            status: GroupStatus.SKIPPED,
+            skippedReason: 'NO_AGREEMENT'
+          }
+        });
+        skippedGroups.push(group.id);
+        console.log(`Grupo ${group.number} marcado como SKIPPED (${confirmedMatches}/3 sets confirmados)`);
+      } else {
+        // Grupo completo → marcar como PLAYED
+        await prisma.group.update({
+          where: { id: group.id },
+          data: { status: GroupStatus.PLAYED }
+        });
+        playedGroups.push(group.id);
+      }
+    }
+
+    console.log(`Detección completada: ${playedGroups.length} grupos jugados, ${skippedGroups.length} grupos no disputados`);
+
+    // ======================================================================
+    // APLICAR PUNTOS TÉCNICOS A GRUPOS SKIPPED
+    // ======================================================================
+    if (skippedGroups.length > 0) {
+      console.log(`Aplicando puntos técnicos a ${skippedGroups.length} grupos...`);
+      try {
+        await applyTechnicalPoints(roundId, round.number);
+        console.log(`Puntos técnicos aplicados correctamente`);
+      } catch (technicalPointsError: any) {
+        console.error(`Error aplicando puntos técnicos:`, technicalPointsError);
+        if (!forceClose) {
+          return NextResponse.json({
+            error: "Error aplicando puntos técnicos a grupos no disputados",
+            details: {
+              message: technicalPointsError.message,
+              skippedGroups: skippedGroups.length,
+              suggestion: "Usa forceClose=true para continuar ignorando este error"
+            }
+          }, { status: 400 });
+        }
+      }
+    }
+
+    // ======================================================================
+    // VERIFICAR SI DEBEMOS PERMITIR CIERRE CON GRUPOS SKIPPED
+    // ======================================================================
+    if (incompleteMatches > 0 && !forceClose && skippedGroups.length === 0) {
+      // Solo bloqueamos si hay partidos incompletos Y no son grupos SKIPPED
       return NextResponse.json({
         error: CLOSE_ERROR_MESSAGES[CloseRoundError.INCOMPLETE_MATCHES],
         details: {
@@ -155,16 +221,18 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }, { status: 400 });
     }
 
-    // 6. Procesar rachas de continuidad ANTES del cierre
+    // ======================================================================
+    // PROCESAR RACHAS DE CONTINUIDAD
+    // ======================================================================
     let continuityResult = "";
     if (tournamentConfig.continuityEnabled) {
       try {
-        console.log(`🔄 Procesando rachas de continuidad...`);
+        console.log(`Procesando rachas de continuidad...`);
         await processContinuityStreaksForRound(roundId, tournamentConfig);
         continuityResult = " - Rachas de continuidad aplicadas";
-        console.log(`✅ Rachas de continuidad procesadas`);
+        console.log(`Rachas de continuidad procesadas`);
       } catch (continuityError: any) {
-        console.error("❌ Error procesando rachas de continuidad:", continuityError);
+        console.error(`Error procesando rachas de continuidad:`, continuityError);
         
         if (!forceClose) {
           return NextResponse.json({
@@ -180,16 +248,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
     }
 
-    // 7. ✅ USAR TOURNAMENT ENGINE ROBUSTO
-    console.log(`🔧 Ejecutando cierre robusto con Tournament Engine...`);
+    // ======================================================================
+    // USAR TOURNAMENT ENGINE PARA CIERRE Y GENERACIÓN
+    // ======================================================================
+    console.log(`Ejecutando cierre robusto con Tournament Engine...`);
     
     let engineResult;
     try {
       engineResult = await TournamentEngine.closeRoundAndGenerateNext(roundId);
     } catch (engineError: any) {
-      console.error("❌ Error crítico en Tournament Engine:", engineError);
+      console.error(`Error crítico en Tournament Engine:`, engineError);
       
-      // Verificar si hubo rollback
       const rollbackCheck = await prisma.round.findUnique({
         where: { id: roundId },
         select: { isClosed: true }
@@ -210,9 +279,11 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     }
 
     const processingTimeMs = Date.now() - startTime;
-    console.log(`✅ Ronda ${round.number} cerrada exitosamente en ${processingTimeMs}ms`);
+    console.log(`Ronda ${round.number} cerrada exitosamente en ${processingTimeMs}ms`);
 
-    // 8. Respuesta exitosa
+    // ======================================================================
+    // RESPUESTA EXITOSA CON INFORMACIÓN DE GRUPOS SKIPPED
+    // ======================================================================
     return NextResponse.json({
       success: true,
       message: `Ronda ${round.number} cerrada correctamente${continuityResult}`,
@@ -227,15 +298,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
         incompleteMatchesIgnored: incompleteMatches,
         continuityProcessed: tournamentConfig.continuityEnabled,
         totalMovements: engineResult.movements?.length || 0,
-        isLastRound: round.number >= round.tournament.totalRounds
+        isLastRound: round.number >= round.tournament.totalRounds,
+        skippedGroups: skippedGroups.length,
+        playedGroups: playedGroups.length,
+        technicalPointsApplied: skippedGroups.length > 0
       }
     });
 
   } catch (error: any) {
     const processingTimeMs = Date.now() - startTime;
-    console.error("❌ Error general cerrando ronda:", error);
+    console.error(`Error general cerrando ronda:`, error);
     
-    // Manejo específico de errores conocidos
     if (Object.values(CloseRoundError).includes(error.message)) {
       return NextResponse.json({
         error: CLOSE_ERROR_MESSAGES[error.message as CloseRoundError],
@@ -254,7 +327,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   }
 }
 
-// ✅ Endpoint GET para verificar estado de la ronda
+// Endpoint GET para verificar estado de la ronda
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   try {
     const session = await getServerSession(authOptions);
@@ -269,17 +342,36 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     const totalMatches = allMatches.length;
     const completedMatches = totalMatches - incompleteMatches;
 
+    // Contar grupos por estado
+    const groupsByStatus = await prisma.group.groupBy({
+      by: ['status'],
+      where: { roundId },
+      _count: true
+    });
+
+    const statusCounts = groupsByStatus.reduce((acc, item) => {
+      acc[item.status] = item._count;
+      return acc;
+    }, {} as Record<string, number>);
+
     return NextResponse.json({
       roundId: round.id,
       roundNumber: round.number,
       tournamentTitle: round.tournament.title,
       isClosed: round.isClosed,
-      canClose: incompleteMatches === 0,
+      canClose: incompleteMatches === 0 || statusCounts[GroupStatus.SKIPPED] > 0,
       progress: {
         totalMatches,
         completedMatches,
         incompleteMatches,
         completionPercentage: totalMatches > 0 ? Math.round((completedMatches / totalMatches) * 100) : 0
+      },
+      groups: {
+        total: round.groups.length,
+        played: statusCounts[GroupStatus.PLAYED] || 0,
+        skipped: statusCounts[GroupStatus.SKIPPED] || 0,
+        pending: statusCounts[GroupStatus.PENDING] || 0,
+        postponed: statusCounts[GroupStatus.POSTPONED] || 0
       },
       continuityEnabled: round.tournament.continuityEnabled,
       isLastRound: round.number >= round.tournament.totalRounds
