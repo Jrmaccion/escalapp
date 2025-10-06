@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: admin          # ← contraseña alineada con la que pusimos
       POSTGRES_DB: escalapp
     ports:
       - "5432:5432"
@@ -25,13 +25,10 @@ services:
       dockerfile: Dockerfile
     container_name: escalapp-web
     restart: unless-stopped
-    # OJO: sin env_file para que no exija .env
     environment:
-      # Prisma debe apuntar al servicio 'db' dentro del network de Docker
-      DATABASE_URL: "postgresql://postgres:postgres@db:5432/escalapp?schema=public"
-      # Evita el warning y controla seeding
+      # Prisma debe apuntar al servicio 'db' dentro de la red de Docker
+      DATABASE_URL: "postgresql://postgres:admin@db:5432/escalapp?schema=public"
       SEED_ON_START: "false"
-      # NextAuth en local
       NEXTAUTH_URL: "http://localhost:3000"
       NEXTAUTH_SECRET: "dev-secret"
       AUTH_TRUST_HOST: "true"
@@ -62,7 +59,7 @@ services:
       db:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql://postgres:postgres@db:5432/escalapp?schema=public"
+      DATABASE_URL: "postgresql://postgres:admin@db:5432/escalapp?schema=public"
       NODE_ENV: "development"
     volumes:
       - .:/app

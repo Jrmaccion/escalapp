@@ -1,4 +1,4 @@
-// components/ManualGroupManager.tsx - VERSIÓN MEJORADA
+// components/ManualGroupManager.tsx - VERSIÓN CORREGIDA
 "use client";
 
 import { useState, useEffect, useTransition } from "react";
@@ -15,6 +15,7 @@ import {
   RefreshCw,
   UserPlus,
   UserMinus,
+  AlertCircle,
 } from "lucide-react";
 
 type Player = {
@@ -23,7 +24,7 @@ type Player = {
 };
 
 type GroupData = {
-  id?: string; // undefined para grupos nuevos
+  id?: string;
   level: number;
   players: Player[];
 };
@@ -35,7 +36,7 @@ type Props = {
     level: number;
     players: Player[];
   }>;
-  availablePlayers?: Player[]; // Opcional, se carga automáticamente
+  availablePlayers?: Player[];
   onSave: (groups: Array<{
     groupId?: string;
     level: number;
@@ -54,22 +55,21 @@ export default function ManualGroupManager({
   const [unassignedPlayers, setUnassignedPlayers] = useState<Player[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  console.log("🚀 ManualGroupManager cargado:", { roundId, initialGroups });
-  // Cargar jugadores elegibles para esta ronda
+  const [showForceDialog, setShowForceDialog] = useState(false);
+  const [pendingGroups, setPendingGroups] = useState<any[] | null>(null);
+
   useEffect(() => {
     async function loadEligiblePlayers() {
       try {
         setLoading(true);
         setError(null);
 
-        // Si se proporcionan jugadores disponibles, usarlos
         if (providedAvailablePlayers) {
           initializeGroups(providedAvailablePlayers);
           setLoading(false);
           return;
         }
 
-        // Cargar jugadores elegibles desde la API
         const response = await fetch(`/api/rounds/${roundId}/eligible-players`);
         if (!response.ok) {
           throw new Error('Error cargando jugadores elegibles');
@@ -93,19 +93,16 @@ export default function ManualGroupManager({
   }, [roundId, providedAvailablePlayers]);
 
   const initializeGroups = (eligiblePlayers: Player[]) => {
-    // Convertir grupos iniciales al formato interno
     const initialGroupsData: GroupData[] = initialGroups.map(g => ({
       id: g.id,
       level: g.level,
       players: [...g.players]
     }));
 
-    // Obtener IDs de jugadores ya asignados
     const assignedPlayerIds = new Set(
       initialGroupsData.flatMap(g => g.players.map(p => p.id))
     );
 
-    // Jugadores sin asignar = todos los elegibles - ya asignados
     const unassigned = eligiblePlayers.filter(p => !assignedPlayerIds.has(p.id));
 
     setGroups(initialGroupsData);
@@ -113,6 +110,9 @@ export default function ManualGroupManager({
   };
 
   const createNewGroup = () => {
+    // Advertencia: los grupos nuevos no se pueden guardar hasta que se creen en BD
+    setError("⚠️ Nota: Los grupos nuevos aún no están implementados. Solo puedes modificar grupos existentes.");
+    
     const newLevel = Math.max(0, ...groups.map(g => g.level)) + 1;
     const newGroup: GroupData = {
       level: newLevel,
@@ -123,21 +123,14 @@ export default function ManualGroupManager({
 
   const deleteGroup = (groupIndex: number) => {
     const groupToDelete = groups[groupIndex];
-    
-    // Mover jugadores del grupo eliminado a sin asignar
     setUnassignedPlayers(prev => [...prev, ...groupToDelete.players]);
-    
-    // Eliminar el grupo
     setGroups(prev => prev.filter((_, i) => i !== groupIndex));
   };
 
   const movePlayerToGroup = (player: Player, fromGroupIndex: number | null, toGroupIndex: number | null) => {
-    // Remover jugador del origen
     if (fromGroupIndex === null) {
-      // Desde sin asignar
       setUnassignedPlayers(prev => prev.filter(p => p.id !== player.id));
     } else {
-      // Desde otro grupo
       setGroups(prev => prev.map((group, i) => 
         i === fromGroupIndex 
           ? { ...group, players: group.players.filter(p => p.id !== player.id) }
@@ -145,12 +138,9 @@ export default function ManualGroupManager({
       ));
     }
 
-    // Añadir jugador al destino
     if (toGroupIndex === null) {
-      // A sin asignar
       setUnassignedPlayers(prev => [...prev, player]);
     } else {
-      // A otro grupo
       setGroups(prev => prev.map((group, i) => 
         i === toGroupIndex 
           ? { ...group, players: [...group.players, player] }
@@ -165,19 +155,27 @@ export default function ManualGroupManager({
     ));
   };
 
-  const handleSave = () => {
-    const groupsToSave = groups.map(g => ({
-      groupId: g.id,
-      level: g.level,
-      playerIds: g.players.map(p => p.id)
-    }));
+  const handleSave = async (forceRegenerate: boolean = false) => {
+    // Formato correcto según la API: array de { groupId, players: [{ playerId }] }
+    const groupsToSave = groups
+      .filter(g => g.id) // Solo grupos que ya existen en BD
+      .map(g => ({
+        groupId: g.id!,
+        players: g.players.map(p => ({ playerId: p.id }))
+      }));
 
-    // Debug: Log de lo que se va a enviar
-    console.log("🔍 Datos a enviar:", {
+    // Validación antes de enviar
+    if (groupsToSave.length === 0) {
+      setError("No hay grupos válidos para guardar. Crea grupos primero.");
+      return;
+    }
+
+    console.log("📤 Datos a enviar:", {
       roundId,
       groups: groupsToSave,
+      forceRegenerate,
       totalGroups: groupsToSave.length,
-      totalPlayers: groupsToSave.reduce((acc, g) => acc + g.playerIds.length, 0)
+      totalPlayers: groupsToSave.reduce((acc, g) => acc + g.players.length, 0)
     });
 
     startTransition(async () => {
@@ -187,22 +185,47 @@ export default function ManualGroupManager({
         const response = await fetch(`/api/rounds/${roundId}/manage-groups`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ groups: groupsToSave }),
+          body: JSON.stringify({ 
+            groups: groupsToSave,
+            forceRegenerate 
+          }),
         });
 
         const data = await response.json();
         
         if (!response.ok) {
+          // Si el error es sobre partidos existentes y no forzamos regeneración
+          if (data.error?.includes("partidos generados") && !forceRegenerate) {
+            console.log("⚠️ Se requiere confirmación para regenerar partidos");
+            setPendingGroups(groupsToSave);
+            setShowForceDialog(true);
+            return;
+          }
+
           console.error("❌ Error del servidor:", {
             status: response.status,
             error: data.error,
             details: data.details
           });
-          throw new Error(data.error || `Error ${response.status}`);
+          
+          // Mostrar error más descriptivo
+          let errorMsg = data.error || `Error ${response.status}`;
+          if (data.details) {
+            errorMsg += ` - ${JSON.stringify(data.details)}`;
+          }
+          throw new Error(errorMsg);
         }
 
         console.log("✅ Guardado exitoso:", data);
-        await onSave(groupsToSave);
+        
+        // Convertir de vuelta al formato para onSave si es necesario
+        const savedGroupsForCallback = groupsToSave.map(g => ({
+          groupId: g.groupId,
+          level: groups.find(orig => orig.id === g.groupId)?.level || 1,
+          playerIds: g.players.map(p => p.playerId)
+        }));
+        
+        await onSave(savedGroupsForCallback);
         
       } catch (err: any) {
         console.error("❌ Error en handleSave:", err);
@@ -211,13 +234,19 @@ export default function ManualGroupManager({
     });
   };
 
+  const handleForceRegenerate = async () => {
+    setShowForceDialog(false);
+    if (pendingGroups) {
+      await handleSave(true);
+      setPendingGroups(null);
+    }
+  };
+
   const resetToOriginal = () => {
-    // Recargar datos originales
     window.location.reload();
   };
 
   const hasChanges = () => {
-    // Detectar si hay cambios respecto al estado inicial
     if (groups.length !== initialGroups.length) return true;
     
     return groups.some((group, index) => {
@@ -256,6 +285,52 @@ export default function ManualGroupManager({
 
   return (
     <div className="space-y-6">
+      {/* Diálogo de confirmación para forzar regeneración */}
+      {showForceDialog && (
+        <Card className="border-orange-300 bg-orange-50">
+          <CardContent className="p-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-6 h-6 text-orange-600 flex-shrink-0 mt-1" />
+              <div className="flex-1">
+                <h3 className="font-bold text-orange-900 mb-2">
+                  ⚠️ Regenerar partidos existentes
+                </h3>
+                <p className="text-sm text-orange-800 mb-4">
+                  Algunos grupos ya tienen partidos generados. Si continúas, estos partidos se eliminarán y se volverán a crear con la nueva configuración de jugadores.
+                </p>
+                <div className="bg-white border border-orange-200 rounded p-3 mb-4 text-xs text-gray-700">
+                  <strong>Esto eliminará:</strong>
+                  <ul className="list-disc ml-5 mt-1">
+                    <li>Todos los partidos generados (sets) de los grupos modificados</li>
+                    <li>Cualquier resultado NO confirmado</li>
+                  </ul>
+                  <p className="mt-2">
+                    <strong>Los resultados confirmados están protegidos</strong> y no se pueden eliminar.
+                  </p>
+                </div>
+                <div className="flex gap-3">
+                  <Button
+                    onClick={() => {
+                      setShowForceDialog(false);
+                      setPendingGroups(null);
+                    }}
+                    variant="outline"
+                  >
+                    Cancelar
+                  </Button>
+                  <Button
+                    onClick={handleForceRegenerate}
+                    className="bg-orange-600 hover:bg-orange-700"
+                  >
+                    Sí, regenerar partidos
+                  </Button>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -383,7 +458,7 @@ export default function ManualGroupManager({
                     </p>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                      {group.players.map((player, playerIndex) => (
+                      {group.players.map((player) => (
                         <div
                           key={player.id}
                           className="flex items-center justify-between p-2 bg-blue-50 border border-blue-200 rounded"
@@ -416,7 +491,7 @@ export default function ManualGroupManager({
                 </Button>
 
                 <Button
-                  onClick={handleSave}
+                  onClick={() => handleSave(false)}
                   disabled={isPending || !hasChanges()}
                   className="flex items-center gap-2"
                 >
@@ -452,7 +527,7 @@ export default function ManualGroupManager({
                 <li>• Usa el botón "−" para devolver jugadores a "Sin Asignar"</li>
                 <li>• Ajusta el nivel de cada grupo con los campos numéricos</li>
                 <li>• Los cambios se guardan al hacer clic en "Guardar Cambios"</li>
-                <li>• Al guardar se eliminan los partidos existentes si los hubiera</li>
+                <li>• Si hay partidos generados, se te pedirá confirmación para regenerarlos</li>
               </ul>
             </div>
           </div>

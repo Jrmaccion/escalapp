@@ -80,7 +80,6 @@ type SubstituteCredit = {
 // ===============================
 // Funciones unificadas de desempate
 // ===============================
-
 function calculatePlayerStatsInGroup(playerId: string, matches: any[]): PlayerStats {
   let setsWon = 0;
   let gamesWon = 0;
@@ -148,21 +147,18 @@ function calculateUnifiedLadderMovement(position: number, groupLevel: number, to
       } else {
         return { type: 'up', groups: 2, description: 'Sube 2 grupos' };
       }
-    
     case 2:
       if (isTopGroup) {
         return { type: 'same', groups: 0, description: 'Se mantiene en grupo élite' };
       } else {
         return { type: 'up', groups: 1, description: 'Sube 1 grupo' };
       }
-    
     case 3:
       if (isBottomGroup) {
         return { type: 'same', groups: 0, description: 'Se mantiene en grupo inferior' };
       } else {
         return { type: 'down', groups: 1, description: 'Baja 1 grupo' };
       }
-    
     case 4:
       if (isBottomGroup) {
         return { type: 'same', groups: 0, description: 'Se mantiene en grupo inferior' };
@@ -171,7 +167,6 @@ function calculateUnifiedLadderMovement(position: number, groupLevel: number, to
       } else {
         return { type: 'down', groups: 2, description: 'Baja 2 grupos' };
       }
-    
     default:
       return { type: 'same', groups: 0, description: 'Se mantiene' };
   }
@@ -220,11 +215,13 @@ async function validateRoundIntegrity(roundId: string): Promise<RoundIntegrityDa
     throw new Error(TournamentEngineError.GROUPS_INVALID);
   }
 
+  // Nota: por ahora exigimos 4 por grupo (coincide con el generador de sets).
   const invalidGroups = round.groups.filter((g) => g.players.length !== 4);
   if (invalidGroups.length > 0) {
     throw new Error(TournamentEngineError.GROUPS_INVALID);
   }
 
+  // Exigimos 3 matches por grupo (con 4 jugadores).
   const invalidMatches = round.groups.filter((g) => g.matches.length !== 3);
   if (invalidMatches.length > 0) {
     throw new Error(TournamentEngineError.INVALID_ROUND_DATA);
@@ -244,17 +241,17 @@ async function validateRoundIntegrity(roundId: string): Promise<RoundIntegrityDa
 }
 
 async function validateAllMatchesCompleted(roundId: string): Promise<boolean> {
-  // ✅ CORREGIDO: Excluir matches de grupos SKIPPED
+  // ✅ Excluir matches de grupos SKIPPED
   const incompleteMatches = await prisma.match.count({
-    where: { 
-      group: { 
+    where: {
+      group: {
         roundId,
-        status: { not: GroupStatus.SKIPPED } // ← AÑADIR ESTA LÍNEA
-      }, 
-      isConfirmed: false 
+        status: { not: GroupStatus.SKIPPED },
+      },
+      isConfirmed: false,
     },
   });
-  
+
   if (incompleteMatches > 0) {
     throw new Error(TournamentEngineError.MATCHES_INCOMPLETE);
   }
@@ -453,65 +450,64 @@ export class TournamentEngine {
   // Recálculo de posiciones con desempates
   // ===============================
   private static async recalculatePositionsWithTiebreakers(roundId: string): Promise<void> {
-  console.log(`Recalculando posiciones con desempates para ronda ${roundId}`);
+    console.log(`Recalculando posiciones con desempates para ronda ${roundId}`);
 
-  const groups = await prisma.group.findMany({
-    where: { roundId },
-    include: {
-      players: { include: { player: true } },
-      matches: {
-        where: { isConfirmed: true },
-        select: {
-          team1Games: true,
-          team2Games: true,
-          team1Player1Id: true,
-          team1Player2Id: true,
-          team2Player1Id: true,
-          team2Player2Id: true,
+    const groups = await prisma.group.findMany({
+      where: { roundId },
+      include: {
+        players: { include: { player: true } },
+        matches: {
+          where: { isConfirmed: true },
+          select: {
+            team1Games: true,
+            team2Games: true,
+            team1Player1Id: true,
+            team1Player2Id: true,
+            team2Player1Id: true,
+            team2Player2Id: true,
+          }
         }
       }
+    });
+
+    for (const group of groups) {
+      const playersWithStats = group.players.map(gp => {
+        const stats = calculatePlayerStatsInGroup(gp.playerId, group.matches);
+        return {
+          ...stats,
+          points: gp.points || 0,
+          groupPlayerId: gp.id
+        };
+      });
+
+      playersWithStats.sort(comparePlayersWithUnifiedTiebreakers);
+
+      // Operación en dos pasos para evitar conflictos de posición
+      await prisma.$transaction(
+        playersWithStats.map((player, index) =>
+          prisma.groupPlayer.update({
+            where: { id: player.groupPlayerId },
+            data: { position: 1000 + index }
+          })
+        )
+      );
+
+      await prisma.$transaction(
+        playersWithStats.map((player, index) =>
+          prisma.groupPlayer.update({
+            where: { id: player.groupPlayerId },
+            data: { position: index + 1 }
+          })
+        )
+      );
+
+      playersWithStats.forEach((p, i) => {
+        console.log(`  Grupo ${group.number}: ${p.playerId} → posición ${i + 1}`);
+      });
     }
-  });
 
-  for (const group of groups) {
-    const playersWithStats = group.players.map(gp => {
-      const stats = calculatePlayerStatsInGroup(gp.playerId, group.matches);
-      return {
-        ...stats,
-        points: gp.points || 0,
-        groupPlayerId: gp.id
-      };
-    });
-
-    playersWithStats.sort(comparePlayersWithUnifiedTiebreakers);
-
-    // Usar una única operación de actualización batch
-    await prisma.$transaction(
-      playersWithStats.map((player, index) =>
-        prisma.groupPlayer.update({
-          where: { id: player.groupPlayerId },
-          data: { position: 1000 + index } // Temporal alto para evitar conflictos
-        })
-      )
-    );
-
-    // Ahora actualizar a posiciones finales
-    await prisma.$transaction(
-      playersWithStats.map((player, index) =>
-        prisma.groupPlayer.update({
-          where: { id: player.groupPlayerId },
-          data: { position: index + 1 }
-        })
-      )
-    );
-
-    playersWithStats.forEach((p, i) => {
-      console.log(`  Grupo ${group.number}: ${p.playerId} → posición ${i + 1}`);
-    });
+    console.log(`Posiciones recalculadas para ${groups.length} grupos`);
   }
-
-  console.log(`Posiciones recalculadas para ${groups.length} grupos`);
-}
 
   // ===============================
   // Cálculo unificado de movimientos CON SOPORTE SKIPPED
@@ -914,71 +910,71 @@ export class TournamentEngine {
   }
 
   private static async updateRankings(tournamentId: string, roundNumber: number) {
-  console.log(`Actualizando rankings para torneo ${tournamentId}, ronda ${roundNumber}`);
+    console.log(`Actualizando rankings para torneo ${tournamentId}, ronda ${roundNumber}`);
 
-  const playersStats = await prisma.$queryRaw<any[]>`
-  SELECT *
-  FROM (
-    SELECT 
-      p.id as "playerId",
-      p.name as "playerName",
-      COALESCE(SUM(gp.points), 0) as "totalPoints",
-      COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) as "roundsPlayed",
-      CASE 
-        WHEN COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) > 0 
-        THEN COALESCE(SUM(gp.points) / COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END), 0)
-        ELSE 0 
-      END as "averagePoints",
-      COALESCE(SUM(
-        CASE 
-          WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id 
-          THEN CASE WHEN m."team1Games" > m."team2Games" THEN 1 ELSE 0 END
-          WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id 
-          THEN CASE WHEN m."team2Games" > m."team1Games" THEN 1 ELSE 0 END
-          ELSE 0
-        END
-      ), 0) as "setsWon",
-      COALESCE(SUM(
-        CASE 
-          WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team1Games"
-          WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team2Games"
-          ELSE 0
-        END
-      ), 0) as "gamesWon",
-      COALESCE(SUM(
-        CASE 
-          WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team2Games"
-          WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team1Games"
-          ELSE 0
-        END
-      ), 0) as "gamesLost",
-      (
-        COALESCE(SUM(
+    const playersStats = await prisma.$queryRaw<any[]>`
+      SELECT *
+      FROM (
+        SELECT 
+          p.id as "playerId",
+          p.name as "playerName",
+          COALESCE(SUM(gp.points), 0) as "totalPoints",
+          COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) as "roundsPlayed",
           CASE 
-            WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team1Games"
-            WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team2Games"
-            ELSE 0
-          END
-        ), 0) 
-        -
-        COALESCE(SUM(
-          CASE 
-            WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team2Games"
-            WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team1Games"
-            ELSE 0
-          END
-        ), 0)
-      ) as "gamesDiff"
-    FROM "players" p
-    LEFT JOIN "group_players" gp ON p.id = gp."playerId"
-    LEFT JOIN "groups" g ON gp."groupId" = g.id
-    LEFT JOIN "rounds" r ON g."roundId" = r.id
-    LEFT JOIN "matches" m ON g.id = m."groupId" AND m."isConfirmed" = true
-    WHERE r."tournamentId" = ${tournamentId} AND r."isClosed" = true
-    GROUP BY p.id, p.name
-  ) stats
-  ORDER BY "averagePoints" DESC, "setsWon" DESC, "gamesDiff" DESC, "gamesWon" DESC
-`;
+            WHEN COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END) > 0 
+            THEN COALESCE(SUM(gp.points) / COUNT(CASE WHEN gp."usedComodin" = false THEN 1 END), 0)
+            ELSE 0 
+          END as "averagePoints",
+          COALESCE(SUM(
+            CASE 
+              WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id 
+              THEN CASE WHEN m."team1Games" > m."team2Games" THEN 1 ELSE 0 END
+              WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id 
+              THEN CASE WHEN m."team2Games" > m."team1Games" THEN 1 ELSE 0 END
+              ELSE 0
+            END
+          ), 0) as "setsWon",
+          COALESCE(SUM(
+            CASE 
+              WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team1Games"
+              WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team2Games"
+              ELSE 0
+            END
+          ), 0) as "gamesWon",
+          COALESCE(SUM(
+            CASE 
+              WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team2Games"
+              WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team1Games"
+              ELSE 0
+            END
+          ), 0) as "gamesLost",
+          (
+            COALESCE(SUM(
+              CASE 
+                WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team1Games"
+                WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team2Games"
+                ELSE 0
+              END
+            ), 0) 
+            -
+            COALESCE(SUM(
+              CASE 
+                WHEN m."team1Player1Id" = p.id OR m."team1Player2Id" = p.id THEN m."team2Games"
+                WHEN m."team2Player1Id" = p.id OR m."team2Player2Id" = p.id THEN m."team1Games"
+                ELSE 0
+              END
+            ), 0)
+          ) as "gamesDiff"
+        FROM "players" p
+        LEFT JOIN "group_players" gp ON p.id = gp."playerId"
+        LEFT JOIN "groups" g ON gp."groupId" = g.id
+        LEFT JOIN "rounds" r ON g."roundId" = r.id
+        LEFT JOIN "matches" m ON g.id = m."groupId" AND m."isConfirmed" = true
+        WHERE r."tournamentId" = ${tournamentId} AND r."isClosed" = true
+        GROUP BY p.id, p.name
+      ) stats
+      ORDER BY "averagePoints" DESC, "setsWon" DESC, "gamesDiff" DESC, "gamesWon" DESC
+    `;
 
     for (let i = 0; i < playersStats.length; i++) {
       const player = playersStats[i];
