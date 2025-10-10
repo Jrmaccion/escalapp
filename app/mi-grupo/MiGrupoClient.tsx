@@ -1209,7 +1209,7 @@ export default function MiGrupoClient() {
                             </div>
                             {!match.isConfirmed && !match.hasResult && match.id && (
                               <div className="mt-3">
-                                <Link href={`/set/${match.id}`}>
+                                <Link href={`/match/${match.id}`}>
                                   <Button size="sm" className="w-full bg-blue-600 hover:bg-blue-700">
                                     <Play className="w-4 h-4 mr-2" /> Introducir Resultado
                                   </Button>
