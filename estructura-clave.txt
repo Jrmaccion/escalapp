@@ -55,6 +55,8 @@
 \app\api\admin
 \app\api\admin\players
 \app\api\admin\players\route.ts
+\app\api\admin\recalculate-points
+\app\api\admin\recalculate-points\route.ts
 \app\api\admin\results
 \app\api\admin\results\route.ts
 \app\api\admin\substitute
@@ -222,6 +224,13 @@
 \backups\neon_full_20251003_223318.sql
 \backups\neon_full_20251003_224044.sql
 \backups\neon_full_20251003_233347.sql
+\backups\neon_full_20251006_225206.sql
+\backups\neon_full_20251006_230144.sql
+\backups\neon_full_20251006_230308.sql
+\backups\neon_full_20251006_231823.sql
+\backups\neon_full_20251006_231935.sql
+\backups\neon_full_20251006_232058.sql
+\backups\neon_full_20251006_232320.sql
 \components
 \components\admin
 \components\admin\AdminSubstituteManager.tsx
@@ -282,6 +291,7 @@
 \lib\buildPartyInfo.ts
 \lib\comodin.server.ts
 \lib\concurrency.ts
+\lib\db-locks.ts
 \lib\decorators.ts
 \lib\error-handler.ts
 \lib\group-manager.ts
@@ -339,6 +349,8 @@
 \scripts\genera-estructura.js
 \scripts\verify-integrity.ts
 \tailwind.config.ts
+\tmp
+\tmp\consulta.sql
 \tsconfig.json
 \tsconfig.tsbuildinfo
 \types

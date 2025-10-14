@@ -1,4 +1,4 @@
-// app/admin/AdminDashboardClient.tsx - CORRECCIONES MENORES + acción Recalcular Puntos
+// app/admin/AdminDashboardClient.tsx - COMPLETO CON TODAS LAS FUNCIONALIDADES
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
@@ -9,22 +9,220 @@ import {
   Trophy,
   CheckCircle,
   Clock,
-  FileText,
-  BarChart3,
   Play,
-  UserMinus,
   ChevronDown,
+  ChevronUp,
   Zap,
   Settings,
   Key,
-  RefreshCw
+  RefreshCw,
+  Eye,
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
 import { es } from "date-fns/locale";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import TournamentOverviewCard from "@/components/dashboard/TournamentOverviewCard";
+
+// 🔍 MANTENER: Componente auxiliar AdminTournamentOverview (backup si TournamentOverviewCard falla)
+function AdminTournamentOverview({ 
+  tournamentId, 
+  currentRound 
+}: { 
+  tournamentId: string; 
+  currentRound: SerializedRound;
+}) {
+  const [groupsData, setGroupsData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function fetchGroupsData() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Usar el endpoint de overview del torneo
+        const res = await fetch(`/api/tournaments/${tournamentId}/overview`);
+        
+        if (!res.ok) {
+          throw new Error(`Error ${res.status}: ${res.statusText}`);
+        }
+
+        const data = await res.json();
+        setGroupsData(data);
+      } catch (err) {
+        console.error("Error cargando vista de grupos:", err);
+        setError(err instanceof Error ? err.message : "Error desconocido");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    if (tournamentId) {
+      fetchGroupsData();
+    }
+  }, [tournamentId]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 animate-spin text-primary mx-auto mb-2" />
+          <p className="text-sm text-muted-foreground">Cargando grupos...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-8">
+        <p className="text-red-600 mb-4">Error al cargar los grupos: {error}</p>
+        <Button 
+          variant="outline" 
+          size="sm"
+          onClick={() => window.location.reload()}
+        >
+          <RefreshCw className="w-4 h-4 mr-2" />
+          Reintentar
+        </Button>
+      </div>
+    );
+  }
+
+  if (!groupsData?.groups || groupsData.groups.length === 0) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        No hay grupos disponibles en esta ronda.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {/* Estadísticas generales */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-muted/50 rounded-lg">
+        <div className="text-center">
+          <div className="text-2xl font-bold text-primary">{groupsData.groups.length}</div>
+          <div className="text-xs text-muted-foreground">Grupos</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-green-600">{groupsData.totalPlayers || 0}</div>
+          <div className="text-xs text-muted-foreground">Jugadores</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-orange-600">
+            {groupsData.completionPercentage || 0}%
+          </div>
+          <div className="text-xs text-muted-foreground">Completado</div>
+        </div>
+        <div className="text-center">
+          <div className="text-2xl font-bold text-blue-600">
+            Ronda {currentRound.number}
+          </div>
+          <div className="text-xs text-muted-foreground">Actual</div>
+        </div>
+      </div>
+
+      {/* Grid de grupos */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {groupsData.groups.map((group: any) => (
+          <Card key={group.id} className="hover:shadow-lg transition-shadow">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <CardTitle className="text-base">Grupo {group.number}</CardTitle>
+                  {group.level && (
+                    <Badge variant="outline" className="text-xs">
+                      {group.level}
+                    </Badge>
+                  )}
+                </div>
+                <Badge variant={group.setsCompleted === group.totalSets ? "default" : "secondary"}>
+                  {group.setsCompleted}/{group.totalSets} sets
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {group.members?.map((member: any, idx: number) => (
+                  <div
+                    key={member.playerId}
+                    className={`flex items-center justify-between p-2 rounded-lg border ${
+                      member.position === 1
+                        ? "bg-green-50 border-green-200"
+                        : member.position === 4
+                        ? "bg-red-50 border-red-200"
+                        : "bg-gray-50 border-gray-200"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${
+                          member.position === 1
+                            ? "bg-green-200 text-green-800"
+                            : member.position === 4
+                            ? "bg-red-200 text-red-800"
+                            : "bg-gray-200 text-gray-800"
+                        }`}
+                      >
+                        {member.position}
+                      </div>
+                      <div>
+                        <div className="font-medium text-sm">{member.name}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {member.points?.toFixed(1) || "0.0"} pts
+                        </div>
+                      </div>
+                    </div>
+                    {member.movement === "up" && (
+                      <ChevronUp className="w-4 h-4 text-green-600" />
+                    )}
+                    {member.movement === "down" && (
+                      <ChevronDown className="w-4 h-4 text-red-600" />
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              {/* Botón para ir al detalle del grupo */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-3"
+                asChild
+              >
+                <Link href={`/grupo/${group.id}`}>
+                  Ver detalles
+                  <ChevronDown className="w-3 h-3 ml-2 rotate-[-90deg]" />
+                </Link>
+              </Button>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      {/* Leyenda */}
+      <div className="flex flex-wrap items-center justify-center gap-6 text-sm p-4 bg-muted/50 rounded-lg">
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-green-200 rounded-full" />
+          <span>Sube de grupo</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-gray-200 rounded-full" />
+          <span>Se mantiene</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="w-4 h-4 bg-red-200 rounded-full" />
+          <span>Baja de grupo</span>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 type SerializedTournament = {
   id: string;
@@ -87,12 +285,15 @@ export default function AdminDashboardClient({
   const [recalcMessage, setRecalcMessage] = useState<string | null>(null);
   const [recalcError, setRecalcError] = useState<string | null>(null);
 
+  // 🆕 Estado para la vista global de grupos
+  const [showGroupsOverview, setShowGroupsOverview] = useState(false);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
   const selectedTournament = useMemo(
     () => tournaments.find(t => t.id === selectedTournamentId),
     [tournaments, selectedTournamentId]
   );
 
-  // Nota: si necesitas filtrar rounds por torneo, ajusta aquí.
   const selectedRounds = useMemo(
     () => rounds.filter(r => r.groupsCount > 0),
     [rounds]
@@ -130,7 +331,7 @@ export default function AdminDashboardClient({
     }
   };
 
-  // 👉 Acción: Recalcular puntos de la ronda actual
+  // Acción: Recalcular puntos de la ronda actual
   const handleRecalculatePoints = async () => {
     if (!currentRound?.id) return;
     const ok = window.confirm(
@@ -154,19 +355,15 @@ export default function AdminDashboardClient({
         throw new Error(text || `Fallo al recalcular (HTTP ${res.status})`);
       }
 
-      // Opcional: leer respuesta JSON si la API devuelve detalle
-      // const payload = await res.json();
-
       setRecalcMessage("Puntos recalculados correctamente.");
-      // refrescar datos: stats (cliente) + rounds/tournament (SSR)
       await loadTournamentStats(selectedTournamentId);
+      setRefreshTrigger(prev => prev + 1); // 🔄 Forzar refresh del overview
       router.refresh();
     } catch (e: any) {
       console.error("Recalcular puntos error:", e);
       setRecalcError(e?.message || "Error al recalcular puntos.");
     } finally {
       setIsRecalculating(false);
-      // Ocultar mensajes pasados 3s
       setTimeout(() => {
         setRecalcMessage(null);
         setRecalcError(null);
@@ -252,7 +449,7 @@ export default function AdminDashboardClient({
           <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
             <span>
               {format(new Date(selectedTournament.startDate), "d MMM yyyy", { locale: es })} 
-              — 
+              – 
               {format(new Date(selectedTournament.endDate), "d MMM yyyy", { locale: es })}
             </span>
             <Badge variant={selectedTournament.isActive ? "default" : "secondary"}>
@@ -309,7 +506,7 @@ export default function AdminDashboardClient({
         </div>
 
         {/* Quick Actions */}
-        <div className="grid grid-cols-1 md-grid-cols-2 md:grid-cols-2 gap-4 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
           <Link
             href="/admin/results"
             className="block p-4 bg-primary/5 hover:bg-primary/10 rounded-lg border border-primary/20 transition-colors"
@@ -340,6 +537,52 @@ export default function AdminDashboardClient({
             </Link>
           )}
         </div>
+
+        {/* 🆕 VISTA GLOBAL DE GRUPOS - Usando TournamentOverviewCard DIRECTAMENTE */}
+        {selectedTournament && selectedTournament.isActive && (
+          <Card className="mb-8">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Eye className="w-5 h-5" />
+                    Vista Global de Grupos
+                  </CardTitle>
+                  <CardDescription>
+                    Estado actual de todos los grupos del torneo
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowGroupsOverview(!showGroupsOverview)}
+                >
+                  {showGroupsOverview ? (
+                    <>
+                      <ChevronUp className="w-4 h-4 mr-2" />
+                      Ocultar
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="w-4 h-4 mr-2" />
+                      Mostrar todos los grupos
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardHeader>
+            {showGroupsOverview && (
+              <CardContent className="pt-6">
+                <TournamentOverviewCard 
+                  tournamentId={selectedTournament.id}
+                  compact={false}
+                  showOnlyUserGroup={false}
+                  refreshTrigger={refreshTrigger}
+                />
+              </CardContent>
+            )}
+          </Card>
+        )}
 
         {/* Ronda actual */}
         {currentRound && (
@@ -545,7 +788,6 @@ export default function AdminDashboardClient({
                       Validar Resultados
                     </Link>
                   </Button>
-                  {/* Duplicamos la acción aquí para tenerla también en este panel */}
                   <Button
                     size="sm"
                     className="w-full flex items-center gap-2"

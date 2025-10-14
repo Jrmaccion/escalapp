@@ -3,6 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import Breadcrumbs from "@/components/Breadcrumbs";
 import PlayerDashboardClient from "./PlayerDashboardClient";
 
@@ -29,6 +30,19 @@ export default async function DashboardPage() {
   }
 
   const isAdmin = !!session.user?.isAdmin;
+
+  // Check if user has a player profile
+  const player = await prisma.player.findUnique({
+    where: { userId: session.user.id },
+    select: { id: true, name: true }
+  });
+
+  const hasPlayerProfile = !!player;
+
+  // Redirect admin-only users (no player profile) to admin dashboard
+  if (isAdmin && !hasPlayerProfile) {
+    redirect("/admin");
+  }
 
   return (
     <div className="px-4 py-6 max-w-7xl mx-auto space-y-8">

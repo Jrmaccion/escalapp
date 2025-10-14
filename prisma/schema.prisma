@@ -118,6 +118,10 @@ model TournamentPlayer {
 
   @@unique([tournamentId, playerId])
   @@map("tournament_players")
+
+  // ✅ INDEXES OPTIMIZADOS - Phase 2
+  @@index([tournamentId])
+  @@index([playerId])
 }
 
 model Round {
@@ -138,9 +142,11 @@ model Round {
   @@unique([tournamentId, number])
   @@map("rounds")
 
-  // INDEXES CRÍTICOS
+  // ✅ INDEXES OPTIMIZADOS - Phase 2
   @@index([tournamentId, number])
+  @@index([tournamentId, isClosed])
   @@index([isClosed])
+  @@index([startDate, endDate])
 }
 
 model Group {
@@ -148,7 +154,7 @@ model Group {
   roundId String
   number  Int
   level   Int
-  
+
   // ✅ NUEVO: Estado del grupo y gestión de no disputados
   status        GroupStatus @default(PENDING)
   skippedReason String?
@@ -162,6 +168,11 @@ model Group {
 
   @@unique([roundId, number])
   @@map("groups")
+
+  // ✅ INDEXES OPTIMIZADOS - Phase 2
+  @@index([roundId])
+  @@index([roundId, level])
+  @@index([status])
 }
 
 model GroupPlayer {
@@ -232,9 +243,15 @@ model Match {
   @@unique([groupId, setNumber])
   @@map("matches")
 
-  // INDEXES CRÍTICOS
+  // ✅ INDEXES OPTIMIZADOS - Phase 2
   @@index([groupId, status])
+  @@index([groupId, isConfirmed])
   @@index([isConfirmed])
+  // Índices para búsquedas por jugador
+  @@index([team1Player1Id])
+  @@index([team1Player2Id])
+  @@index([team2Player1Id])
+  @@index([team2Player2Id])
 }
 
 model MatchResult {
@@ -267,6 +284,11 @@ model Ranking {
 
   @@unique([tournamentId, playerId, roundNumber])
   @@map("rankings")
+
+  // ✅ INDEXES OPTIMIZADOS - Phase 2
+  @@index([tournamentId, roundNumber])
+  @@index([tournamentId, playerId])
+  @@index([playerId])
 }
 
 // Historial de "rachas/continuidad"

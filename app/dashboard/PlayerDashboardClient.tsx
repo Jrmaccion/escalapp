@@ -28,6 +28,7 @@ import {
 import Link from "next/link";
 import { CurrentGroupCard } from "@/components/dashboard/CurrentGroupCard";
 import TournamentOverviewCard from "@/components/dashboard/TournamentOverviewCard";
+import { SkeletonDashboard } from "@/components/ui/skeleton";
 
 /** Tipos de API del Dashboard */
 type GroupMember = {
@@ -312,23 +313,8 @@ export default function PlayerDashboardClient() {
   if (loading || status === "loading") {
     return (
       <div className="min-h-screen bg-gradient-to-br from-orange-50 via-white to-red-50 py-8">
-        <div className="container mx-auto px-4 max-w-6xl space-y-6">
-          <div className="text-center space-y-4 animate-pulse">
-            <div className="inline-flex items-center gap-3 bg-white/80 backdrop-blur-sm rounded-full px-6 py-3 shadow-lg">
-              <div className="w-6 h-6 bg-orange-200 rounded-full" />
-              <div className="h-6 bg-orange-200 rounded w-32" />
-            </div>
-            <div className="flex items-center justify-center gap-4">
-              <div className="h-4 bg-gray-200 rounded w-48" />
-              <div className="h-6 bg-orange-200 rounded-full w-20" />
-            </div>
-          </div>
-          <div className="h-32 bg-gradient-to-r from-orange-200 via-red-100 to-orange-200 rounded-xl animate-pulse" />
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="h-24 bg-orange-100 rounded-lg animate-pulse" />
-            ))}
-          </div>
+        <div className="container mx-auto px-4 max-w-6xl">
+          <SkeletonDashboard />
           <div className="text-center mt-8">
             <div className="inline-flex items-center gap-2 text-gray-500">
               <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-orange-600" />

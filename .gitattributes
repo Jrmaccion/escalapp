@@ -1,23 +1,11 @@
-# Fuerza a Git a manejar los finales de línea de forma consistente
-* text=auto
-
-# Archivos de código → siempre LF en el repo
-*.js  text eol=lf
-*.jsx text eol=lf
-*.ts  text eol=lf
+* text=auto eol=lf
+*.bat eol=crlf
+*.cmd eol=crlf
+*.ps1 eol=crlf
+*.ts text eol=lf
 *.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
 *.json text eol=lf
-*.css text eol=lf
-*.scss text eol=lf
-*.md  text eol=lf
-*.sh  text eol=lf
-
-# Archivos binarios → no modificar nunca
-*.png binary
-*.jpg binary
-*.jpeg binary
-*.gif binary
-*.ico binary
-*.pdf binary
-*.zip binary
-*.rar binary
+*.md text eol=lf
+*.prisma text eol=lf

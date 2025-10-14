@@ -234,8 +234,35 @@ export default function Navigation() {
   const [showMore, setShowMore] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showAdmin, setShowAdmin] = useState(false);
+  const [hasPlayerProfile, setHasPlayerProfile] = useState<boolean | null>(null);
 
   const { notifications, markAsRead, refresh, lastFetch } = usePlayerNotifications();
+
+  // Check if user has player profile
+  useEffect(() => {
+    async function checkPlayerProfile() {
+      if (!session?.user?.id) {
+        setHasPlayerProfile(false);
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/player/check');
+        if (res.ok) {
+          const data = await res.json();
+          setHasPlayerProfile(data.hasProfile);
+          console.log('👤 Player profile check:', data.userRole);
+        } else {
+          setHasPlayerProfile(false);
+        }
+      } catch (error) {
+        console.error('Error checking player profile:', error);
+        setHasPlayerProfile(false);
+      }
+    }
+
+    checkPlayerProfile();
+  }, [session]);
 
   useEffect(() => setMounted(true), []);
   
@@ -325,13 +352,18 @@ export default function Navigation() {
     <nav className="bg-white shadow-sm border-b sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-16">
-          <Link href="/dashboard" className="flex items-center space-x-2">
+          <Link
+            href={hasPlayerProfile ? "/dashboard" : (canSeeAdmin ? "/admin" : "/dashboard")}
+            className="flex items-center space-x-2"
+          >
             {Brand}
           </Link>
 
           {/* Navegación principal (desktop) */}
-          <div className="hidden md:flex items-center space-x-2">
-            {primaryRoutes.map((route) => {
+          {/* Only show player routes if user has player profile */}
+          {hasPlayerProfile && (
+            <div className="hidden md:flex items-center space-x-2">
+              {primaryRoutes.map((route) => {
               const Icon = route.icon;
               const active = isActiveRoute(route.href);
               // Solo acciones que requieren ir a Mi Grupo
@@ -447,10 +479,51 @@ export default function Navigation() {
               </div>
             )}
           </div>
+          )}
+
+          {/* Admin-only users: Show admin routes as primary navigation */}
+          {!hasPlayerProfile && canSeeAdmin && (
+            <div className="hidden md:flex items-center space-x-2">
+              {ADMIN_ROUTES.map((route) => {
+                const Icon = route.icon;
+                const active = isActiveRoute(route.href);
+
+                return (
+                  <Link
+                    key={route.href}
+                    href={route.href}
+                    className={`relative px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                      active
+                        ? "bg-orange-600 text-white shadow-md"
+                        : "text-gray-700 hover:text-orange-600 hover:bg-orange-50"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {route.label}
+                  </Link>
+                );
+              })}
+
+              {/* Guía link for admin-only users */}
+              <Link
+                href="/guia-rapida"
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2 ${
+                  isActiveRoute("/guia-rapida")
+                    ? "bg-primary text-white shadow-md"
+                    : "text-gray-700 hover:text-primary hover:bg-primary/5"
+                }`}
+              >
+                <BookOpen className="w-4 h-4" />
+                Guía
+              </Link>
+            </div>
+          )}
 
           {/* Lado derecho */}
           <div className="flex items-center space-x-3">
             {/* Notificaciones - MEJORADAS */}
+            {/* Only show notifications for users with player profiles */}
+            {hasPlayerProfile && (
             <div className="relative">
               <button
                 className="relative p-2 text-gray-600 hover:text-primary hover:bg-primary/5 rounded-lg transition-colors"
@@ -563,6 +636,7 @@ export default function Navigation() {
                 </div>
               )}
             </div>
+            )}
 
             {/* Usuario + salir */}
             <div className="hidden sm:flex items-center space-x-3">

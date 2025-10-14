@@ -1,12 +1,19 @@
-// app/api/tournaments/[id]/overview/route.ts - OPTIMIZADA
+// app/api/tournaments/[id]/overview/route.ts - CON DEBUG COMPLETO
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
+import {
+  withErrorHandling,
+  requireAuth,
+  createSuccessResponse,
+  ApiErrorCode,
+  throwApiError
+} from "@/lib/api-errors";
 
 export const dynamic = 'force-dynamic';
 
-// Tipos para el response
 type PlayerInGroup = {
   playerId: string;
   name: string;
@@ -25,11 +32,26 @@ type PlayerInGroup = {
   };
 };
 
+type MatchResult = {
+  id: string;
+  setNumber: number;
+  team1Player1Id: string;
+  team1Player2Id: string;
+  team2Player1Id: string;
+  team2Player2Id: string;
+  team1Games: number | null;
+  team2Games: number | null;
+  tiebreakScore: string | null;
+  isConfirmed: boolean;
+  status: string;
+};
+
 type GroupOverview = {
   groupId: string;
   groupNumber: number;
   level: number;
   players: PlayerInGroup[];
+  matches: MatchResult[];
   scheduleStatus: "PENDING" | "DATE_PROPOSED" | "SCHEDULED" | "COMPLETED";
   scheduledDate: string | null;
   completedSets: number;
@@ -38,12 +60,12 @@ type GroupOverview = {
   completionPercentage: number;
 };
 
-// Función para calcular head-to-head
+// Funciones auxiliares
 function calculateH2H(playerId: string, matches: any[]): number {
   let h2hWins = 0;
   
   for (const match of matches) {
-    if (!match.isConfirmed) continue;
+    if (match.team1Games === null || match.team2Games === null) continue;
     
     const isInTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(playerId);
     const isInTeam2 = [match.team2Player1Id, match.team2Player2Id].includes(playerId);
@@ -58,17 +80,28 @@ function calculateH2H(playerId: string, matches: any[]): number {
   return h2hWins;
 }
 
-// Función para calcular sets y juegos ganados/perdidos
 function calculatePlayerStats(playerId: string, matches: any[]) {
   let setsWon = 0;
   let gamesWon = 0;
   let gamesLost = 0;
+
+  logger.debug("Calculando stats de jugador", { playerId, totalMatches: matches.length });
   
   for (const match of matches) {
-    if (!match.isConfirmed) continue;
-    
+    if (match.team1Games === null || match.team2Games === null) {
+      logger.debug("Match sin resultados", { setNumber: match.setNumber });
+      continue;
+    }
+
     const isInTeam1 = [match.team1Player1Id, match.team1Player2Id].includes(playerId);
     const isInTeam2 = [match.team2Player1Id, match.team2Player2Id].includes(playerId);
+
+    logger.debug("Procesando set", {
+      setNumber: match.setNumber,
+      isInTeam1,
+      isInTeam2,
+      score: `${match.team1Games}-${match.team2Games}`
+    });
     
     if (isInTeam1) {
       gamesWon += match.team1Games || 0;
@@ -84,11 +117,12 @@ function calculatePlayerStats(playerId: string, matches: any[]) {
       }
     }
   }
-  
+
+  logger.debug("Stats finales calculadas", { playerId, setsWon, gamesWon, gamesLost });
+
   return { setsWon, gamesWon, gamesLost };
 }
 
-// Función para determinar movimiento de escalera
 function calculateMovement(position: number, groupLevel: number, totalGroups: number) {
   const isTopGroup = groupLevel === 1;
   const isBottomGroup = groupLevel === totalGroups;
@@ -96,7 +130,7 @@ function calculateMovement(position: number, groupLevel: number, totalGroups: nu
   const isPenultimateGroup = groupLevel === totalGroups - 1;
   
   switch (position) {
-    case 1: // Primer lugar
+    case 1:
       if (isTopGroup) {
         return { type: 'same' as const, groups: 0, description: 'Se mantiene en grupo élite' };
       } else if (isSecondGroup) {
@@ -105,21 +139,21 @@ function calculateMovement(position: number, groupLevel: number, totalGroups: nu
         return { type: 'up' as const, groups: 2, description: 'Sube 2 grupos' };
       }
     
-    case 2: // Segundo lugar
+    case 2:
       if (isTopGroup) {
         return { type: 'same' as const, groups: 0, description: 'Se mantiene en grupo élite' };
       } else {
         return { type: 'up' as const, groups: 1, description: 'Sube 1 grupo' };
       }
     
-    case 3: // Tercer lugar
+    case 3:
       if (isBottomGroup) {
         return { type: 'same' as const, groups: 0, description: 'Se mantiene en grupo inferior' };
       } else {
         return { type: 'down' as const, groups: 1, description: 'Baja 1 grupo' };
       }
     
-    case 4: // Cuarto lugar
+    case 4:
       if (isBottomGroup) {
         return { type: 'same' as const, groups: 0, description: 'Se mantiene en grupo inferior' };
       } else if (isPenultimateGroup) {
@@ -133,104 +167,126 @@ function calculateMovement(position: number, groupLevel: number, totalGroups: nu
   }
 }
 
-// Función de comparación para ordenar jugadores (con desempates)
 function comparePlayersWithTiebreakers(
   a: { points: number; setsWon: number; gamesWon: number; gamesLost: number; h2hWins: number },
   b: { points: number; setsWon: number; gamesWon: number; gamesLost: number; h2hWins: number }
 ) {
-  // 1. Puntos (descendente)
   if (a.points !== b.points) return b.points - a.points;
-  
-  // 2. Sets ganados (descendente)
   if (a.setsWon !== b.setsWon) return b.setsWon - a.setsWon;
   
-  // 3. Diferencia de juegos (descendente)
   const aDiff = a.gamesWon - a.gamesLost;
   const bDiff = b.gamesWon - b.gamesLost;
   if (aDiff !== bDiff) return bDiff - aDiff;
-  
-  // 4. Head-to-head wins (descendente)
   if (a.h2hWins !== b.h2hWins) return b.h2hWins - a.h2hWins;
-  
-  // 5. Juegos ganados totales (descendente)
   if (a.gamesWon !== b.gamesWon) return b.gamesWon - a.gamesWon;
   
-  return 0; // Empate total
+  return 0;
 }
 
 export async function GET(
-  _req: NextRequest, 
+  _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  try {
+  return withErrorHandling(async () => {
     const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+    requireAuth(session);
 
     const tournamentId = params.id;
     const userId = session.user.id;
+    const isAdmin = session.user.isAdmin || false;
 
-    console.log(`[Tournament Overview] ${tournamentId} - Usuario: ${userId}`);
+    logger.apiRequest("GET", `/api/tournaments/${tournamentId}/overview`, { userId, isAdmin });
 
-    // Obtener playerId del usuario
-    const player = await prisma.player.findUnique({
-      where: { userId },
-      select: { id: true }
-    });
+    let playerId: string | null = null;
+    
+    if (!isAdmin) {
+      const player = await prisma.player.findUnique({
+        where: { userId },
+        select: { id: true }
+      });
 
-    if (!player) {
-      return NextResponse.json({ error: "No hay jugador asociado" }, { status: 401 });
-    }
-
-    const playerId = player.id;
-
-    // Verificar que el usuario participa en el torneo
-    const tournamentPlayer = await prisma.tournamentPlayer.findUnique({
-      where: {
-        tournamentId_playerId: { tournamentId, playerId }
+      if (!player) {
+        throwApiError(
+          ApiErrorCode.NOT_FOUND,
+          "No se encontró perfil de jugador asociado a tu cuenta"
+        );
       }
-    });
 
-    if (!tournamentPlayer) {
-      return NextResponse.json({ error: "No participas en este torneo" }, { status: 403 });
+      playerId = player.id;
+
+      const tournamentPlayer = await prisma.tournamentPlayer.findUnique({
+        where: {
+          tournamentId_playerId: { tournamentId, playerId }
+        }
+      });
+
+      if (!tournamentPlayer) {
+        throwApiError(
+          ApiErrorCode.FORBIDDEN,
+          "No tienes acceso a este torneo"
+        );
+      }
+    } else {
+      const player = await prisma.player.findUnique({
+        where: { userId },
+        select: { id: true }
+      });
+      playerId = player?.id || null;
+      logger.debug("Admin playerId", { playerId: playerId || 'ninguno' });
     }
 
-    // Obtener información completa del torneo y ronda actual
+    // ✅ OPTIMIZACIÓN: Cargar solo los campos necesarios para reducir transferencia de datos
     const tournament = await prisma.tournament.findUnique({
       where: { id: tournamentId },
-      include: {
+      select: {
+        id: true,
+        title: true,
+        totalRounds: true,
         rounds: {
           where: { isClosed: false },
           orderBy: { number: "asc" },
           take: 1,
-          include: {
+          select: {
+            id: true,
+            number: true,
             groups: {
-              include: {
+              select: {
+                id: true,
+                number: true,
+                level: true,
                 players: {
-                  include: { 
-                    player: { 
-                      include: { user: { select: { id: true, name: true } } } 
-                    } 
-                  }
+                  select: {
+                    playerId: true,
+                    points: true,
+                    streak: true,
+                    position: true,
+                    player: {
+                      select: {
+                        id: true,
+                        name: true,
+                        // No necesitamos cargar user, ya tenemos el nombre del player
+                      }
+                    }
+                  },
+                  orderBy: { points: "desc" }
                 },
                 matches: {
                   select: {
                     id: true,
                     setNumber: true,
+                    team1Player1Id: true,
+                    team1Player2Id: true,
+                    team2Player1Id: true,
+                    team2Player2Id: true,
+                    team1Games: true,
+                    team2Games: true,
+                    tiebreakScore: true,
+                    isConfirmed: true,
                     status: true,
                     proposedDate: true,
                     acceptedDate: true,
                     acceptedBy: true,
                     proposedById: true,
-                    isConfirmed: true,
-                    team1Games: true,
-                    team2Games: true,
-                    tiebreakScore: true,
-                    team1Player1Id: true,
-                    team1Player2Id: true,
-                    team2Player1Id: true,
-                    team2Player2Id: true
                   }
                 }
               },
@@ -242,25 +298,60 @@ export async function GET(
     });
 
     if (!tournament) {
-      return NextResponse.json({ error: "Torneo no encontrado" }, { status: 404 });
+      throwApiError(ApiErrorCode.NOT_FOUND, "Torneo no encontrado");
     }
 
     if (!tournament.rounds.length) {
-      return NextResponse.json({ error: "No hay rondas activas en este torneo" }, { status: 404 });
+      throwApiError(
+        ApiErrorCode.NOT_FOUND,
+        "No hay rondas activas en este torneo"
+      );
     }
 
     const currentRound = tournament.rounds[0];
+
+    const totalMatches = currentRound.groups.reduce((sum, g) => sum + g.matches.length, 0);
+    logger.debug("Ronda actual cargada", {
+      roundNumber: currentRound.number,
+      groupsCount: currentRound.groups.length,
+      totalMatches
+    });
+
+    logger.debug("Grupos cargados", {
+      groups: currentRound.groups.map(g => ({
+        number: g.number,
+        id: g.id,
+        matchesWithResults: g.matches.filter(m => m.team1Games !== null && m.team2Games !== null).length,
+        totalMatches: g.matches.length
+      }))
+    });
+    
     let userCurrentGroupId: string | undefined;
     const totalGroups = currentRound.groups.length;
 
-    // Procesar información de todos los grupos con cálculos mejorados
+    logger.debug("Procesando grupos", { roundNumber: currentRound.number, totalGroups });
+
     const groups: GroupOverview[] = currentRound.groups.map(group => {
-      // Calcular estadísticas avanzadas para cada jugador
+      logger.debug(`Procesando grupo ${group.number}`, {
+        matchesCount: group.matches.length,
+        players: group.players.map(gp => ({
+          name: gp.player.name,
+          playerId: gp.playerId,
+          points: gp.points
+        })),
+        matches: group.matches.map(match => ({
+          setNumber: match.setNumber,
+          score: `${match.team1Games}-${match.team2Games}`,
+          confirmed: match.isConfirmed,
+          status: match.status
+        }))
+      });
+      
       const playersWithStats = group.players.map(gp => {
         const stats = calculatePlayerStats(gp.playerId, group.matches);
         const h2hWins = calculateH2H(gp.playerId, group.matches);
-        
-        return {
+
+        const result = {
           playerId: gp.playerId,
           name: gp.player.name,
           points: gp.points || 0,
@@ -269,24 +360,36 @@ export async function GET(
           gamesWon: stats.gamesWon,
           gamesLost: stats.gamesLost,
           h2hWins,
-          isCurrentUser: gp.playerId === playerId
+          isCurrentUser: playerId ? gp.playerId === playerId : false
         };
+
+        logger.debug("Stats calculadas para jugador", { name: gp.player.name, stats: result });
+
+        return result;
       });
 
-      // Ordenar por criterios de desempate
       playersWithStats.sort(comparePlayersWithTiebreakers);
 
-      // Identificar si el usuario actual está en este grupo
-      const userInGroup = playersWithStats.find(p => p.isCurrentUser);
-      if (userInGroup) {
-        userCurrentGroupId = group.id;
+      if (playerId) {
+        const userInGroup = playersWithStats.find(p => p.isCurrentUser);
+        if (userInGroup) {
+          userCurrentGroupId = group.id;
+        }
       }
 
-      // Asignar posiciones y calcular movimientos
       const players: PlayerInGroup[] = playersWithStats.map((player, index) => {
         const position = index + 1;
         const movement = calculateMovement(position, group.level, totalGroups);
-        
+
+        logger.debug("Jugador procesado", {
+          groupNumber: group.number,
+          name: player.name,
+          position,
+          points: player.points,
+          setsWon: player.setsWon,
+          gamesDiff: `${player.gamesWon}-${player.gamesLost}`
+        });
+
         return {
           ...player,
           position,
@@ -294,7 +397,6 @@ export async function GET(
         };
       });
 
-      // Calcular estado de programación del grupo
       let scheduleStatus: "PENDING" | "DATE_PROPOSED" | "SCHEDULED" | "COMPLETED" = "PENDING";
       let scheduledDate: string | null = null;
       
@@ -308,45 +410,75 @@ export async function GET(
         }
       }
 
-      // Verificar si todos los sets están completados
       const completedSets = group.matches.filter(m => m.isConfirmed).length;
       const totalSets = group.matches.length;
+      
+      const setsWithResults = group.matches.filter(m => 
+        m.team1Games !== null && m.team2Games !== null
+      ).length;
+      
       const completionPercentage = totalSets > 0 ? Math.round((completedSets / totalSets) * 100) : 0;
+      const resultsPercentage = totalSets > 0 ? Math.round((setsWithResults / totalSets) * 100) : 0;
+
+      logger.debug("Progreso del grupo", {
+        groupNumber: group.number,
+        completedSets,
+        totalSets,
+        completionPercentage,
+        setsWithResults,
+        resultsPercentage
+      });
       
       if (completedSets === totalSets && totalSets > 0) {
         scheduleStatus = "COMPLETED";
       }
 
-      // Determinar si el usuario tiene acciones pendientes en este grupo
       let needsAction = false;
-      if (userInGroup) {
-        // Verificar si hay propuesta de fecha pendiente de respuesta del usuario
-        if (firstMatch?.proposedDate && firstMatch.status === "DATE_PROPOSED") {
-          const userAccepted = (firstMatch.acceptedBy || []).includes(userId);
-          const proposedByUser = firstMatch.proposedById === userId;
-          needsAction = !userAccepted && !proposedByUser;
-        }
+      if (playerId) {
+        const userInGroup = playersWithStats.find(p => p.isCurrentUser);
+        if (userInGroup) {
+          if (firstMatch?.proposedDate && firstMatch.status === "DATE_PROPOSED") {
+            const userAccepted = (firstMatch.acceptedBy || []).includes(userId);
+            const proposedByUser = firstMatch.proposedById === userId;
+            needsAction = !userAccepted && !proposedByUser;
+          }
 
-        // Verificar si hay sets sin jugar donde participa el usuario
-        const userMatches = group.matches.filter(match => 
-          [match.team1Player1Id, match.team1Player2Id, match.team2Player1Id, match.team2Player2Id]
-            .includes(playerId)
-        );
-        
-        const pendingUserMatches = userMatches.filter(match => 
-          !match.isConfirmed && match.team1Games === null && match.team2Games === null
-        );
-        
-        if (pendingUserMatches.length > 0) {
-          needsAction = true;
+          const userMatches = group.matches.filter(match => 
+            [match.team1Player1Id, match.team1Player2Id, match.team2Player1Id, match.team2Player2Id]
+              .includes(playerId)
+          );
+          
+          const pendingUserMatches = userMatches.filter(match => 
+            !match.isConfirmed && match.team1Games === null && match.team2Games === null
+          );
+          
+          if (pendingUserMatches.length > 0) {
+            needsAction = true;
+          }
         }
       }
+
+      // Format matches for response
+      const matches: MatchResult[] = group.matches.map(match => ({
+        id: match.id,
+        setNumber: match.setNumber,
+        team1Player1Id: match.team1Player1Id,
+        team1Player2Id: match.team1Player2Id,
+        team2Player1Id: match.team2Player1Id,
+        team2Player2Id: match.team2Player2Id,
+        team1Games: match.team1Games,
+        team2Games: match.team2Games,
+        tiebreakScore: match.tiebreakScore,
+        isConfirmed: match.isConfirmed,
+        status: match.status
+      }));
 
       return {
         groupId: group.id,
         groupNumber: group.number,
         level: group.level || group.number,
         players,
+        matches,
         scheduleStatus,
         scheduledDate,
         completedSets,
@@ -356,15 +488,14 @@ export async function GET(
       };
     });
 
-    // Calcular estadísticas generales
     const stats = {
       totalGroups: groups.length,
       scheduledGroups: groups.filter(g => g.scheduleStatus === "SCHEDULED").length,
       completedGroups: groups.filter(g => g.scheduleStatus === "COMPLETED").length,
       userPendingActions: groups.filter(g => g.needsAction).length,
-      averageCompletion: Math.round(
+      averageCompletion: groups.length > 0 ? Math.round(
         groups.reduce((sum, g) => sum + g.completionPercentage, 0) / groups.length
-      )
+      ) : 0
     };
 
     const response = {
@@ -373,19 +504,16 @@ export async function GET(
       currentRound: currentRound.number,
       totalRounds: tournament.totalRounds,
       groups,
-      userCurrentGroupId,
+      userCurrentGroupId: userCurrentGroupId || null,
       stats
     };
 
-    console.log(`[Tournament Overview] Procesados ${groups.length} grupos, completion promedio: ${stats.averageCompletion}%`);
+    logger.debug("Respuesta preparada", {
+      groupsCount: groups.length,
+      averageCompletion: stats.averageCompletion,
+      firstPlayerExample: groups[0]?.players[0]
+    });
 
-    return NextResponse.json(response);
-
-  } catch (error) {
-    console.error(`[Tournament Overview] Error:`, error);
-    return NextResponse.json(
-      { error: "Error interno del servidor" },
-      { status: 500 }
-    );
-  }
+    return createSuccessResponse(response);
+  });
 }

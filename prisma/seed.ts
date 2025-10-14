@@ -1,6 +1,7 @@
 /* prisma/seed.ts */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { requireLocalEnvironment, confirmDestructiveOperation } from "../scripts/safety-check";
 
 const prisma = new PrismaClient();
 
@@ -156,7 +157,18 @@ async function createRoundWithGroups(
 let allPlayers: { id: string; name: string }[] = [];
 
 async function main() {
-  console.log("🧹 Cleaning DB…");
+  // ⚠️ SAFETY: Ensure we're in a safe local environment
+  console.log("\n🔒 Safety Check - Verifying environment...\n");
+  requireLocalEnvironment();
+
+  // ⚠️ CONFIRMATION: This will DELETE ALL DATA
+  const confirmed = await confirmDestructiveOperation("Seed Database (DELETE ALL DATA)");
+  if (!confirmed) {
+    console.log("❌ Seed cancelled by user");
+    process.exit(0);
+  }
+
+  console.log("\n🧹 Cleaning DB…");
   await prisma.match.deleteMany({});
   await prisma.groupPlayer.deleteMany({});
   await prisma.group.deleteMany({});

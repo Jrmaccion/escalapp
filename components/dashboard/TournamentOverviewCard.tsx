@@ -51,11 +51,26 @@ type PlayerInGroup = {
   movement: PlayerMovement;
 };
 
+type MatchResult = {
+  id: string;
+  setNumber: number;
+  team1Player1Id: string;
+  team1Player2Id: string;
+  team2Player1Id: string;
+  team2Player2Id: string;
+  team1Games: number | null;
+  team2Games: number | null;
+  tiebreakScore: string | null;
+  isConfirmed: boolean;
+  status: string;
+};
+
 type GroupOverview = {
   groupId: string;
   groupNumber: number;
   level: number;
   players: PlayerInGroup[];
+  matches: MatchResult[];
   scheduleStatus: "PENDING" | "DATE_PROPOSED" | "SCHEDULED" | "COMPLETED";
   scheduledDate: string | null;
   completedSets: number;
@@ -491,6 +506,80 @@ export default function TournamentOverviewCard({
                           minute: '2-digit'
                         })}
                       </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Confirmed Match Results */}
+                {group.matches && group.matches.some(m => m.isConfirmed) && (
+                  <div className="mt-4">
+                    <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      Resultados Confirmados
+                    </h4>
+                    <div className="space-y-2">
+                      {group.matches
+                        .filter(match => match.isConfirmed && match.team1Games !== null && match.team2Games !== null)
+                        .map(match => {
+                          const team1Player1 = group.players.find(p => p.playerId === match.team1Player1Id);
+                          const team1Player2 = group.players.find(p => p.playerId === match.team1Player2Id);
+                          const team2Player1 = group.players.find(p => p.playerId === match.team2Player1Id);
+                          const team2Player2 = group.players.find(p => p.playerId === match.team2Player2Id);
+
+                          const team1Won = (match.team1Games || 0) > (match.team2Games || 0);
+
+                          return (
+                            <div
+                              key={match.id}
+                              className="p-3 bg-white/90 border border-gray-200 rounded-lg text-sm"
+                            >
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs text-gray-500 font-medium">Set {match.setNumber}</span>
+                                <Badge variant="outline" className="text-xs bg-green-50 text-green-700 border-green-300">
+                                  <CheckCircle className="w-3 h-3 mr-1" />
+                                  Confirmado
+                                </Badge>
+                              </div>
+
+                              <div className="space-y-2">
+                                {/* Team 1 */}
+                                <div className={`flex items-center justify-between p-2 rounded ${
+                                  team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
+                                }`}>
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900">
+                                      {team1Player1?.name || 'Jugador'} / {team1Player2?.name || 'Jugador'}
+                                    </div>
+                                  </div>
+                                  <div className={`text-lg font-bold px-3 ${team1Won ? 'text-green-700' : 'text-gray-600'}`}>
+                                    {match.team1Games}
+                                  </div>
+                                </div>
+
+                                {/* Team 2 */}
+                                <div className={`flex items-center justify-between p-2 rounded ${
+                                  !team1Won ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'
+                                }`}>
+                                  <div className="flex-1">
+                                    <div className="font-medium text-gray-900">
+                                      {team2Player1?.name || 'Jugador'} / {team2Player2?.name || 'Jugador'}
+                                    </div>
+                                  </div>
+                                  <div className={`text-lg font-bold px-3 ${!team1Won ? 'text-green-700' : 'text-gray-600'}`}>
+                                    {match.team2Games}
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Tiebreak score if exists */}
+                              {match.tiebreakScore && (
+                                <div className="mt-2 text-xs text-gray-600 text-center">
+                                  Tiebreak: {match.tiebreakScore}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
                     </div>
                   </div>
                 )}

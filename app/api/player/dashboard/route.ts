@@ -4,6 +4,14 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PartyManager } from "@/lib/party-manager";
+import { logger } from "@/lib/logger";
+import {
+  withErrorHandling,
+  requireAuth,
+  createSuccessResponse,
+  ApiErrorCode,
+  throwApiError
+} from "@/lib/api-errors";
 
 export const dynamic = "force-dynamic";
 
@@ -72,16 +80,13 @@ function computeTournamentMeta(
 }
 
 export async function GET(request: NextRequest) {
-  try {
-    console.log("🚀 GET /api/player/dashboard - Iniciando...");
-    
-    const session = await getServerSession(authOptions);
-    if (!session?.user?.id) {
-      console.log("❌ Usuario no autenticado");
-      return NextResponse.json({ error: "No autorizado" }, { status: 401 });
-    }
+  return withErrorHandling(async () => {
+    logger.apiRequest("GET", "/api/player/dashboard");
 
-    console.log("👤 Usuario autenticado:", session.user.email);
+    const session = await getServerSession(authOptions);
+    requireAuth(session);
+
+    logger.debug("Usuario autenticado", { email: session.user.email });
 
     // CRÍTICO: Obtener el playerId desde la tabla Player
     const player = await prisma.player.findUnique({
@@ -90,16 +95,19 @@ export async function GET(request: NextRequest) {
     });
 
     if (!player) {
-      console.log("❌ No se encontró perfil de jugador para userId:", session.user.id);
-      return NextResponse.json({ error: "No es un jugador registrado" }, { status: 401 });
+      logger.debug("No se encontró perfil de jugador", { userId: session.user.id });
+      throwApiError(
+        ApiErrorCode.NOT_FOUND,
+        "No se encontró perfil de jugador asociado a tu cuenta"
+      );
     }
 
     const playerId = player.id;
-    console.log("🎮 Jugador encontrado:", playerId, "-", player.name);
+    logger.debug("Jugador encontrado", { playerId, name: player.name });
 
     const url = new URL(request.url);
     const tournamentIdParam = url.searchParams.get("tournamentId");
-    console.log("🎯 Torneo solicitado via parámetro:", tournamentIdParam || "ninguno");
+    logger.debug("Torneo solicitado via parámetro", { tournamentId: tournamentIdParam || "ninguno" });
 
     // Traer TODOS los torneos activos donde participa el jugador
     const tournaments = await prisma.tournament.findMany({
@@ -116,9 +124,9 @@ export async function GET(request: NextRequest) {
       orderBy: { startDate: "desc" } // Más recientes primero
     });
 
-    console.log(`🏆 Torneos encontrados: ${tournaments.length}`);
-    tournaments.forEach(t => {
-      console.log(`  - ${t.title} (${t.id})`);
+    logger.debug("Torneos encontrados", {
+      count: tournaments.length,
+      tournaments: tournaments.map(t => ({ id: t.id, title: t.title }))
     });
 
     // Preparar lista de torneos disponibles para el frontend
@@ -134,10 +142,10 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    console.log("📋 Torneos disponibles preparados:", availableTournaments.length);
+    logger.debug("Torneos disponibles preparados", { count: availableTournaments.length });
 
     if (!tournaments.length) {
-      console.log("⚠️ Usuario no participa en ningún torneo activo");
+      logger.debug("Usuario no participa en ningún torneo activo");
       return NextResponse.json({
         activeTournament: null,
         availableTournaments: [],
@@ -165,15 +173,15 @@ export async function GET(request: NextRequest) {
       // Buscar el torneo específico solicitado
       const requestedTournament = tournaments.find(t => t.id === tournamentIdParam);
       if (requestedTournament) {
-        console.log("✅ Usando torneo específico solicitado:", requestedTournament.title);
+        logger.debug("Usando torneo específico solicitado", { title: requestedTournament.title });
         activeTournament = requestedTournament;
       } else {
-        console.log("⚠️ Torneo solicitado no encontrado, usando lógica automática");
+        logger.debug("Torneo solicitado no encontrado, usando lógica automática");
         activeTournament = tournaments[0]; // Fallback
       }
     } else {
       // Lógica automática para elegir torneo
-      console.log("🤖 Aplicando lógica automática para seleccionar torneo...");
+      logger.debug("Aplicando lógica automática para seleccionar torneo");
       
       activeTournament =
         // Preferir el que tenga una ronda "activa por fecha"
@@ -184,13 +192,13 @@ export async function GET(request: NextRequest) {
           const now = new Date();
           const isActiveByDate = !r.isClosed && r.startDate <= now && now <= r.endDate;
           if (isActiveByDate) {
-            console.log(`  ✅ Torneo ${t.title} tiene ronda activa por fecha`);
+            logger.debug("Torneo con ronda activa por fecha", { title: t.title });
           }
           return isActiveByDate;
         }) ||
         // Si ninguno activo ahora, el que tenga la PRÓXIMA ronda más cercana
         (() => {
-          console.log("🔍 Buscando torneo con próxima ronda más cercana...");
+          logger.debug("Buscando torneo con próxima ronda más cercana");
           const scored = tournaments
             .map((t) => {
               const upcoming = [...t.rounds]
@@ -199,9 +207,9 @@ export async function GET(request: NextRequest) {
               return { t, nextStart: upcoming[0]?.startDate?.getTime() ?? Number.MAX_SAFE_INTEGER };
             })
             .sort((a, b) => a.nextStart - b.nextStart);
-          
+
           if (scored[0]?.nextStart !== Number.MAX_SAFE_INTEGER) {
-            console.log(`  ✅ Torneo ${scored[0].t.title} tiene la próxima ronda más cercana`);
+            logger.debug("Torneo con próxima ronda más cercana", { title: scored[0].t.title });
           }
           return scored[0]?.t;
         })() ||
@@ -209,12 +217,12 @@ export async function GET(request: NextRequest) {
         tournaments[0];
     }
 
-    console.log("🎯 Torneo seleccionado final:", activeTournament.title);
+    logger.debug("Torneo seleccionado final", { title: activeTournament.title });
 
     const meta = computeTournamentMeta(activeTournament);
     const currentRound = meta.current;
 
-    console.log("📅 Ronda actual:", currentRound?.number || "ninguna");
+    logger.debug("Ronda actual", { roundNumber: currentRound?.number || "ninguna" });
 
     // ✅ GRUPO ACTUAL AMPLIADO - Incluir información completa del grupo
     const currentGroup = currentRound
@@ -233,10 +241,10 @@ export async function GET(request: NextRequest) {
         })
       : null;
 
-    console.log("👥 Grupo actual:", currentGroup?.number || "ninguno");
+    logger.debug("Grupo actual", { groupNumber: currentGroup?.number || "ninguno" });
 
     const playerInGroup = currentGroup?.players.find((p) => p.playerId === playerId) ?? null;
-    console.log("📍 Posición en grupo:", playerInGroup?.position || "sin posición");
+    logger.debug("Posición en grupo", { position: playerInGroup?.position || "sin posición" });
 
     // ✅ CALCULAR POSICIONES REALES basadas en puntos
     const sortedByPoints = currentGroup?.players
@@ -250,9 +258,9 @@ export async function GET(request: NextRequest) {
     if (currentGroup) {
       try {
         currentParty = await PartyManager.getParty(currentGroup.id, playerId);
-        console.log("🎉 Party encontrado:", currentParty?.status || "ninguno");
+        logger.debug("Party encontrado", { status: currentParty?.status || "ninguno" });
       } catch (error) {
-        console.log("⚠️ Error obteniendo party:", error);
+        logger.debug("Error obteniendo party", { error });
       }
     }
 
@@ -271,24 +279,34 @@ export async function GET(request: NextRequest) {
       orderBy: { setNumber: "asc" },
     });
 
-    console.log("🔍 Matches encontrados:", myMatches.length);
+    logger.debug("Matches encontrados", { count: myMatches.length });
 
-    // Mapa de nombres para los matches
-    const allPlayerIds = [
-      ...new Set(
-        myMatches.flatMap((m) => [m.team1Player1Id, m.team1Player2Id, m.team2Player1Id, m.team2Player2Id])
-      ),
-    ];
-    
-    const matchPlayers = await prisma.player.findMany({ 
-      where: { id: { in: allPlayerIds } },
-      select: { id: true, name: true }
-    });
-    
-    const nameById = matchPlayers.reduce<Record<string, string>>((acc, p) => {
-      acc[p.id] = p.name;
-      return acc;
-    }, {});
+    // ✅ OPTIMIZACIÓN: Reutilizar nombres de jugadores del grupo ya cargado
+    // Esto elimina una consulta N+1 adicional
+    const nameById = currentGroup
+      ? currentGroup.players.reduce<Record<string, string>>((acc, gp) => {
+          acc[gp.playerId] = gp.player.name;
+          return acc;
+        }, {})
+      : {};
+
+    // Si faltan jugadores (caso edge), cargar solo los faltantes
+    const knownPlayerIds = new Set(Object.keys(nameById));
+    const allPlayerIds = new Set(
+      myMatches.flatMap((m) => [m.team1Player1Id, m.team1Player2Id, m.team2Player1Id, m.team2Player2Id])
+    );
+    const missingPlayerIds = Array.from(allPlayerIds).filter(id => !knownPlayerIds.has(id));
+
+    if (missingPlayerIds.length > 0) {
+      logger.debug("Cargando jugadores faltantes", { count: missingPlayerIds.length });
+      const additionalPlayers = await prisma.player.findMany({
+        where: { id: { in: missingPlayerIds } },
+        select: { id: true, name: true }
+      });
+      additionalPlayers.forEach(p => {
+        nameById[p.id] = p.name;
+      });
+    }
 
     const formattedMatches = myMatches.map((m) => ({
       id: m.id,
@@ -350,7 +368,7 @@ export async function GET(request: NextRequest) {
       orderBy: { roundNumber: "desc" },
     });
 
-    console.log("📊 Ranking encontrado:", latestRanking?.position || "sin ranking");
+    logger.debug("Ranking encontrado", { position: latestRanking?.position || "sin ranking" });
 
     // Calcular matches pendientes
     const matchesPending = formattedMatches.filter(m => 
@@ -466,19 +484,8 @@ export async function GET(request: NextRequest) {
       },
     };
 
-    console.log("✅ Respuesta preparada exitosamente");
-    console.log("📋 Metadata:", response._metadata);
-    
-    return NextResponse.json(response);
+    logger.debug("Respuesta preparada exitosamente", { metadata: response._metadata });
 
-  } catch (error) {
-    console.error("❌ Error en GET /api/player/dashboard:", error);
-    return NextResponse.json(
-      { 
-        error: "Error interno del servidor",
-        details: error instanceof Error ? error.message : "Unknown error"
-      }, 
-      { status: 500 }
-    );
-  }
+    return createSuccessResponse(response);
+  });
 }
