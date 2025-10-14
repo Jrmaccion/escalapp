@@ -44,15 +44,20 @@ export class LRUCache<K, V> {
     return item.value;
   }
 
-  /**
+   /**
    * Set a value in the cache
    */
   set(key: K, value: V): void {
     // Remove oldest item if cache is full
     if (this.cache.size >= this.maxSize) {
-      const firstKey = this.cache.keys().next().value;
-      this.cache.delete(firstKey);
-      logger.debug("Cache eviction", { evictedKey: String(firstKey) });
+      // ✅ Extracción segura del primer key (evita K | undefined)
+      const iter = this.cache.keys();
+      const first = iter.next();
+      if (!first.done) {
+        const oldestKey = first.value as K;
+        this.cache.delete(oldestKey);
+        logger.debug("Cache eviction", { evictedKey: String(oldestKey) });
+      }
     }
 
     this.cache.set(key, {
