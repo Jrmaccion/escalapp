@@ -40,8 +40,16 @@ export default async function DashboardPage() {
   const hasPlayerProfile = !!player;
 
   // Redirect admin-only users (no player profile) to admin dashboard
-  if (isAdmin && !hasPlayerProfile) {
-    redirect("/admin");
+  if (!hasPlayerProfile) {
+    // User doesn't have player profile
+    if (isAdmin) {
+      // Admin without player profile -> go to admin
+      redirect("/admin");
+    } else {
+      // Regular user without player profile -> error/create profile page
+      // For now, redirect to admin (could be a "create profile" page later)
+      redirect("/admin");
+    }
   }
 
   return (

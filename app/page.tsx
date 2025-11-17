@@ -8,8 +8,8 @@ export default async function HomePage() {
   const session = await getServerSession(authOptions);
 
   if (session) {
-    const isAdmin = (session.user as any)?.isAdmin;
-    redirect(isAdmin ? "/admin" : "/dashboard");
+    // Redirigir a /dashboard siempre (maneja lógica de admin allí)
+    redirect("/dashboard");
   }
 
   // Página pública

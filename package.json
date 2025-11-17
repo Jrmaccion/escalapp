@@ -47,7 +47,11 @@
     "create-admin:prod": "dotenv -e .env.production.local -- tsx scripts/create-admin.ts",
 
     "_comment_utils": "========== Utilities ==========",
-    "estructura": "node scripts/genera-estructura.js"
+    "estructura": "node scripts/genera-estructura.js",
+    "diagnose-round": "tsx scripts/diagnose-round.ts",
+    "diagnose-round:prod": "dotenv -e .env.production.local -- tsx scripts/diagnose-round.ts",
+    "fix-stuck-round": "tsx scripts/fix-stuck-round.ts",
+    "fix-stuck-round:prod": "dotenv -e .env.production.local -- tsx scripts/fix-stuck-round.ts"
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",

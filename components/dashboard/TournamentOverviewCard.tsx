@@ -82,7 +82,7 @@ type GroupOverview = {
 type TournamentOverviewData = {
   tournamentId: string;
   tournamentTitle: string;
-  currentRound: number;
+  currentRound: number | null;
   totalRounds: number;
   groups: GroupOverview[];
   userCurrentGroupId?: string;
@@ -93,6 +93,8 @@ type TournamentOverviewData = {
     userPendingActions: number;
     averageCompletion: number;
   };
+  hasActiveRound?: boolean;
+  message?: string;
 };
 
 type Props = {
@@ -282,6 +284,21 @@ export default function TournamentOverviewCard({
     );
   }
 
+  if (data.hasActiveRound === false) {
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="flex flex-col items-center justify-center gap-3 text-center py-8">
+            <AlertCircle className="w-10 h-10 text-orange-500" />
+            <p className="text-sm text-muted-foreground max-w-md">
+              {data.message ?? "Este torneo no tiene una ronda activa en este momento. Activa una ronda para ver el estado de los grupos."}
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   const userGroup = data.groups.find(g => g.groupId === data.userCurrentGroupId);
   const groupsToShow = showOnlyUserGroup && userGroup ? [userGroup] : data.groups;
   const visibleGroups = showAllGroups ? groupsToShow : groupsToShow.slice(0, 6);
@@ -294,7 +311,7 @@ export default function TournamentOverviewCard({
           <div className="flex items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Trophy className="w-5 h-5 text-blue-600" />
-              {data.tournamentTitle} - Ronda {data.currentRound}
+              {data.tournamentTitle} - Ronda {data.currentRound ?? "-"}
             </CardTitle>
             <div className="flex items-center gap-2">
               <Button

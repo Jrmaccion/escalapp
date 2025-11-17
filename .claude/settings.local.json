@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run:*)"
+      "Bash(npm run:*)",
+      "Bash(dotenv -e .env.production.local -- tsx:*)",
+      "Bash(npx dotenv-cli:*)"
     ],
     "deny": [],
     "ask": []

@@ -160,40 +160,40 @@ function usePlayerNotifications() {
    Rutas
    ========================= */
 const PLAYER_ROUTES = [
-  { 
-    href: "/dashboard", 
-    label: "Inicio", 
-    icon: Home, 
-    priority: "primary", 
-    description: "Tu resumen personal" 
+  {
+    href: "/dashboard",
+    label: "Inicio",
+    icon: Home,
+    priority: "primary",
+    description: "Tu resumen personal"
   },
-  { 
-    href: "/mi-grupo", 
-    label: "Mi Grupo", 
-    icon: Users, 
-    priority: "primary", 
-    description: "Grupo actual y partidos" 
+  {
+    href: "/mi-grupo",
+    label: "Mi Grupo",
+    icon: Users,
+    priority: "primary",
+    description: "Grupo actual y partidos"
   },
-  { 
-    href: "/clasificaciones", 
-    label: "Rankings", 
-    icon: Trophy, 
-    priority: "secondary", 
-    description: "Clasificación general" 
+  {
+    href: "/clasificaciones",
+    label: "Rankings",
+    icon: Trophy,
+    priority: "primary",
+    description: "Clasificación general"
   },
-  { 
-    href: "/historial", 
-    label: "Historial", 
-    icon: Calendar, 
-    priority: "secondary", 
-    description: "Tus partidos anteriores" 
+  {
+    href: "/historial",
+    label: "Historial",
+    icon: Calendar,
+    priority: "secondary",
+    description: "Tus partidos anteriores"
   },
-  { 
-    href: "/guia-rapida", 
-    label: "Guía", 
-    icon: BookOpen, 
-    priority: "tertiary", 
-    description: "Aprende cómo funciona" 
+  {
+    href: "/guia-rapida",
+    label: "Guía",
+    icon: BookOpen,
+    priority: "secondary",
+    description: "Aprende cómo funciona"
   },
 ];
 
@@ -390,46 +390,48 @@ export default function Navigation() {
               );
             })}
 
-            {/* Más (secundario) */}
-            <div className="relative">
-              <button
-                onClick={() => setShowMore(!showMore)}
-                className="px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-primary hover:bg-primary/5 flex items-center gap-2"
-              >
-                <BookOpen className="w-4 h-4" />
-                Más
-                <ChevronDown className="w-3 h-3" />
-              </button>
-              
-              {showMore && (
-                <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border py-2 z-50">
-                  {secondaryRoutes.map((route) => {
-                    const Icon = route.icon;
-                    const active = isActiveRoute(route.href);
-                    
-                    return (
-                      <Link
-                        key={route.href}
-                        href={route.href}
-                        className={`block px-4 py-3 text-sm transition-colors hover:bg-gray-50 ${
-                          active 
-                            ? "text-primary bg-primary/5 border-r-2 border-primary" 
-                            : "text-gray-700"
-                        }`}
-                      >
-                        <div className="flex items-center gap-3">
-                          <Icon className="w-4 h-4" />
-                          <div>
-                            <div className="font-medium">{route.label}</div>
-                            <div className="text-xs text-gray-500">{route.description}</div>
+            {/* Más (secundario) - Solo si hay rutas secundarias */}
+            {secondaryRoutes.length > 0 && (
+              <div className="relative">
+                <button
+                  onClick={() => setShowMore(!showMore)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium text-gray-700 hover:text-primary hover:bg-primary/5 flex items-center gap-2"
+                >
+                  <BookOpen className="w-4 h-4" />
+                  Más
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+
+                {showMore && (
+                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border py-2 z-50">
+                    {secondaryRoutes.map((route) => {
+                      const Icon = route.icon;
+                      const active = isActiveRoute(route.href);
+
+                      return (
+                        <Link
+                          key={route.href}
+                          href={route.href}
+                          className={`block px-4 py-3 text-sm transition-colors hover:bg-gray-50 ${
+                            active
+                              ? "text-primary bg-primary/5 border-r-2 border-primary"
+                              : "text-gray-700"
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <Icon className="w-4 h-4" />
+                            <div>
+                              <div className="font-medium">{route.label}</div>
+                              <div className="text-xs text-gray-500">{route.description}</div>
+                            </div>
                           </div>
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Admin (dropdown) */}
             {canSeeAdmin && (
@@ -438,34 +440,43 @@ export default function Navigation() {
                   onClick={() => setShowAdmin(!showAdmin)}
                   className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                     pathname.startsWith("/admin")
-                      ? "bg-orange-100 text-orange-700"
-                      : "text-gray-600 hover:text-orange-600 hover:bg-orange-50"
+                      ? "bg-orange-600 text-white shadow-md"
+                      : "text-orange-700 border border-orange-300 hover:bg-orange-50"
                   }`}
                   title="Administración"
                 >
                   <Settings className="w-4 h-4" />
-                  Admin
+                  <span className="font-semibold">Admin</span>
                   <ChevronDown className="w-3 h-3" />
                 </button>
-                
+
                 {showAdmin && (
-                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border py-2 z-50">
+                  <div className="absolute right-0 mt-2 w-72 bg-white rounded-lg shadow-xl border-2 border-orange-200 py-2 z-50">
+                    <div className="px-4 py-2 bg-orange-50 border-b border-orange-200">
+                      <p className="text-xs font-semibold text-orange-900 uppercase tracking-wide">
+                        Panel de Administración
+                      </p>
+                    </div>
                     {ADMIN_ROUTES.map((route) => {
                       const Icon = route.icon;
                       const active = isActiveRoute(route.href);
-                      
+
                       return (
                         <Link
                           key={route.href}
                           href={route.href}
-                          className={`block px-4 py-3 text-sm transition-colors hover:bg-gray-50 ${
-                            active 
-                              ? "text-orange-700 bg-orange-50 border-r-2 border-orange-400" 
+                          className={`block px-4 py-3 text-sm transition-colors hover:bg-orange-50 ${
+                            active
+                              ? "text-orange-700 bg-orange-50 border-r-4 border-orange-600 font-medium"
                               : "text-gray-700"
                           }`}
                         >
                           <div className="flex items-center gap-3">
-                            <Icon className="w-4 h-4" />
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                              active ? "bg-orange-100" : "bg-gray-100"
+                            }`}>
+                              <Icon className="w-4 h-4" />
+                            </div>
                             <div>
                               <div className="font-medium">{route.label}</div>
                               <div className="text-xs text-gray-500">{route.description}</div>

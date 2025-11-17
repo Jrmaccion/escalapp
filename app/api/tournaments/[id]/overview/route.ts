@@ -291,7 +291,24 @@ export async function GET(
     }
 
     if (!tournament.rounds.length) {
-      throwApiError(ApiErrorCode.NOT_FOUND, "No hay rondas activas en este torneo");
+      logger.debug("Torneo sin rondas activas", { tournamentId });
+      return createSuccessResponse({
+        tournamentId: tournament.id,
+        tournamentTitle: tournament.title,
+        currentRound: null,
+        totalRounds: tournament.totalRounds,
+        groups: [],
+        stats: {
+          totalGroups: 0,
+          scheduledGroups: 0,
+          completedGroups: 0,
+          userPendingActions: 0,
+          averageCompletion: 0,
+        },
+        userCurrentGroupId: null,
+        hasActiveRound: false,
+        message: "No hay rondas activas en este torneo",
+      });
     }
 
     const currentRound = tournament.rounds[0];

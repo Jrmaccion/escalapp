@@ -6,9 +6,9 @@ import RegisterForm from './RegisterForm';
 
 export default async function RegisterPage() {
   const session = await getServerSession(authOptions);
-  
+
   if (session) {
-    redirect(session.user.isAdmin ? '/admin/dashboard' : '/dashboard');
+    redirect(session.user.isAdmin ? '/admin' : '/dashboard');
   }
 
   return <RegisterForm />;

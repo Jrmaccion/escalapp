@@ -188,12 +188,6 @@ export default async function AdminRankingsPage({
     }));
   }
 
-  const serializedTournament = {
-    id: tournament.id,
-    title: tournament.title,
-    currentRound: refRoundNumber,
-    totalRounds: tournament.rounds[0]?.number ?? refRoundNumber,
-  };
-
-  return <RankingsClient rankings={playersWithStats} tournament={serializedTournament} />;
+  // ✅ REFACTORIZADO: Solo pasar tournamentId, el componente hace fetch interno
+  return <RankingsClient initialTournamentId={tournament.id} />;
 }

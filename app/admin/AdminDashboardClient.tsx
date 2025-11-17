@@ -93,6 +93,14 @@ function AdminTournamentOverview({
     );
   }
 
+  if (groupsData?.hasActiveRound === false) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        {groupsData.message ?? "Este torneo no tiene una ronda activa en este momento."}
+      </div>
+    );
+  }
+
   if (!groupsData?.groups || groupsData.groups.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">

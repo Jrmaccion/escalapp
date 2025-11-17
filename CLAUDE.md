@@ -20,6 +20,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 # Development
 npm run dev                    # Start dev server on localhost:3000
+npm run dev:setup              # Initialize dev environment (DB + seed)
+npm run dev:setup:quick        # Quick dev setup (minimal seed)
 npm run build                  # Production build
 npm run start                  # Start production server
 
@@ -27,26 +29,32 @@ npm run start                  # Start production server
 npm run type-check             # TypeScript type checking (no emit)
 npm run lint                   # Run ESLint
 
-# Database operations
+# Database operations (Local Dev)
 npm run db:generate            # Generate Prisma client
-npm run db:migrate             # Run migrations in dev
-npm run db:deploy              # Deploy migrations (production)
+npm run db:migrate             # Run migrations in dev (uses .env.local)
+npm run db:push                # Push schema without migration
 npm run db:studio              # Open Prisma Studio GUI
 npm run db:seed                # Seed database with example data
-npm run db:reset               # Reset DB and reseed (dev only)
+npm run db:reset-local         # Reset local DB and reseed (SAFE)
+npm run db:pull-schema         # Pull schema from production (read-only)
+npm run db:restore-from-prod   # Restore local DB from production backup
 
-# Production database operations
+# Production database operations (DANGEROUS)
 npm run db:deploy:prod         # Deploy migrations to production DB
 npm run create-admin:prod      # Create admin user in production
-npm run clean-neon             # Clean production database (DANGEROUS)
+npm run clean-neon             # Clean production database (REQUIRES CONFIRMATION)
 
 # Admin utilities
 npm run create-admin           # Create admin user interactively
 npm run estructura             # Generate project structure documentation
 ```
 
-### Testing Database Operations
-Always test database migrations locally before deploying to production. Use `db:reset` to start fresh during development.
+### Environment Files
+- `.env.local` - Local development (used by default for db commands)
+- `.env.production.local` - Production credentials (for prod db operations)
+- `.env.example` - Template with required variables
+
+Always use `.env.local` for development. Production commands explicitly use `.env.production.local` via dotenv-cli.
 
 ## Architecture
 
@@ -151,9 +159,12 @@ Groups that aren't played receive special handling:
 
 **API Conventions:**
 - All routes use `NextResponse.json()` for responses
+- Use `withErrorHandling()` wrapper from `lib/api-errors.ts` for consistent error handling
+- Use `createSuccessResponse()` for standardized success responses
 - Admin routes check `session.user.isAdmin`
 - Player routes check `session.user.playerId`
 - Use Prisma transactions for multi-step operations
+- Use `logger` from `lib/logger.ts` for debugging (logger.debug, logger.apiRequest, logger.error)
 
 ### Critical Modules
 
@@ -190,6 +201,19 @@ Groups that aren't played receive special handling:
 - Validates match results before confirmation
 - Ensures proposer/confirmer are different players
 - Checks score validity (games, tiebreak)
+
+**lib/api-errors.ts - Standardized Error Handling**
+- `withErrorHandling(handler)` - Wraps API routes with try/catch and error formatting
+- `throwApiError(code, message)` - Throws standardized API errors
+- `requireAuth(session)` - Validates session exists
+- `createSuccessResponse(data)` - Formats success responses consistently
+- Error codes: NOT_FOUND, FORBIDDEN, BAD_REQUEST, INTERNAL_ERROR, UNAUTHORIZED
+
+**lib/logger.ts - Structured Logging**
+- `logger.debug(message, data)` - Debug information
+- `logger.apiRequest(method, path, data)` - Log API requests
+- `logger.error(message, error)` - Log errors with stack traces
+- Used throughout API routes for debugging (replaces console.log)
 
 ### Client-Side Architecture
 
@@ -316,12 +340,55 @@ toast.loading('Procesando...');
 ### Adding New API Endpoint
 
 1. Create file: `app/api/[resource]/[action]/route.ts`
-2. Export `GET`, `POST`, `PUT`, `DELETE` handlers
-3. Check authentication: `await getServerSession(authOptions)`
-4. Validate input with Zod or manual checks
-5. Use Prisma transaction if multi-step
-6. Return `NextResponse.json(data, { status: 200 })`
-7. Handle errors with appropriate status codes
+2. Export `GET`, `POST`, `PUT`, `DELETE` handlers with modern patterns:
+
+```typescript
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
+import { logger } from "@/lib/logger";
+import {
+  withErrorHandling,
+  requireAuth,
+  createSuccessResponse,
+  throwApiError,
+  ApiErrorCode,
+} from "@/lib/api-errors";
+
+export async function POST(req: NextRequest) {
+  return withErrorHandling(async () => {
+    // 1. Authenticate
+    const session = await getServerSession(authOptions);
+    requireAuth(session);
+
+    // 2. Log request
+    logger.apiRequest("POST", "/api/resource/action", { userId: session.user.id });
+
+    // 3. Validate input
+    const body = await req.json();
+    if (!body.requiredField) {
+      throwApiError(ApiErrorCode.BAD_REQUEST, "Missing required field");
+    }
+
+    // 4. Check permissions
+    if (!session.user.isAdmin) {
+      throwApiError(ApiErrorCode.FORBIDDEN, "Admin access required");
+    }
+
+    // 5. Perform operation (use transaction if multi-step)
+    const result = await prisma.resource.create({
+      data: body,
+    });
+
+    // 6. Return success
+    return createSuccessResponse(result);
+  });
+}
+```
+
+3. Add error handling for specific business logic errors
+4. Use `logger.debug()` for debugging complex operations
 
 ### Debugging Match/Group Issues
 
@@ -390,12 +457,23 @@ When modifying core logic:
 
 ## Code Style
 
+**TypeScript & Naming:**
 - TypeScript strict mode enabled
 - Use explicit return types for exported functions
+- PascalCase for components, camelCase for variables, SCREAMING_SNAKE_CASE for exported constants
 - Prefer async/await over Promise chains
+
+**Formatting:**
+- Prettier defaults: 2-space indentation, semicolons on, double quotes
+- Keep Tailwind classes grouped: layout → spacing → color
+- Extract complex class sets into `cn()` helpers from `lib/utils.ts`
+
+**Best Practices:**
 - Use Prisma transactions for multi-step database operations
-- Log important operations with `console.log` (especially in tournament-engine)
-- Handle errors gracefully and return user-friendly messages
+- Use `logger` from `lib/logger.ts` (not console.log) for debugging
+- Handle errors gracefully with `withErrorHandling()` and `throwApiError()` from `lib/api-errors.ts`
+- Server actions or API routes for mutations (keep Prisma calls in service modules)
+- Return user-friendly error messages
 
 ## Prisma Tips
 
@@ -419,9 +497,53 @@ npm run db:studio
 npm run db:reset
 ```
 
+## Testing
+
+**Framework:** Jest + Testing Library
+
+**Running Tests:**
+```bash
+npx jest                       # Run all tests
+npx jest ComponentName         # Run specific test
+```
+
+**Test Structure:**
+- Place component specs in `__tests__/ComponentName.test.tsx` adjacent to source
+- Mock Prisma by stubbing `lib/prisma.ts` with `jest.mock` or dependency injection
+- Cover happy path and one failure mode for each new feature
+- Tests stay isolated from database
+
+**Example:**
+```typescript
+import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
+
+describe('ComponentName', () => {
+  it('renders correctly', () => {
+    render(<ComponentName />);
+    expect(screen.getByText('Expected Text')).toBeInTheDocument();
+  });
+});
+```
+
+## Commit & Pull Request Guidelines
+
+**Commit Messages:**
+- Use concise, imperative subjects (e.g., `Fix ladder standings seed`, `Add match confirmation validation`)
+- Squash noisy checkpoint commits before PR
+- Focus on "why" rather than "what" in commit descriptions
+
+**Pull Requests:**
+- Summarize intent, key changes, and any migrations
+- Note reviewer steps (e.g., `Run npm run db:migrate`)
+- Confirm all checks pass: `npm run lint`, `npm run type-check`, `npx jest`
+- Link related issues
+- Include screenshots or recordings for UI changes
+
 ## Additional Resources
 
 - Prisma Schema: `prisma/schema.prisma`
 - Seed data: `prisma/seed.ts`
 - Project structure: `estructura-clave.txt`
+- Repository guidelines: `AGENTS.md`
 - Example scripts: `scripts/` directory

@@ -27,7 +27,7 @@ export default function LoginPage() {
   useEffect(() => {
     if (status === "authenticated" && session?.user) {
       const isAdmin = (session.user as any)?.isAdmin;
-      const redirectTo = isAdmin ? "/admin/dashboard" : "/dashboard";
+      const redirectTo = isAdmin ? "/admin" : "/dashboard";
       router.replace(redirectTo);
     }
   }, [status, session, router]);
