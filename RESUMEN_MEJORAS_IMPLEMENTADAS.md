@@ -213,18 +213,27 @@ Por decisión de usuario, FASE 3 queda pendiente para el futuro.
 
 ## ✅ Checklist de Validación
 
-Antes de desplegar, verificar:
+**Estado de compilación:**
 
-- [ ] `npm run type-check` pasa sin errores
-- [ ] `npm run lint` pasa sin errores
-- [ ] `npm run build` compila correctamente
-- [ ] Probar en local:
-  - [ ] Login como admin puro → debe ir a `/admin`
-  - [ ] Login como jugador → debe ir a `/dashboard`
-  - [ ] Ver `/clasificaciones` → debe usar nuevo componente
-  - [ ] Ver `/admin/rankings` → debe usar nuevo componente
-  - [ ] Dropdown admin debe verse destacado
-  - [ ] Rankings debe estar en navbar primaria
+- ✅ `npm run type-check` pasa sin errores
+- ✅ `npm run lint` pasa (solo warnings pre-existentes)
+- ✅ `npm run build` compila correctamente
+
+**Estado de servidor de desarrollo:**
+
+- ✅ Servidor iniciado en http://localhost:3000
+- ✅ Listo para pruebas manuales
+
+**Pruebas manuales pendientes:**
+
+- [ ] Login como admin puro → debe ir a `/admin`
+- [ ] Login como jugador → debe ir a `/dashboard`
+- [ ] Ver `/clasificaciones` → debe usar nuevo componente
+- [ ] Ver `/admin/rankings` → debe usar nuevo componente
+- [ ] Dropdown admin debe verse destacado
+- [ ] Rankings debe estar en navbar primaria
+
+**📋 Ver checklist completo:** `CHECKLIST_PRUEBAS_UX.md`
 
 ---
 
@@ -329,8 +338,10 @@ Antes de desplegar, verificar:
 
 **Estado:** ✅ Listo para deployment
 
-**Próximo commit sugerido:**
-```
+**Mensaje de commit sugerido:**
+```bash
+git add .
+git commit -m "$(cat <<'EOF'
 feat: unify rankings and improve navigation UX
 
 - Remove /admin/dashboard alias
@@ -341,4 +352,10 @@ feat: unify rankings and improve navigation UX
 - Reduce codebase by ~500 lines
 
 BREAKING: /admin/dashboard route removed (redirect to /admin)
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF
+)"
 ```
