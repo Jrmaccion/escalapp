@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npm run:*)",
       "Bash(dotenv -e .env.production.local -- tsx:*)",
-      "Bash(npx dotenv-cli:*)"
+      "Bash(npx dotenv-cli:*)",
+      "Bash(cat:*)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

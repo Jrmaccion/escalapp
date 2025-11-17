@@ -1,7 +1,9 @@
-// components/dashboard/TournamentOverviewCard.tsx - MEJORADO
+// components/dashboard/TournamentOverviewCard.tsx - REFACTORIZADO CON HOOKS
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect } from "react";
+import { useTournamentOverview } from "@/hooks/useTournamentOverview";
+import { LoadingState, ErrorState } from "@/components/ApiStateComponents";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -204,72 +206,30 @@ export default function TournamentOverviewCard({
   showOnlyUserGroup = false,
   refreshTrigger = 0
 }: Props) {
-  const [data, setData] = useState<TournamentOverviewData | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Usar hook especializado para datos del torneo
+  const {
+    data,
+    loading: isLoading,
+    error,
+    retry: fetchData,
+  } = useTournamentOverview({ tournamentId, autoRefresh: false });
+
   const [showAllGroups, setShowAllGroups] = useState(!compact);
   const [showMovementDetails, setShowMovementDetails] = useState(!compact);
-  
-  const fetchData = useCallback(async () => {
-    if (!tournamentId) return;
-    
-    setIsLoading(true);
-    setError(null);
-    
-    try {
-      const response = await fetch(`/api/tournaments/${tournamentId}/overview`, {
-        cache: 'no-store',
-        headers: {
-          'Cache-Control': 'no-cache',
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Error ${response.status}: ${response.statusText}`);
-      }
-      
-      const result = await response.json();
-      setData(result);
-    } catch (err: any) {
-      setError(err.message || 'Error cargando datos del torneo');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [tournamentId]);
 
+  // Re-fetch cuando cambia refreshTrigger
   useEffect(() => {
-    fetchData();
-  }, [fetchData, refreshTrigger]);
+    if (refreshTrigger > 0 && tournamentId) {
+      fetchData();
+    }
+  }, [refreshTrigger, tournamentId, fetchData]);
 
   if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="flex items-center justify-center py-8">
-            <RefreshCw className="w-6 h-6 animate-spin text-blue-600 mr-2" />
-            <span className="text-gray-600">Cargando vista del torneo...</span>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <LoadingState message="Cargando vista del torneo..." />;
   }
 
   if (error) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="text-center py-8">
-            <AlertCircle className="w-12 h-12 text-red-500 mx-auto mb-4" />
-            <p className="text-red-600 mb-4">{error}</p>
-            <Button onClick={fetchData} variant="outline">
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Reintentar
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
+    return <ErrorState error={error} onRetry={fetchData} />;
   }
 
   if (!data) {
@@ -299,7 +259,7 @@ export default function TournamentOverviewCard({
     );
   }
 
-  const userGroup = data.groups.find(g => g.groupId === data.userCurrentGroupId);
+  const userGroup = data.groups.find((g: GroupOverview) => g.groupId === data.userCurrentGroupId);
   const groupsToShow = showOnlyUserGroup && userGroup ? [userGroup] : data.groups;
   const visibleGroups = showAllGroups ? groupsToShow : groupsToShow.slice(0, 6);
 
@@ -362,7 +322,7 @@ export default function TournamentOverviewCard({
 
       {/* Grupos */}
       <div className="space-y-4">
-        {visibleGroups.map((group) => {
+        {visibleGroups.map((group: GroupOverview) => {
           const levelInfo = getGroupLevelInfo(group.level);
           const statusInfo = getStatusInfo(group.scheduleStatus);
           const LevelIcon = levelInfo.icon;
@@ -413,7 +373,7 @@ export default function TournamentOverviewCard({
 
               <CardContent className="pt-0">
                 <div className="space-y-3">
-                  {group.players.map((player, index) => (
+                  {group.players.map((player: PlayerInGroup, index: number) => (
                     <div
                       key={player.playerId}
                       className={`group flex items-center justify-between p-3 rounded-lg border-2 transition-all hover:shadow-sm ${
@@ -528,7 +488,7 @@ export default function TournamentOverviewCard({
                 )}
 
                 {/* Confirmed Match Results */}
-                {group.matches && group.matches.some(m => m.isConfirmed) && (
+                {group.matches && group.matches.some((m: MatchResult) => m.isConfirmed) && (
                   <div className="mt-4">
                     <h4 className="font-medium text-sm mb-3 flex items-center gap-2">
                       <CheckCircle className="w-4 h-4 text-green-600" />
@@ -536,12 +496,12 @@ export default function TournamentOverviewCard({
                     </h4>
                     <div className="space-y-2">
                       {group.matches
-                        .filter(match => match.isConfirmed && match.team1Games !== null && match.team2Games !== null)
-                        .map(match => {
-                          const team1Player1 = group.players.find(p => p.playerId === match.team1Player1Id);
-                          const team1Player2 = group.players.find(p => p.playerId === match.team1Player2Id);
-                          const team2Player1 = group.players.find(p => p.playerId === match.team2Player1Id);
-                          const team2Player2 = group.players.find(p => p.playerId === match.team2Player2Id);
+                        .filter((match: MatchResult) => match.isConfirmed && match.team1Games !== null && match.team2Games !== null)
+                        .map((match: MatchResult) => {
+                          const team1Player1 = group.players.find((p: PlayerInGroup) => p.playerId === match.team1Player1Id);
+                          const team1Player2 = group.players.find((p: PlayerInGroup) => p.playerId === match.team1Player2Id);
+                          const team2Player1 = group.players.find((p: PlayerInGroup) => p.playerId === match.team2Player1Id);
+                          const team2Player2 = group.players.find((p: PlayerInGroup) => p.playerId === match.team2Player2Id);
 
                           const team1Won = (match.team1Games || 0) > (match.team2Games || 0);
 
