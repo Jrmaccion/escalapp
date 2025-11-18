@@ -17,6 +17,7 @@ import {
   Key,
   RefreshCw,
   Eye,
+  Edit,
 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -705,6 +706,13 @@ export default function AdminDashboardClient({
                 <Link href={`/admin/tournaments/${selectedTournament.id}?tab=comodines`}>
                   <Zap className="w-4 h-4 mr-2" />
                   Configurar Comodines
+                </Link>
+              </Button>
+
+              <Button variant="outline" className="w-full justify-start" asChild>
+                <Link href="/admin/corrections">
+                  <Edit className="w-4 h-4 mr-2" />
+                  Corregir Rondas Cerradas
                 </Link>
               </Button>
 
