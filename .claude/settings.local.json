@@ -25,7 +25,9 @@
       "Bash(timeout 10 git push:*)",
       "Bash(curl:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(npx tsx:*)",
+      "Bash(dotenv -e .env.local -- npx tsx:*)"
     ],
     "deny": [],
     "ask": []

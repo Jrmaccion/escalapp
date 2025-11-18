@@ -120,8 +120,14 @@ export default function CorrectionsClient() {
       const response = await fetch(`/api/tournaments/${tournamentId}/rounds`);
       if (response.ok) {
         const data = await response.json();
+        console.log("Rounds data received:", data);
+        console.log("First round structure:", data[0]);
         // Filter only closed rounds
-        const closedRounds = data.filter((r: Round) => r.isClosed === true);
+        const closedRounds = data.filter((r: Round) => {
+          console.log(`Round ${r.number}: isClosed = ${r.isClosed}`);
+          return r.isClosed === true;
+        });
+        console.log("Closed rounds:", closedRounds);
         setRounds(closedRounds);
       }
     } catch (error) {
