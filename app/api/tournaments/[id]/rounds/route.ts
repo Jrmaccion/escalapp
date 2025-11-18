@@ -19,6 +19,8 @@ export async function GET(
     requireAuth(session);
 
     const tournamentId = params.id;
+    console.log("[Rounds API] Tournament ID received:", tournamentId);
+    console.log("[Rounds API] Tournament ID type:", typeof tournamentId);
 
     const rounds = await prisma.round.findMany({
       where: { tournamentId },
@@ -32,6 +34,16 @@ export async function GET(
         },
       },
     });
+
+    console.log("[Rounds API] Rounds found:", rounds.length);
+    if (rounds.length > 0) {
+      console.log("[Rounds API] First round:", {
+        id: rounds[0].id,
+        number: rounds[0].number,
+        isClosed: rounds[0].isClosed,
+        tournamentId: rounds[0].tournamentId,
+      });
+    }
 
     return createSuccessResponse(rounds);
   });

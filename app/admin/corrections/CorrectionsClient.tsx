@@ -12,27 +12,27 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import toast from "react-hot-toast";
 
 interface Tournament {
-  id: number;
+  id: string;
   title: string;
 }
 
 interface Round {
-  id: number;
+  id: string;
   number: number;
   isClosed: boolean;
   tournament: {
-    id: number;
+    id: string;
     title: string;
   };
 }
 
 interface Player {
-  id: number;
+  id: string;
   name: string;
 }
 
 interface Match {
-  id: number;
+  id: string;
   setNumber: number;
   team1Player1: Player;
   team1Player2: Player;
@@ -44,14 +44,14 @@ interface Match {
 }
 
 interface GroupPlayer {
-  id: number;
+  id: string;
   player: Player;
   position: number;
   points: number;
 }
 
 interface Group {
-  id: number;
+  id: string;
   number: number;
   level: number;
   players: GroupPlayer[];
@@ -59,10 +59,10 @@ interface Group {
 }
 
 interface RoundData {
-  id: number;
+  id: string;
   number: number;
   tournament: {
-    id: number;
+    id: string;
     title: string;
   };
   groups: Group[];
@@ -84,7 +84,7 @@ export default function CorrectionsClient() {
   // Load rounds when tournament is selected
   useEffect(() => {
     if (selectedTournamentId) {
-      fetchRounds(parseInt(selectedTournamentId));
+      fetchRounds(selectedTournamentId);
     } else {
       setRounds([]);
       setSelectedRoundId("");
@@ -95,7 +95,7 @@ export default function CorrectionsClient() {
   // Load round data when round is selected
   useEffect(() => {
     if (selectedRoundId) {
-      fetchRoundData(parseInt(selectedRoundId));
+      fetchRoundData(selectedRoundId);
     } else {
       setRoundData(null);
     }
@@ -114,10 +114,12 @@ export default function CorrectionsClient() {
     }
   };
 
-  const fetchRounds = async (tournamentId: number) => {
+  const fetchRounds = async (tournamentId: string) => {
     try {
       setLoading(true);
+      console.log("Fetching rounds for tournament ID:", tournamentId);
       const response = await fetch(`/api/tournaments/${tournamentId}/rounds`);
+      console.log("Response status:", response.status, response.ok);
       if (response.ok) {
         const data = await response.json();
         console.log("Rounds data received:", data);
@@ -129,6 +131,9 @@ export default function CorrectionsClient() {
         });
         console.log("Closed rounds:", closedRounds);
         setRounds(closedRounds);
+      } else {
+        const errorData = await response.json();
+        console.error("Error response:", errorData);
       }
     } catch (error) {
       console.error("Error fetching rounds:", error);
@@ -138,7 +143,7 @@ export default function CorrectionsClient() {
     }
   };
 
-  const fetchRoundData = async (roundId: number) => {
+  const fetchRoundData = async (roundId: string) => {
     try {
       setLoading(true);
       const response = await fetch(`/api/rounds/${roundId}/full-data`);
@@ -156,7 +161,7 @@ export default function CorrectionsClient() {
     }
   };
 
-  const handleUpdateMatchResults = async (matchId: number, scores: {
+  const handleUpdateMatchResults = async (matchId: string, scores: {
     team1Games: number;
     team2Games: number;
   }) => {
@@ -171,7 +176,7 @@ export default function CorrectionsClient() {
 
       if (response.ok) {
         toast.success("Resultado del set actualizado correctamente");
-        fetchRoundData(parseInt(selectedRoundId));
+        fetchRoundData(selectedRoundId);
       } else {
         toast.error(result.error || "Error al actualizar resultado");
       }
@@ -181,7 +186,7 @@ export default function CorrectionsClient() {
     }
   };
 
-  const handleUpdatePoints = async (groupPlayerId: number, newPoints: number) => {
+  const handleUpdatePoints = async (groupPlayerId: string, newPoints: number) => {
     try {
       const response = await fetch(`/api/admin/rounds/${selectedRoundId}/corrections/points`, {
         method: "PATCH",
@@ -193,7 +198,7 @@ export default function CorrectionsClient() {
 
       if (response.ok) {
         toast.success("Puntos actualizados correctamente");
-        fetchRoundData(parseInt(selectedRoundId));
+        fetchRoundData(selectedRoundId);
       } else {
         toast.error(result.error || "Error al actualizar puntos");
       }
@@ -203,7 +208,7 @@ export default function CorrectionsClient() {
     }
   };
 
-  const handleUpdatePosition = async (groupPlayerId: number, newPosition: number) => {
+  const handleUpdatePosition = async (groupPlayerId: string, newPosition: number) => {
     try {
       const response = await fetch(`/api/admin/rounds/${selectedRoundId}/corrections/positions`, {
         method: "PATCH",
@@ -215,7 +220,7 @@ export default function CorrectionsClient() {
 
       if (response.ok) {
         toast.success("Posición actualizada correctamente");
-        fetchRoundData(parseInt(selectedRoundId));
+        fetchRoundData(selectedRoundId);
       } else {
         toast.error(result.error || "Error al actualizar posición");
       }
@@ -258,7 +263,7 @@ export default function CorrectionsClient() {
                 </SelectTrigger>
                 <SelectContent>
                   {tournaments.map((tournament) => (
-                    <SelectItem key={tournament.id} value={tournament.id.toString()}>
+                    <SelectItem key={tournament.id} value={tournament.id}>
                       {tournament.title}
                     </SelectItem>
                   ))}
@@ -278,7 +283,7 @@ export default function CorrectionsClient() {
                 </SelectTrigger>
                 <SelectContent>
                   {rounds.map((round) => (
-                    <SelectItem key={round.id} value={round.id.toString()}>
+                    <SelectItem key={round.id} value={round.id}>
                       Ronda {round.number}
                     </SelectItem>
                   ))}
@@ -341,9 +346,9 @@ export default function CorrectionsClient() {
 // Match Results Tab Component
 function MatchResultsTab({ groups, onUpdateMatch }: {
   groups: Group[];
-  onUpdateMatch: (matchId: number, scores: { team1Games: number; team2Games: number }) => void;
+  onUpdateMatch: (matchId: string, scores: { team1Games: number; team2Games: number }) => void;
 }) {
-  const [editingMatchId, setEditingMatchId] = useState<number | null>(null);
+  const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
   const [editScores, setEditScores] = useState<{ team1Games: number; team2Games: number }>({ team1Games: 0, team2Games: 0 });
 
   const startEditing = (match: Match) => {
@@ -354,7 +359,7 @@ function MatchResultsTab({ groups, onUpdateMatch }: {
     });
   };
 
-  const saveMatch = async (matchId: number) => {
+  const saveMatch = async (matchId: string) => {
     await onUpdateMatch(matchId, editScores);
     setEditingMatchId(null);
   };
@@ -434,9 +439,9 @@ function MatchResultsTab({ groups, onUpdateMatch }: {
 // Points Tab Component
 function PointsTab({ groups, onUpdatePoints }: {
   groups: Group[];
-  onUpdatePoints: (groupPlayerId: number, points: number) => void;
+  onUpdatePoints: (groupPlayerId: string, points: number) => void;
 }) {
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<number>(0);
 
   const startEditing = (groupPlayer: GroupPlayer) => {
@@ -444,7 +449,7 @@ function PointsTab({ groups, onUpdatePoints }: {
     setEditValue(groupPlayer.points);
   };
 
-  const save = async (groupPlayerId: number) => {
+  const save = async (groupPlayerId: string) => {
     await onUpdatePoints(groupPlayerId, editValue);
     setEditingId(null);
   };
@@ -501,9 +506,9 @@ function PointsTab({ groups, onUpdatePoints }: {
 // Positions Tab Component
 function PositionsTab({ groups, onUpdatePosition }: {
   groups: Group[];
-  onUpdatePosition: (groupPlayerId: number, position: number) => void;
+  onUpdatePosition: (groupPlayerId: string, position: number) => void;
 }) {
-  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState<number>(1);
 
   const startEditing = (groupPlayer: GroupPlayer) => {
@@ -511,7 +516,7 @@ function PositionsTab({ groups, onUpdatePosition }: {
     setEditValue(groupPlayer.position);
   };
 
-  const save = async (groupPlayerId: number) => {
+  const save = async (groupPlayerId: string) => {
     await onUpdatePosition(groupPlayerId, editValue);
     setEditingId(null);
   };
