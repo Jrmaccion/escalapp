@@ -13,13 +13,16 @@ import toast from "react-hot-toast";
 
 interface Tournament {
   id: number;
-  name: string;
+  title: string;
 }
 
 interface Round {
   id: number;
   number: number;
-  tournament: Tournament;
+  tournament: {
+    id: number;
+    title: string;
+  };
 }
 
 interface Player {
@@ -57,7 +60,10 @@ interface Group {
 interface RoundData {
   id: number;
   number: number;
-  tournament: Tournament;
+  tournament: {
+    id: number;
+    title: string;
+  };
   groups: Group[];
 }
 
@@ -246,7 +252,7 @@ export default function CorrectionsClient() {
                 <SelectContent>
                   {tournaments.map((tournament) => (
                     <SelectItem key={tournament.id} value={tournament.id.toString()}>
-                      {tournament.name}
+                      {tournament.title}
                     </SelectItem>
                   ))}
                 </SelectContent>
