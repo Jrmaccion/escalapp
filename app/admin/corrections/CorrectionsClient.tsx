@@ -19,6 +19,7 @@ interface Tournament {
 interface Round {
   id: number;
   number: number;
+  isClosed: boolean;
   tournament: {
     id: number;
     title: string;
@@ -119,8 +120,8 @@ export default function CorrectionsClient() {
       const response = await fetch(`/api/tournaments/${tournamentId}/rounds`);
       if (response.ok) {
         const data = await response.json();
-        // Filter only closed rounds (number > 0)
-        const closedRounds = data.filter((r: Round) => r.number > 0);
+        // Filter only closed rounds
+        const closedRounds = data.filter((r: Round) => r.isClosed === true);
         setRounds(closedRounds);
       }
     } catch (error) {
