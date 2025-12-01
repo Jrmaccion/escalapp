@@ -7,6 +7,8 @@ import MatchGenerationPanel from "@/components/MatchGenerationPanel";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
 import ManualGroupManager from "@/components/ManualGroupManager";
 import CloseRoundButton from "@/components/CloseRoundButton";
+import EditRoundDatesDialog from "@/components/EditRoundDatesDialog";
+import DeleteRoundDialog from "@/components/DeleteRoundDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -25,10 +27,13 @@ import {
   AlertTriangle,
   PauseCircle,
   PlayCircle,
+  Edit,
+  Trash2,
 } from "lucide-react";
 import { format, differenceInDays, isAfter, isBefore } from "date-fns";
 import { es } from "date-fns/locale";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 type GroupStatus = "PENDING" | "IN_PROGRESS" | "PLAYED" | "SKIPPED" | "POSTPONED";
 
@@ -58,8 +63,11 @@ export default function RoundDetailClient({
   round: any;
   eligiblePlayers: any[];
 }) {
+  const router = useRouter();
   const [selectedFilter, setSelectedFilter] = useState<"all" | "pending" | "completed">("all");
   const [useManualManager, setUseManualManager] = useState<boolean>(true);
+  const [showEditDatesDialog, setShowEditDatesDialog] = useState(false);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
 
   const allMatches: Match[] = round.groups.flatMap((group: any) =>
     (group.matches || []).map((match: any) => ({
@@ -329,10 +337,20 @@ export default function RoundDetailClient({
           <h1 className="text-2xl md:text-3xl font-semibold">
             Ronda {round.number} - {round.tournament.title}
           </h1>
-          <p className="text-gray-600">
-            {format(new Date(round.startDate), "d 'de' MMMM", { locale: es })} -{" "}
-            {format(new Date(round.endDate), "d 'de' MMMM 'de' yyyy", { locale: es })}
-          </p>
+          <div className="flex items-center gap-2">
+            <p className="text-gray-600">
+              {format(new Date(round.startDate), "d 'de' MMMM", { locale: es })} -{" "}
+              {format(new Date(round.endDate), "d 'de' MMMM 'de' yyyy", { locale: es })}
+            </p>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setShowEditDatesDialog(true)}
+              className="h-7"
+            >
+              <Edit className="w-4 h-4" />
+            </Button>
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -807,10 +825,42 @@ export default function RoundDetailClient({
               <Button variant="outline" asChild>
                 <Link href={`/admin/rounds/${round.id}/comodines`}>Gestionar Comodines</Link>
               </Button>
+
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteDialog(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Eliminar Ronda
+              </Button>
             </div>
           </CardContent>
         </Card>
       )}
+
+      {/* Diálogos */}
+      <EditRoundDatesDialog
+        open={showEditDatesDialog}
+        onOpenChange={setShowEditDatesDialog}
+        roundId={round.id}
+        initialStartDate={new Date(round.startDate)}
+        initialEndDate={new Date(round.endDate)}
+        onSuccess={() => {
+          router.refresh();
+        }}
+      />
+
+      <DeleteRoundDialog
+        open={showDeleteDialog}
+        onOpenChange={setShowDeleteDialog}
+        roundId={round.id}
+        roundNumber={round.number}
+        tournamentId={round.tournament.id}
+        isClosed={round.isClosed}
+        totalGroups={round.groups.length}
+        totalMatches={allMatches.length}
+        confirmedMatches={completedSets}
+      />
     </div>
   );
 }
