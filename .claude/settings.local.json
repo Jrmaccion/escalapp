@@ -27,7 +27,9 @@
       "Bash(git add:*)",
       "Bash(git commit:*)",
       "Bash(npx tsx:*)",
-      "Bash(dotenv -e .env.local -- npx tsx:*)"
+      "Bash(dotenv -e .env.local -- npx tsx:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git diff:*)"
     ],
     "deny": [],
     "ask": []
