@@ -124,6 +124,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const { generateNext = true, forceClose = false } = body;
 
     // 🔒 SECCIÓN CRÍTICA SERIALIZADA POR RONDA
+    // Timeout alto para operaciones complejas (marcar SKIPPED, rachas, engine, generar siguiente ronda)
     const result = await withAdvisoryLock(`round:${roundId}`, async (tx) => {
       // Revalidación dentro del lock (por si otro proceso lo cerró justo antes)
       const existing = await tx.round.findUnique({

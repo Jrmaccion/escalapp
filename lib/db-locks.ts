@@ -15,6 +15,8 @@ export type LockOptions = {
   retryEveryMs?: number;
   /** Si true, usa pg_try_advisory_lock en bucle; si false, usa pg_advisory_lock (bloqueante dentro del timeout). */
   tryMode?: boolean;
+  /** Timeout máximo para la transacción completa (ms). Por defecto 10000ms. Útil para operaciones largas como cierre de rondas. */
+  transactionMaxWait?: number;
 };
 
 async function sleep(ms: number) {
@@ -33,6 +35,7 @@ export async function withAdvisoryLock<T>(
   const timeoutMs = opts.timeoutMs ?? 5000;
   const retryEveryMs = opts.retryEveryMs ?? 100;
   const tryMode = opts.tryMode ?? true;
+  const transactionMaxWait = opts.transactionMaxWait ?? 30000; // 30 segundos por defecto
 
   const startedAt = Date.now();
 
@@ -70,5 +73,8 @@ export async function withAdvisoryLock<T>(
         await tx.$executeRawUnsafe(`SELECT pg_advisory_unlock(hashtext($1));`, resource);
       }
     }
+  }, {
+    maxWait: transactionMaxWait, // Tiempo máximo esperando a que la transacción empiece
+    timeout: transactionMaxWait,  // Tiempo máximo de ejecución de la transacción
   });
 }
