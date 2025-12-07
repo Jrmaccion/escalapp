@@ -4,6 +4,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { PartyManager } from "@/lib/party-manager";
+import { reopenRound } from "@/lib/round-reopen";
 
 export const dynamic = 'force-dynamic';
 
@@ -168,7 +169,41 @@ export async function PATCH(
       );
     }
 
-    // Preparar datos de actualización
+    // CASO ESPECIAL: Reabrir ronda cerrada (requiere cleanup)
+    if (typeof isClosed === 'boolean' && isClosed === false) {
+      // Verificar si la ronda está actualmente cerrada
+      const currentRound = await prisma.round.findUnique({
+        where: { id: roundId },
+        select: { isClosed: true, number: true }
+      });
+
+      if (currentRound && currentRound.isClosed) {
+        // Usar la función especializada de reapertura con cleanup
+        try {
+          const reopenResult = await reopenRound(roundId);
+
+          return NextResponse.json({
+            success: true,
+            message: reopenResult.message,
+            cleanup: reopenResult.cleanup,
+            round: await prisma.round.findUnique({
+              where: { id: roundId },
+              include: {
+                tournament: { select: { id: true, title: true } }
+              }
+            })
+          });
+        } catch (reopenError: any) {
+          console.error("Error reabriendo ronda:", reopenError);
+          return NextResponse.json(
+            { error: reopenError.message || "Error al reabrir ronda" },
+            { status: 500 }
+          );
+        }
+      }
+    }
+
+    // CASO NORMAL: Actualizar fechas u otras propiedades
     const updateData: any = {};
     if (startDate) updateData.startDate = new Date(startDate);
     if (endDate) updateData.endDate = new Date(endDate);
