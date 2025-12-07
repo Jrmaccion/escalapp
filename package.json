@@ -16,7 +16,7 @@
     "build:with-db": "prisma migrate deploy && next build",
     "start": "next start",
     "postinstall": "prisma generate",
-    "vercel-build": "prisma generate && prisma migrate deploy --skip-generate && next build",
+    "vercel-build": "prisma generate && prisma migrate deploy && next build",
 
     "_comment_database_local": "========== Database (Local Dev) ==========",
     "db:generate": "dotenv -e .env.local -- prisma generate",
