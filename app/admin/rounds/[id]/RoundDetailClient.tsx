@@ -7,6 +7,7 @@ import MatchGenerationPanel from "@/components/MatchGenerationPanel";
 import GroupManagementPanel from "@/components/GroupManagementPanel";
 import ManualGroupManager from "@/components/ManualGroupManager";
 import CloseRoundButton from "@/components/CloseRoundButton";
+import ReopenRoundButton from "@/components/ReopenRoundButton";
 import EditRoundDatesDialog from "@/components/EditRoundDatesDialog";
 import DeleteRoundDialog from "@/components/DeleteRoundDialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -798,7 +799,7 @@ export default function RoundDetailClient({
         </CardContent>
       </Card>
 
-      {/* Acciones de administración */}
+      {/* Acciones de administración - Ronda Abierta */}
       {!round.isClosed && (
         <Card>
           <CardHeader>
@@ -824,6 +825,58 @@ export default function RoundDetailClient({
 
               <Button variant="outline" asChild>
                 <Link href={`/admin/rounds/${round.id}/comodines`}>Gestionar Comodines</Link>
+              </Button>
+
+              <Button
+                variant="destructive"
+                onClick={() => setShowDeleteDialog(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Eliminar Ronda
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Acciones de administración - Ronda Cerrada */}
+      {round.isClosed && (
+        <Card className="border-amber-200 bg-amber-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-amber-900">
+              <AlertTriangle className="w-5 h-5" />
+              Ronda Cerrada - Acciones Administrativas
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="bg-white border border-amber-200 rounded-lg p-4">
+              <p className="text-sm text-amber-800 mb-3">
+                Esta ronda ha sido cerrada. Los movimientos de escalera y puntos han sido aplicados.
+                Si necesitas hacer cambios, puedes reabrir la ronda.
+              </p>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-sm text-yellow-800 mb-3">
+                <strong>⚠️ Advertencia:</strong>
+                <ul className="list-disc list-inside mt-1 space-y-1">
+                  <li>Reabrir permitirá editar grupos, jugadores y resultados</li>
+                  <li>Si existe una ronda siguiente generada, deberás ajustarla manualmente</li>
+                  <li>Los rankings ya calculados permanecerán hasta que vuelvas a cerrar la ronda</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
+              <ReopenRoundButton roundId={round.id} />
+
+              <Button variant="outline" asChild>
+                <Link href={`/admin/tournaments/${round.tournament.id}`}>
+                  Ver Torneo
+                </Link>
+              </Button>
+
+              <Button variant="outline" asChild>
+                <Link href="/admin/rankings">
+                  Ver Rankings
+                </Link>
               </Button>
 
               <Button
