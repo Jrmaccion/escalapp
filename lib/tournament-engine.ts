@@ -2,7 +2,6 @@
 import { prisma } from './prisma';
 import { addDays } from 'date-fns';
 import { computeSubstituteCreditsForRound } from './rounds';
-import { processContinuityStreaksForRound } from './streak-calculator';
 import { GroupManager } from './group-manager';
 import { GroupStatus } from '@prisma/client';
 
@@ -320,31 +319,10 @@ export class TournamentEngine {
       console.log(`Cerrando ronda ${integrity.roundNumber} del torneo ${integrity.tournamentId}`);
 
       snapshot = await createRoundSnapshot(roundId);
-      await validateAllMatchesCompleted(roundId);
 
-      const tournament = await prisma.tournament.findUnique({
-        where: { id: integrity.tournamentId },
-        select: {
-          continuityEnabled: true,
-          continuityPointsPerSet: true,
-          continuityPointsPerRound: true,
-          continuityMinRounds: true,
-          continuityMaxBonus: true,
-          continuityMode: true,
-        },
-      });
-
-      if (tournament?.continuityEnabled) {
-        await processContinuityStreaksForRound(roundId, {
-          continuityEnabled: tournament.continuityEnabled,
-          continuityPointsPerSet: tournament.continuityPointsPerSet || 0,
-          continuityPointsPerRound: tournament.continuityPointsPerRound || 0,
-          continuityMinRounds: tournament.continuityMinRounds || 2,
-          continuityMaxBonus: tournament.continuityMaxBonus || 10,
-          continuityMode: (tournament.continuityMode as "SETS" | "MATCHES" | "BOTH") || "SETS",
-        });
-        console.log(`Rachas de continuidad procesadas para ronda ${integrity.roundNumber}`);
-      }
+      // ✅ REMOVIDO: validateAllMatchesCompleted() ya se validó en close/route.ts
+      // ✅ REMOVIDO: processContinuityStreaksForRound() ya se procesó en close/route.ts
+      // Esto evita duplicación y problemas de timing con transacciones
 
       await this.recalculatePositionsWithTiebreakers(roundId);
 

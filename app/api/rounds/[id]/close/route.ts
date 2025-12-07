@@ -291,6 +291,36 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       }
 
       // ======================================================================
+      // VALIDACIÓN FINAL: Verificar que grupos no-SKIPPED están completos
+      // ======================================================================
+      const incompleteNonSkippedMatches = await tx.match.count({
+        where: {
+          group: {
+            roundId,
+            status: { not: GroupStatus.SKIPPED },
+          },
+          isConfirmed: false,
+        },
+      });
+
+      if (incompleteNonSkippedMatches > 0) {
+        console.error(`ERROR: ${incompleteNonSkippedMatches} matches incompletos en grupos no-SKIPPED`);
+        return {
+          earlyExit: true,
+          payload: NextResponse.json(
+            {
+              error: "Hay partidos sin completar en grupos que deberían estar completos",
+              details: {
+                incompleteMatches: incompleteNonSkippedMatches,
+                suggestion: "Revisa los grupos: todos los grupos con status != SKIPPED deben tener 3 matches confirmados",
+              },
+            },
+            { status: 500 }
+          ),
+        };
+      }
+
+      // ======================================================================
       // USAR TOURNAMENT ENGINE PARA CIERRE Y GENERACIÓN
       // ======================================================================
       console.log(`Ejecutando cierre robusto con Tournament Engine...`);
